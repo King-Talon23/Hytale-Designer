@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Skin Editor for Hytale</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Design, save and preview Hytale avatar skins outside the game, using your own game files. Unofficial fan tool.">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark">
+<link rel="preload" href="fonts/lexend-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/app.css">
+<script type="module" src="js/main.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="./" aria-label="Skin Editor home">
+    <svg viewBox="0 0 32 36" aria-hidden="true"><path d="M16 1 30 7v13c0 8-6 13-14 15C8 33 2 28 2 20V7z"/><path class="in" d="M11 11h10v4h-6v3h6v8H11v-4h6v-3h-6z"/></svg>
+    <span>Skin Editor<small>unofficial, for Hytale</small></span>
+  </a>
+  <nav id="tabs" aria-label="Sections">
+    <button data-tab="editor" class="on">Editor</button>
+    <button data-tab="wardrobe">Wardrobe</button>
+    <button data-tab="animations">Animations</button>
+    <button data-tab="lookup">Players</button>
+    <button data-tab="help">Help</button>
+  </nav>
+  <button id="conn" class="conn" title="Game files"><i></i><span>Not connected</span></button>
+</header>
+
+<main>
+  <section id="connect" hidden>
+    <div class="hero">
+      <h1>Design Hytale skins outside the game</h1>
+      <p class="lead">Build outfits from every cosmetic in your game, keep 45 extra skins, and preview them with the game's own animations. The editor reads the cosmetics from <b>your own copy of Hytale</b>, so connect it once to begin.</p>
+    </div>
+    <div class="steps">
+      <div class="card step">
+        <b class="num">1</b><h3>Copy the game folder path</h3>
+        <div class="os" id="os"><button data-os="win" class="on">Windows</button><button data-os="mac">macOS</button><button data-os="linux">Linux</button></div>
+        <code id="path"></code>
+        <button id="copypath" class="btn ghost">Copy path</button>
+      </div>
+      <div class="card step">
+        <b class="num">2</b><h3>Choose Assets.zip</h3>
+        <p>Click the button, paste the path into the file window's address bar, press Enter and pick <b>Assets.zip</b>. Or drag the file onto this page.</p>
+        <label class="btn primary big">Choose Assets.zip<input type="file" id="zipfile" accept=".zip,application/zip" hidden></label>
+      </div>
+      <div class="card step">
+        <b class="num">3</b><h3>Start designing</h3>
+        <p>The editor copies the small character files it needs (about 27 MB of the 4 GB) into this browser, so you only do this once per game update.</p>
+        <div class="progress" id="progress" hidden><i></i><span></span></div>
+        <p class="err" id="connerr" role="alert"></p>
+      </div>
+    </div>
+    <p class="fine">Your game files never leave your computer: nothing is uploaded, and this website hosts no Hytale assets. <a href="#" data-tab="help">How this works</a></p>
+  </section>
+
+  <section id="app" hidden>
+    <aside class="panel" id="panel"></aside>
+    <div class="stage">
+      <canvas id="view" aria-label="3D preview of the skin. Drag to rotate, scroll to zoom."></canvas>
+      <div class="nameplate" id="nameplate"></div>
+      <div class="status" id="status" role="status"></div>
+      <div class="bar">
+        <button id="undo" class="btn icon" title="Undo">&#8630;</button>
+        <button id="redo" class="btn icon" title="Redo">&#8631;</button>
+        <span class="sep"></span>
+        <button id="random" class="btn ghost" title="Random skin">Randomize</button>
+        <button id="new" class="btn ghost" title="Start a new skin">New</button>
+        <button id="front" class="btn ghost" title="Face the camera">Front</button>
+        <span class="grow"></span>
+        <button id="saveas" class="btn ghost">Save as&hellip;</button>
+        <button id="save" class="btn primary">Save</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>Unofficial fan tool. Not affiliated with or endorsed by Hypixel Studios. Hytale is a trademark of Hypixel Studios.</span>
+  <span>No account, no tracking, no uploads.</span>
+</footer>
+
+<dialog id="dlg"><form method="dialog"><h3 id="dlgtitle"></h3><div id="dlgbody"></div><div class="dlgbtns" id="dlgbtns"></div></form></dialog>
+<div id="drop" hidden>Drop Assets.zip to connect</div>
+<noscript><p class="noscript">The Skin Editor needs JavaScript to draw the character.</p></noscript>
+</body>
+</html>
