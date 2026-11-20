@@ -6,7 +6,6 @@ import * as store from './store.js';
 import * as auth from './auth.js';
 import * as assets from './assets.js';
 import { createPainter, SHAPES, ONCE } from './paint.js';
-import { makeZip } from './zip.js';
 import { rules, sanitize, cleanName, parse, nice, LABEL, GROUPS, REQUIRED } from './skin.js';
 
 const $ = id => document.getElementById(id);
@@ -59,11 +58,11 @@ function setConn(meta) { const c = $('conn'); c.classList.toggle('ok', !!meta); 
 // ---------------------------------------------------------------- app state
 let CAT, R, st, META, tab = 'editor', group = 'Head', slot = 'haircut', filter = '';
 let cur = { id: null, kind: null, slot: null, name: '', skin: null }, hist = [], hpos = -1, dirty = false, WARD = { game: [], custom: [] };
-let FOLDER = { state: 'none' }, ACCOUNT = null;
+let FOLDER = { state: 'none' }, ACCOUNT = null, SHOWGAME = false;
 let found = [];   // skins brought in this session by a lookup or from files; not saved until the player saves them
 
 async function startApp() {
-  META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets(); await loadLock(); await loadEmotes();
+  META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets(); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false));
   $('connect').hidden = true; $('app').hidden = false;
   if (!st) { st = fig.stage($('view'), OrbitControls); bindPaint($('view'), e => ED ? st.pick(e.clientX, e.clientY, ED.canvas, ED.mirror) : null, 10, true); }
   try { if (await store.resumeFolder(false)) await reloadAssets(); } catch (e) { console.warn(e); }
@@ -72,15 +71,21 @@ async function startApp() {
   cur = ds ? { id: draft.id || null, kind: draft.kind || null, slot: draft.slot ?? null, name: cleanName(draft.name), skin: R.fit(ds) } : { id: null, kind: null, slot: null, name: '', skin: R.blank() };
   if (cur.id && ![...WARD.game, ...WARD.custom].some(r => r && r.id === cur.id)) { cur.id = null; cur.kind = null; }
   hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false;
-  playAnim('Default', 'Idle', 0.5); render(); rebuild();
+  playAnim('Default', 'Idle', 0.5); render(); rebuild(); pushWearing();
 }
 function open(rec, asNew) {   // put a skin on the stage: a wardrobe record, or a found skin (asNew)
   flush();
   cur = asNew ? { id: null, kind: null, slot: null, name: cleanName(rec.name), skin: R.fit(rec.skin) } : { id: rec.id, kind: rec.kind, slot: rec.slot ?? null, name: rec.name, skin: R.fit(rec.skin) };
-  hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = !!asNew; keepDraft(); rebuild(); plate();
+  hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = !!asNew; keepDraft(); rebuild(); plate(); pushWearing();
 }
-function setSkin(s) { cur.skin = s; autosave(); hist = hist.slice(0, hpos + 1); hist.push(JSON.stringify(s)); if (hist.length > 200) hist.shift(); hpos = hist.length - 1; dirty = true; keepDraft(); rebuild(); render(); }
-function step(d) { const p = hpos + d; if (p < 0 || p >= hist.length) return; hpos = p; cur.skin = JSON.parse(hist[p]); dirty = true; autosave(); keepDraft(); rebuild(); render(); }
+function setSkin(s) { cur.skin = s; autosave(); pushWearing(); hist = hist.slice(0, hpos + 1); hist.push(JSON.stringify(s)); if (hist.length > 200) hist.shift(); hpos = hist.length - 1; dirty = true; keepDraft(); rebuild(); render(); }
+function step(d) { const p = hpos + d; if (p < 0 || p >= hist.length) return; hpos = p; cur.skin = JSON.parse(hist[p]); dirty = true; autosave(); pushWearing(); keepDraft(); rebuild(); render(); }
+// the companion mod dresses you in game from "<skins folder>/Wearing.json"
+function pushWearing() { clearTimeout(pushWearing.t); pushWearing.t = setTimeout(async () => {
+  if (FOLDER.state !== 'on') return;
+  try { await store.writeWearing(SHOWGAME ? { on: true, name: cur.name || 'New skin', keepOwn: store.keepOwnOf(cur.skin), skin: cur.skin } : { on: false }); } catch (e) { console.warn(e); } }, 400); }
+function drawGameSwitch() { const b = $('ingame'); if (!b) return; b.hidden = FOLDER.state !== 'on'; b.classList.toggle('primary', SHOWGAME); b.classList.toggle('ghost', !SHOWGAME);
+  b.textContent = SHOWGAME ? 'In game: on' : 'In game: off'; b.title = SHOWGAME ? 'Your character in your own worlds wears this (Skin Editor mod)' : 'Show this skin on your character in your own worlds (needs the Skin Editor mod)'; }
 const persist = c => c.kind === 'game' ? store.saveGame(c.slot, c.name, c.skin) : store.saveCustom(c.name, c.skin, c.id);
 function autosave() { if (!cur.id) return; clearTimeout(autosave.t); autosave.t = setTimeout(flush, 700); }   // a saved skin saves itself as it changes
 async function flush() { clearTimeout(autosave.t); if (!cur.id || !dirty) return; const c = { ...cur };
@@ -136,7 +141,7 @@ const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.str
 // ---------------------------------------------------------------- panels
 function setTab(t) { if (t !== 'editor' && picking) leavePicker(); if (ED && t !== 'creator') closeAsset(true).then(() => { playAnim('Default', 'Idle', 0.5); rebuild(); });
   tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t); if (R) render(); }
-function render() { jobGen++; plate(); drawEmotes(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
+function render() { jobGen++; plate(); drawEmotes(); drawGameSwitch(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
   p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, feedback: panelFeedback, creator: panelCreator, help: panelHelp }[tab])());
   if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; } }
 // our own small symbols for the category rail (drawn here, not taken from the game)
@@ -153,13 +158,13 @@ function icon(d) { const NS = 'http://www.w3.org/2000/svg', s = document.createE
 const head = (title, right) => el('div', { class: 'phead' }, el('h2', { text: title }), right);
 
 // ---------------------------------------------------------------- the locker: every slot at a glance, and a picker per slot
-const TIERS = ['Standard', 'Base edition', 'Deluxe', 'Founder', 'Event reward'];
+const TIERS = ['Standard', 'Base', 'Supporter', 'Cursebreaker', 'Event'];
 function tierOf(e) {   // from how the game unlocks the item (its entitlements), standing in for rarity
   if (!e || e.custom) return 0; const t = Array.isArray(e.Entitlements) ? e.Entitlements : []; if (!t.length) return 0;
   if (t.some(x => !String(x).startsWith('game.'))) return 4; if (t.includes('game.base')) return 1; if (t.includes('game.deluxe')) return 2; return 3;
 }
 const tierClass = e => e && e.custom ? 'mine' : 't' + tierOf(e);
-let LOCK = { favs: new Set(), seen: null }, picking = false, seenSlot = null, lockFilter = 'all', lockSort = 'default';
+let LOCK = { favs: new Set(), seen: null }, picking = false, seenSlot = null, lockFilter = 'all', lockSort = 'up';
 const favKey = (f, e) => f + '|' + e.Id, isNew = (f, e) => !e.custom && LOCK.seen && !LOCK.seen.has(favKey(f, e));
 const saveLock = () => db.put('meta', 'locker', { favs: [...LOCK.favs], seen: [...LOCK.seen] }).catch(() => {});
 async function loadLock() {
@@ -176,7 +181,7 @@ function panelLocker() {
       it ? itemThumb(f, it, color, variant) : el('span', { class: 'nothing', text: '—' }),
       el('i', {}, icon(SLOT_ICON[f]), el('span', { text: LABEL[f] })), el('b', { text: it ? itemName(it) : 'None' })); };
   const looks = [...WARD.game.filter(Boolean).map(r => lookCard(r, 'game')), ...WARD.custom.map(r => lookCard(r, 'custom'))];
-  return [head('Locker'), el('div', { class: 'pbody locker' },
+  return [head('Wardrobe'), el('div', { class: 'pbody locker' },
     GROUPS.map(([g, fs]) => { const fields = fs.filter(f => R.ITEMS[f].length); return fields.length ? [el('h3', { text: g }), el('div', { class: 'slots' }, fields.map(tile))] : null; }),
     el('h3', { text: 'Saved looks' }), el('div', { class: 'looks' }, looks, el('button', { class: 'look add', title: 'Save this look', text: '+', onclick: saveAs })))];
 }
@@ -185,10 +190,12 @@ function panelPicker() {
   const change = (item, c, v) => setSkin({ ...cur.skin, [f]: R.partStr(item, c, v) });
   const all = R.ITEMS[f], tiersHere = [...new Set(all.filter(e => !e.custom).map(tierOf))].sort();
   const counts = { fav: all.filter(e => LOCK.favs.has(favKey(f, e))).length, new: all.filter(e => isNew(f, e)).length, mine: all.filter(e => e.custom).length };
-  const chip = (id, label) => el('button', { class: 'chip' + (lockFilter === id ? ' on' : ''), text: label, onclick: () => { lockFilter = id; drawCards(); for (const c of bar.querySelectorAll('.chip[data-f]')) c.classList.toggle('on', c.dataset.f === id); }, data: { f: id } });
+  const chip = (id, label) => el('button', { class: 'chip' + (lockFilter === id ? ' on' : ''), text: label, onclick: () => { lockFilter = id; sortBox.hidden = id !== 'all'; drawCards(); for (const c of bar.querySelectorAll('.chip[data-f]')) c.classList.toggle('on', c.dataset.f === id); }, data: { f: id } });
+  const sortBox = el('select', { class: 'sort', title: 'Order', hidden: lockFilter !== 'all', onchange: e => { lockSort = e.target.value; drawCards(); } },
+    [['up', 'Standard first'], ['down', 'Event first']].map(([v, t]) => el('option', { value: v, text: t, selected: v === lockSort })));
   const bar = el('div', { class: 'options lockbar' }, chip('all', 'All'), counts.fav ? chip('fav', `Favourites ${counts.fav}`) : null, counts.new ? chip('new', `New ${counts.new}`) : null,
     tiersHere.length > 1 ? tiersHere.map(t => chip('t' + t, TIERS[t])) : null, counts.mine ? chip('mine', 'Mine') : null,
-    el('select', { class: 'sort', title: 'Sort', onchange: e => { lockSort = e.target.value; drawCards(); } }, [['default', 'Game order'], ['name', 'Name'], ['tier', 'Tier']].map(([v, t]) => el('option', { value: v, text: t, selected: v === lockSort }))));
+    sortBox);
   const detail = el('div', { class: 'detail' }), showDetail = e => { const t = e ? (e.custom ? 'Custom asset · site only' : TIERS[tierOf(e)]) : '';
     detail.replaceChildren(el('b', { text: e ? itemName(e) : 'None' }), el('span', { text: ' · ' + LABEL[f] }), el('em', { class: e ? tierClass(e) : '', text: t })); };
   const cardsBox = el('div', { class: 'cards lcards' });
@@ -196,7 +203,8 @@ function panelPicker() {
     const q = filter.toLowerCase(); let items = all.filter(e => itemName(e).toLowerCase().includes(q));
     if (lockFilter === 'fav') items = items.filter(e => LOCK.favs.has(favKey(f, e))); else if (lockFilter === 'new') items = items.filter(e => isNew(f, e));
     else if (lockFilter === 'mine') items = items.filter(e => e.custom); else if (/^t\d$/.test(lockFilter)) items = items.filter(e => !e.custom && 't' + tierOf(e) === lockFilter);
-    if (lockSort === 'name') items = [...items].sort((a, b) => itemName(a).localeCompare(itemName(b))); else if (lockSort === 'tier') items = [...items].sort((a, b) => tierOf(b) - tierOf(a));
+    const dir = lockFilter === 'all' && lockSort === 'down' ? -1 : 1, rank = e => e.custom ? 5 : tierOf(e);   // the game's order inside each tier; custom assets last
+    items = items.map((e, i) => [e, i]).sort((a, b) => (rank(a[0]) - rank(b[0])) * dir || a[1] - b[1]).map(x => x[0]);
     const card = e => { const part = e ? R.partStr(e, color, variant) : null, hv = hover(part), k = e && favKey(f, e), fav = e && LOCK.favs.has(k);
       const star = e ? el('span', { class: 'star' + (fav ? ' on' : ''), role: 'button', title: fav ? 'Remove from favourites' : 'Add to favourites', text: fav ? '★' : '☆',
         onclick: ev => { ev.stopPropagation(); LOCK.favs.has(k) ? LOCK.favs.delete(k) : LOCK.favs.add(k); saveLock(); render(); } }) : null;
@@ -212,8 +220,8 @@ function panelPicker() {
   const swatches = el('div', { class: 'swatches' }, cols.map(([k, base]) => { const b = el('button', { title: nice(k), class: k === color ? 'on' : '', onclick: () => change(it, k, variant), ...hover(R.partStr(it, k, variant)) });
     const ok = (Array.isArray(base) ? base : [base]).filter(c => HEX.test(c)); b.style.background = ok.length > 1 ? `linear-gradient(135deg, ${ok.join(',')})` : ok[0] || '#888'; return b; }));
   const options = el('div', { class: 'options' }, vs.map(v => el('button', { class: 'chip' + (v === (variant || vs[0]) ? ' on' : ''), text: variantName(it, v), onclick: () => change(it, color, v), ...hover(R.partStr(it, color, v)) })));
-  return [head('Locker'), el('div', { class: 'pbody' },
-    el('div', { class: 'pickhead' }, el('button', { class: 'btn ghost', text: '‹ Locker', onclick: () => { leavePicker(); render(); } }), icon(SLOT_ICON[f]), el('b', { text: LABEL[f] })),
+  return [head('Wardrobe'), el('div', { class: 'pbody' },
+    el('div', { class: 'pickhead' }, el('button', { class: 'btn ghost', text: '‹ Wardrobe', onclick: () => { leavePicker(); render(); } }), icon(SLOT_ICON[f]), el('b', { text: LABEL[f] })),
     el('div', { class: 'row' }, search, locked('Owned only', 'the owned cosmetics filter', 'chip')), bar, cardsBox, detail,
     cols.length ? [el('h3', { text: 'Colour' }), swatches] : null, vs.length > 1 ? [el('h3', { text: 'Option' }), options] : null)];
 }
@@ -255,7 +263,7 @@ function accountRow() {
 }
 function folderRow() {
   if (!store.folderSupported) return el('p', { class: 'note', text: 'Saving to a folder needs Chrome or Edge.' });
-  const after = async r => { FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); if (r) say(r.imported ? `Folder connected, ${r.imported} skin${r.imported > 1 ? 's' : ''} brought in` : 'Folder connected'); };
+  const after = async r => { FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); pushWearing(); if (r) say(r.imported ? `Folder connected, ${r.imported} skin${r.imported > 1 ? 's' : ''} brought in` : 'Folder connected'); };
   const btn = (t, fn, c = 'ghost') => el('button', { class: 'btn ' + c, text: t, onclick: guard(fn) });
   const [title, text] = FOLDER.state === 'on' ? ['Saving to folder: ' + FOLDER.name, 'Every skin and custom asset is a small file in this folder and updates as you edit.']
     : FOLDER.state === 'ask' ? ['Folder paused: ' + FOLDER.name, 'Your browser needs your OK again before it can write to the folder. Until then, changes are kept in the browser.']
@@ -266,7 +274,7 @@ function folderRow() {
          btn('Stop', async () => { await store.forgetFolder(); await after(); })]);
 }
 function panelWardrobe() {
-  return [head('Wardrobe'), el('div', { class: 'pbody' }, folderRow(), accountRow(),
+  return [head('Locker'), el('div', { class: 'pbody' }, folderRow(), accountRow(),
     el('div', { class: 'shelf game' }, el('h3', {}, el('span', { text: 'In-game slots' }), el('em', { text: `${WARD.game.filter(Boolean).length} / ${store.GAME_SLOTS}` })),
       el('div', { class: 'row' }, locked('Load my presets', 'loading your in-game presets'), locked('Send all to game', 'sending skins to your in-game presets')), need('preset sync'),
       el('div', { class: 'cards' }, WARD.game.map((r, i) => card(r, 'game', i)))),
@@ -358,7 +366,7 @@ function panelHelp() {
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: showConnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
     sec('In-game slots and My skins', 'In-game slots (gold) mirror the 5 presets inside Hytale. My skins (blue) are up to 45 extra skins that exist only here. Hytale offers no way for other sites to read or change your presets, so you keep the gold slots in step yourself: "Set in game" lists exactly which parts to pick.'),
-    sec('Back up your skins', 'Skins are kept in this browser, and in your skins folder if you chose one in the Wardrobe. Without a folder, clearing site data or switching browser starts empty, so keep a backup file.',
+    sec('Back up your skins', 'Skins are kept in this browser, and in your skins folder if you chose one in the Locker. Without a folder, clearing site data or switching browser starts empty, so keep a backup file.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Download backup', onclick: guard(async () => download('skin-editor-backup.json', await store.exportAll())) }), el('label', { class: 'btn ghost' }, 'Restore backup', backupFile))),
     sec('Privacy', 'No account, no cookies, no analytics, no ads. The only request this site makes to another server is the player lookup, and only when you press Find.'),
     sec('About', 'An unofficial fan tool. Not affiliated with or endorsed by Hypixel Studios. Hytale is a trademark of Hypixel Studios; the cosmetics you see come from your own game.'))];
@@ -380,7 +388,7 @@ function panelFeedback() {
 let ASSETS = [], ED = null, edN = 0;
 const itemName = e => e && e.custom ? e.Name : (e && CAT.names && CAT.names[e.Name]) || nice(e ? e.Id : '');
 const hasCustom = skin => Object.values(skin).some(v => typeof v === 'string' && v.startsWith('Custom_'));
-async function reloadAssets() { ASSETS = await assets.list().catch(() => []); registerAssets(); await loadLock(); await loadEmotes(); cur.skin = R.fit(cur.skin); }
+async function reloadAssets() { ASSETS = await assets.list().catch(() => []); registerAssets(); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false)); cur.skin = R.fit(cur.skin); }
 const syncFolder = () => store.sync().catch(e => say(e.message, true));
 function registerAssets() {   // custom assets join the catalogue as extra items in their slot, so the editor treats them like any other
   for (const f of game.FIELDS) { const arr = CAT.items[f]; for (let i = arr.length - 1; i >= 0; i--) if (arr[i].custom) arr.splice(i, 1); }
@@ -428,40 +436,25 @@ function bindPaint(target, toPixel, reach, onModel) { let down = false, last = n
 const urls = new Map();
 function assetPicture(a) { const k = a.id + '@' + a.updated; if (!urls.has(k)) { for (const [o, u] of urls) if (o.startsWith(a.id + '@')) { URL.revokeObjectURL(u); urls.delete(o); } urls.set(k, URL.createObjectURL(a.data)); } return el('img', { alt: '', src: urls.get(k), draggable: false }); }
 function downloadBlob(name, blob) { const a = el('a', { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
-// a folder asset pack for the companion mod: unzip it into a world's mods folder, then /skins list and /skins wear <id> in game
 const lockedBase = a => { const it = CAT.items[a.field].find(e => e.Id === a.baseId); return it ? tierOf(it) : 0; };
 const modReady = a => lockedBase(a) === 0;
-store.setLockedOf(a => !modReady(a));
-const modExport = guard(async list => {
-  const ok = list.filter(modReady), skipped = list.length - ok.length;
-  if (!ok.length) throw new Error('These are repaints of edition or reward items, which the mod will not wear.');
-  const dir = 'SkinEditor_MyAssets/', files = [[dir + 'manifest.json', JSON.stringify({ Group: 'SkinEditorPack', Name: 'MyAssets', Version: '1.0.0',
-    Description: 'Custom assets made on hytale-skin-editor.com, for the Skin Editor companion mod.', Authors: [{ Name: 'Skin Editor' }], ServerVersion: '*' }, null, 1)]];
-  for (const a of ok) {
-    files.push([`${dir}Server/SkinEditor/${a.id}.json`, JSON.stringify({ format: 'skin-editor-asset', version: 1, id: a.id, name: a.name, field: a.field, model: a.model }, null, 1)]);
-    files.push([`${dir}Common/Characters/SkinEditor/${a.id}.png`, new Uint8Array(await a.data.arrayBuffer())]);
-  }
-  downloadBlob('SkinEditor_MyAssets.zip', makeZip(files));
-  say(skipped ? `Pack downloaded. ${skipped} edition or reward repaint${skipped > 1 ? 's were' : ' was'} left out.` : 'Pack downloaded. Unzip it into your world’s mods folder.');
-});
 function assetCard(a) {
   const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
   const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
   return el('div', { class: 'skin asset' + (worn ? ' on' : ''), tabIndex: 0, title: 'Open in the creator', onclick: guard(() => openAsset(a)) },
     el('div', { class: 'pic tex' }, assetPicture(a)), el('b', { text: a.name }), el('small', { text: LABEL[a.field] }),
     el('div', { class: 'acts' }, act(worn ? 'Wearing' : 'Wear', () => setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' })),
-      modReady(a) ? act('For the mod', () => modExport([a])) : null, act('Export', () => downloadBlob(a.name.replace(/[^\w -]/g, '') + '.png', a.data)),
+      act('Export', () => downloadBlob(a.name.replace(/[^\w -]/g, '') + '.png', a.data)),
       act('Delete', guard(async () => { if (!await confirmBox('Delete custom asset', `Delete "${a.name}"? Skins wearing it lose that part. This cannot be undone.`, 'Delete', true)) return;
         await assets.remove(a.id); ASSETS = await assets.list(); syncFolder(); registerAssets(); cur.skin = R.fit(cur.skin); pics.clear(); rebuild(); render(); }), 'danger')));
 }
-const disclosure = () => el('div', { class: 'disclose' }, el('b', { text: 'Site only' }), el('span', { text: 'Custom assets show in Hytale in worlds running the Skin Editor mod. Save your skins to a folder (Wardrobe) and the mod picks them up. Repaints of edition and reward items stay on this site.' }));
+const disclosure = () => el('div', { class: 'disclose' }, el('b', { text: 'Site only' }), el('span', { text: 'With the Skin Editor mod installed and Show in game on, your character in your own worlds wears what you have on here, custom assets included. Repaints of edition and reward items stay on this site.' }));
 function panelCreator() {
   if (!ED) { const worn = game.FIELDS.filter(f => R.resolve(f, cur.skin));
     const sel = el('select', {}, worn.map(f => el('option', { value: f, text: `${LABEL[f]}: ${itemName(R.find(f, cur.skin[f]))}` })));
     return [head('Asset Creator'), el('div', { class: 'pbody' }, disclosure(),
       el('h3', { text: 'Start from something you are wearing' }), el('div', { class: 'row' }, sel, el('button', { class: 'btn primary', text: 'Create', onclick: () => newAsset(sel.value) })),
       el('h3', { text: `My custom assets (${ASSETS.length} / ${assets.MAX})` }),
-      ASSETS.some(modReady) ? el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Download all for the mod', onclick: () => modExport(ASSETS) })) : null,
       ASSETS.length ? el('div', { class: 'cards' }, ASSETS.map(assetCard)) : el('p', { class: 'blank', text: 'None yet. Pick a slot above and press Create.' }))]; }
   const P = ED.painter, a = ED.asset, c = ED.canvas; c.style.width = c.width * ED.zoom + 'px';
   const tool = (id, label) => el('button', { class: 'chip' + (P.tool === id ? ' on' : ''), text: label, onclick: () => { P.tool = id; render(); } });
@@ -496,6 +489,7 @@ $('undo').onclick = () => step(-1); $('redo').onclick = () => step(1);
 $('random').onclick = () => setSkin(R.random());
 $('new').onclick = () => { flush(); cur = { id: null, kind: null, slot: null, name: '', skin: R.blank() }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; keepDraft(); rebuild(); render(); };
 $('front').onclick = () => st.view(true);
+$('ingame').onclick = async () => { SHOWGAME = !SHOWGAME; await db.put('meta', 'showInGame', SHOWGAME).catch(() => {}); drawGameSwitch(); pushWearing(); say(SHOWGAME ? 'Showing in game' : 'Your own skin is back in game'); };
 $('save').onclick = save; $('saveas').onclick = saveAs;
 addEventListener('keydown', e => { if (!R || e.target.matches('input, textarea, select') || $('dlg').open) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); step(e.shiftKey ? 1 : -1); } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); step(1); } });

@@ -61,8 +61,16 @@ export async function importAll(data) {   // adds to what is there; never overwr
 export const folderSupported = typeof self.showDirectoryPicker === 'function';
 const SUB = { custom: 'My skins', game: 'In-game slots' }, ASSET_DIR = 'Custom assets';
 export const sync = () => mirror();
+// what the player is wearing, for the companion mod: "<skins folder>/Wearing.json" (on:false when Show in game is off)
+let lastWearing = null;
+export async function writeWearing(data) {
+  if (!dir) return false; const text = JSON.stringify({ format: 'skin-editor-wearing', version: 1, ...data }, null, 1); if (text === lastWearing) return true;
+  const w = await (await dir.getFileHandle('Wearing.json', { create: true })).createWritable(); await w.write(text); await w.close(); lastWearing = text; return true;
+}
 export let lockedOf = () => false;   // set by the page: repaints of edition and reward items, which the mod will not wear
 export const setLockedOf = f => { lockedOf = f; };
+export let keepOwnOf = () => [];   // set by the page: slots holding paid items, which the mod keeps as the player's own
+export const setKeepOwnOf = f => { keepOwnOf = f; };
 let dir = null; const written = new Map(), known = new Set();
 const safe = n => { let t = String(n).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^[. ]+|[. ]+$/g, '').slice(0, 60) || 'Unnamed'; return /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(t) ? '_' + t : t; };
 export async function folderState() {
@@ -71,7 +79,7 @@ export async function folderState() {
   return { state: dir && (await h.queryPermission({ mode: 'readwrite' })) === 'granted' ? 'on' : 'ask', name: h.name };
 }
 export async function chooseFolder() { return useFolder(await self.showDirectoryPicker({ id: 'skins', mode: 'readwrite', startIn: 'documents' })); }
-export async function useFolder(h) { await db.put('meta', 'folder', h); dir = h; written.clear(); known.clear(); return attach(); }
+export async function useFolder(h) { await db.put('meta', 'folder', h); dir = h; written.clear(); known.clear(); lastWearing = null; return attach(); }
 export async function resumeFolder(ask) {
   if (!folderSupported) return null; const h = await db.get('meta', 'folder'); if (!h) return null;
   let p = await h.queryPermission({ mode: 'readwrite' }); if (p !== 'granted' && ask) p = await h.requestPermission({ mode: 'readwrite' });
@@ -101,7 +109,7 @@ async function doMirror() {
   if (!dir) return;
   try {
     const { game, custom } = await list(), want = new Map(), used = new Set();
-    const file = r => JSON.stringify({ format: 'skin-editor-skin', version: 1, name: r.name, kind: r.kind, slot: r.slot, skin: r.skin }, null, 1);
+    const file = r => JSON.stringify({ format: 'skin-editor-skin', version: 1, name: r.name, kind: r.kind, slot: r.slot, keepOwn: keepOwnOf(r.skin), skin: r.skin }, null, 1);
     for (const r of game) if (r) want.set(`${SUB.game}/Slot ${r.slot + 1} - ${safe(r.name)}.json`, file(r));
     for (const r of [...custom].sort((a, b) => a.id < b.id ? -1 : 1)) { let b = safe(r.name), n = b, i = 2; while (used.has(n.toLowerCase())) n = `${b} (${i++})`; used.add(n.toLowerCase()); want.set(`${SUB.custom}/${n}.json`, file(r)); }
     for (const kind of ['custom', 'game']) { const d = await dir.getDirectoryHandle(SUB[kind], { create: true });
