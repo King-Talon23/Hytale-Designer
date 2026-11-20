@@ -85,7 +85,7 @@ async function startApp() {
   try { if (await store.resumeFolder(false)) await reloadAssets(); } catch (e) { console.warn(e); }
   FOLDER = await store.folderState(); WARD = await store.list(); ACCOUNT = await auth.account().catch(() => null); await loadPub();
   const draft = await db.get('meta', 'draft'), ds = sanitize(draft?.skin);
-  cur = ds ? { id: draft.id || null, kind: draft.kind || null, slot: draft.slot ?? null, name: cleanName(draft.name), skin: R.fit(ds) } : { id: null, kind: null, slot: null, name: '', skin: R.blank() };
+  cur = ds ? { id: draft.id || null, kind: draft.kind || null, slot: draft.slot ?? null, name: cleanName(draft.name), skin: R.fit(ds), auto: !!draft.auto } : { id: null, kind: null, slot: null, name: '', skin: R.blank() };
   if (cur.id && ![...WARD.game, ...WARD.custom].some(r => r && r.id === cur.id)) { cur.id = null; cur.kind = null; }
   hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false;
   playAnim('Default', 'Idle', 0.5); render(); rebuild(); pushWearing();
@@ -104,10 +104,18 @@ function pushWearing() { clearTimeout(pushWearing.t); pushWearing.t = setTimeout
 function drawGameSwitch() { const b = $('ingame'); if (!b) return; b.hidden = FOLDER.state !== 'on'; b.classList.toggle('primary', SHOWGAME); b.classList.toggle('ghost', !SHOWGAME);
   b.textContent = SHOWGAME ? 'In game: on' : 'In game: off'; b.title = SHOWGAME ? 'Your character in your own worlds wears this (Skin Editor Sync mod)' : 'Show this skin on your character in your own worlds (needs the Skin Editor Sync mod)'; }
 const persist = c => c.kind === 'game' ? store.saveGame(c.slot, c.name, c.skin) : store.saveCustom(c.name, c.skin, c.id);
-function autosave() { if (!cur.id) return; clearTimeout(autosave.t); autosave.t = setTimeout(flush, 700); }   // a saved skin saves itself as it changes
-async function flush() { clearTimeout(autosave.t); if (!cur.id || !dirty) return; const c = { ...cur };
-  try { await persist(c); WARD = await store.list(); if (cur.id === c.id && JSON.stringify(cur.skin) === JSON.stringify(c.skin)) { dirty = false; plate(); } } catch (e) { console.error(e); say(e.message || 'Could not save.', true); } }
-function keepDraft() { clearTimeout(keepDraft.t); keepDraft.t = setTimeout(() => db.put('meta', 'draft', { id: cur.id, kind: cur.kind, slot: cur.slot, name: cur.name, skin: cur.skin }).catch(() => {}), 300); }
+function autosave() { clearTimeout(autosave.t); autosave.t = setTimeout(flush, 700); }   // every change saves itself; a new skin becomes "My skin N" in My skins on its first change
+async function flush() { clearTimeout(autosave.t); if (!dirty || flush.busy) return; flush.busy = true; const was = cur, c = { ...cur };
+  try {
+    if (!c.id) { if (WARD.custom.length >= store.CUSTOM_MAX) { if (!flush.full) { flush.full = true; say(`My skins is full (${store.CUSTOM_MAX}), so this skin isn't saved. Delete one in the Locker, or use Save as to put it in an in-game slot.`, true); } return; }
+      const used = new Set(WARD.custom.map(r => r.name)); let k = WARD.custom.length + 1, n; while (used.has(n = 'My skin ' + k)) k++;
+      const r = await store.saveCustom(n, c.skin); if (cur === was && !cur.id) Object.assign(cur, { id: r.id, kind: r.kind, slot: null, name: r.name, auto: true }); c.id = r.id; keepDraft();
+      say(`Saved to My skins as "${r.name}". Save as renames it.`); }
+    else await persist(c);
+    WARD = await store.list(); if (cur.id === c.id && JSON.stringify(cur.skin) === JSON.stringify(c.skin)) dirty = false; plate();
+  } catch (e) { console.error(e); say(e.message || 'Could not save.', true); }
+  finally { flush.busy = false; if (dirty && cur.id) autosave(); } }
+function keepDraft() { clearTimeout(keepDraft.t); keepDraft.t = setTimeout(() => db.put('meta', 'draft', { id: cur.id, kind: cur.kind, slot: cur.slot, name: cur.name, skin: cur.skin, auto: !!cur.auto }).catch(() => {}), 300); }
 let building = 0;
 async function rebuild() { const my = ++building;
   try { const root = await fig.build(cur.skin, R); if (my !== building) return fig.dispose(root); st.show(root); }
@@ -145,7 +153,10 @@ const FACE_FRAME = { face: 'face', eyes: 'face', eyebrows: 'face', mouth: 'face'
   headAccessory: 'hat', haircut: 'head', pants: 'pants', overpants: 'socks', shoes: 'shoes', gloves: 'gloves', underwear: 'hips', undertop: 'top', overtop: 'top' };
 // pieces that hide the one in the picture: a coat over the gloves, boots over the socks, trousers over underwear
 function itemThumb(f, it, color, variant) {   // the current character, wearing this option
-  const s = { ...cur.skin, [f]: R.partStr(it, color, variant) }; for (const k of HIDE[f] || []) s[k] = null;
+  let s = { ...cur.skin, [f]: R.partStr(it, color, variant) }; for (const k of HIDE[f] || []) s[k] = null;
+  if (f === 'bodyCharacteristic') {   // a body is shown bare: just the body, its face, and boxers
+    const keep = new Set(['bodyCharacteristic', 'face', 'eyes', 'mouth', 'ears']), boxer = R.ITEMS.underwear.find(e => e.Id === 'Boxer');
+    s = Object.fromEntries(Object.entries(s).map(([k, v]) => [k, keep.has(k) ? v : null])); s.underwear = boxer ? R.partStr(boxer) : cur.skin.underwear; }
   const frame = FACE_FRAME[f] || (HEADF.has(f) ? 'head' : LEGF.has(f) ? 'legs' : f === 'bodyCharacteristic' || f === 'skinFeature' ? 'body' : 'torso');
   return lazyImg('i|' + f + '|' + JSON.stringify(s), async () => fig.snapshot(await fig.build(s, R), frame, f === 'cape'), f + '|' + it.Id);
 }
@@ -216,7 +227,7 @@ function panelPicker() {
   const sortBox = el('select', { class: 'sort', title: 'Order', hidden: lockFilter !== 'all', onchange: e => { lockSort = e.target.value; drawCards(); } },
     [['up', 'Standard first'], ['down', 'Event first']].map(([v, t]) => el('option', { value: v, text: t, selected: v === lockSort })));
   const bar = el('div', { class: 'options lockbar' }, chip('all', 'All'), counts.fav ? chip('fav', `Favourites ${counts.fav}`) : null, counts.new ? chip('new', `New ${counts.new}`) : null,
-    tiersHere.length > 1 ? tiersHere.map(t => chip('t' + t, TIERS[t])) : null, counts.mine ? chip('mine', 'Mine') : null,
+    tiersHere.length > 1 ? tiersHere.map(t => chip('t' + t, TIERS[t])) : null, counts.mine ? chip('mine', 'Custom') : null,
     sortBox);
   const detail = el('div', { class: 'detail' }), showDetail = e => { const t = e ? (e.custom ? 'Custom asset · site only' : TIERS[tierOf(e)]) : '';
     detail.replaceChildren(el('b', { text: e ? itemName(e) : 'None' }), el('span', { text: ' · ' + LABEL[f] }), el('em', { class: e ? tierClass(e) : '', text: t })); };
@@ -230,9 +241,15 @@ function panelPicker() {
     const card = e => { const part = e ? R.partStr(e, color, variant) : null, hv = hover(part), k = e && favKey(f, e), fav = e && LOCK.favs.has(k);
       const star = e ? el('span', { class: 'star' + (fav ? ' on' : ''), role: 'button', title: fav ? 'Remove from favourites' : 'Add to favourites', text: fav ? '★' : '☆',
         onclick: ev => { ev.stopPropagation(); LOCK.favs.has(k) ? LOCK.favs.delete(k) : LOCK.favs.add(k); saveLock(); render(); } }) : null;
+      const a = e?.custom && ASSETS.find(x => 'Custom_' + x.id === e.Id);
+      const bin = a ? el('span', { class: 'bin' + (fav ? ' off' : ''), role: 'button', title: fav ? 'Favourites can\'t be deleted. Unstar it first.' : 'Delete this custom piece', text: '🗑',
+        onclick: ev => { ev.stopPropagation(); const b = ev.currentTarget; if (fav) { say('Favourites can\'t be deleted. Unstar it first.', true); return; }
+          if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Sure?'; b.title = 'Click again to delete "' + a.name + '"'; clearTimeout(b._t);
+            b._t = setTimeout(() => { b.classList.remove('sure'); b.textContent = '🗑'; b.title = 'Delete this custom piece'; }, 3000); return; }
+          clearTimeout(b._t); deleteAsset(a); } }) : null;
       return el('button', { class: 'lcard ' + (e ? tierClass(e) : 'none') + (e === it ? ' on' : ''), title: e ? itemName(e) : 'None', onclick: () => change(e, color, variant),
         onpointerenter: ev => { hv.onpointerenter(ev); showDetail(e); }, onpointerleave: ev => { hv.onpointerleave(ev); showDetail(it); } },
-        e ? itemThumb(f, e, color, variant) : el('span', { class: 'nothing', text: '✕' }), star, e && isNew(f, e) ? el('span', { class: 'new', text: 'NEW' }) : null, el('b', { text: e ? itemName(e) : 'None' })); };
+        e ? itemThumb(f, e, color, variant) : el('span', { class: 'nothing', text: '✕' }), star, bin, e && isNew(f, e) ? el('span', { class: 'new', text: 'NEW' }) : null, el('b', { text: e ? itemName(e) : 'None' })); };
     cardsBox.replaceChildren(...(REQUIRED.has(f) || lockFilter !== 'all' ? [] : [card(null)]), ...items.map(card));
     if (!cardsBox.children.length) cardsBox.append(el('p', { class: 'blank', text: 'Nothing here.' }));
   }
@@ -245,7 +262,9 @@ function panelPicker() {
   return [head('Wardrobe'), el('div', { class: 'pbody' },
     el('div', { class: 'pickhead' }, el('button', { class: 'btn ghost', text: '‹ Wardrobe', onclick: () => { leavePicker(); render(); } }), icon(SLOT_ICON[f]), el('b', { text: LABEL[f] })),
     el('div', { class: 'row' }, search, locked('Owned only', 'the owned cosmetics filter', 'chip')), bar, cardsBox, detail,
-    cols.length ? [el('h3', { text: 'Colour' }), swatches] : null, vs.length > 1 ? [el('h3', { text: 'Option' }), options] : null)];
+    it?.custom ? [el('h3', { text: 'Colour' }), el('p', { class: 'dim' }, 'This is your own piece, painted in the Creator. ', (() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id);
+      return a ? el('button', { class: 'btn ghost small', text: 'Recolour in the Creator', onclick: guard(() => openAsset(a)) }) : null; })())]
+      : cols.length ? [el('h3', { text: 'Colour' }), swatches] : null, vs.length > 1 ? [el('h3', { text: 'Option' }), options] : null)];
 }
 // six favourite moves under the character, one click to play
 let EMOTES = null;
@@ -362,8 +381,9 @@ async function saveAs() {
   const v = await ask('Save skin', [el('label', { text: 'Name' }), name, el('label', { text: 'Save to' }), where], [{ label: 'Cancel', value: '' }, { label: 'Save', value: 'yes', primary: true }]);
   if (v !== 'yes') return; const n = cleanName(name.value) || 'Unnamed';
   if (where.value !== 'custom' && hasCustom(cur.skin)) return say('In-game slots cannot hold custom assets. Save this one to My skins.', true);
-  await guard(async () => { const r = where.value === 'custom' ? await store.saveCustom(n, cur.skin) : await store.saveGame(+where.value, n, cur.skin);
-    cur.id = r.id; cur.kind = r.kind; cur.slot = r.slot ?? null; cur.name = r.name; dirty = false; keepDraft(); await refreshWard(); say(`Saved "${r.name}"`); })();
+  await guard(async () => { const auto = cur.auto && cur.kind === 'custom' && cur.id, r = where.value === 'custom' ? await store.saveCustom(n, cur.skin, auto || undefined) : await store.saveGame(+where.value, n, cur.skin);
+    if (auto && where.value !== 'custom') await store.remove(auto);
+    cur.auto = false; cur.id = r.id; cur.kind = r.kind; cur.slot = r.slot ?? null; cur.name = r.name; dirty = false; keepDraft(); await refreshWard(); say(`Saved "${r.name}"`); })();
 }
 
 // animations
@@ -443,10 +463,10 @@ async function loadPublished(name, id) {
 async function importSkinFiles(files) { let n = 0;
   for (const f of [...files].slice(0, 200)) { try { const j = await readJsonFile(f), s = sanitize(j?.skin || j); if (s) { found.unshift({ name: cleanName(j?.name || f.name.replace(/(_portrait\.png)?\.(skin|json)+$/gi, '')).slice(0, 40) || 'Imported', skin: s }); n++; } } catch { /* not a skin file */ } }
   found = found.slice(0, 200); say(n ? `Brought in ${n} skin${n > 1 ? 's' : ''}` : 'No skins were found in those files.', !n); tab = 'lookup'; setTab('lookup'); }
-// opens in your skins folder when one is connected, else in Documents; browsers without the picker fall back to the plain file box
+// opens in your skins folder when one is connected, else in Documents (no picker id: a remembered id folder would beat Documents); browsers without the picker fall back to the plain file box
 async function pickSkinFiles(fallback) {
   if (typeof self.showOpenFilePicker !== 'function') return fallback.click();
-  try { const start = await store.skinsFolder('My skins'), hs = await showOpenFilePicker({ id: 'skinfiles', multiple: true, startIn: start || 'documents', types: [{ description: 'Skin files', accept: { 'application/json': ['.json', '.skin'] } }] });
+  try { const start = await store.skinsFolder('My skins'), hs = await showOpenFilePicker({ multiple: true, startIn: start || 'documents', types: [{ description: 'Skin files', accept: { 'application/json': ['.json', '.skin'] } }] });
     importSkinFiles(await Promise.all(hs.map(h => h.getFile()))); } catch (e) { if (e.name !== 'AbortError') say(e.message, true); }
 }
 function panelLookup() {
@@ -457,7 +477,7 @@ function panelLookup() {
     el('h3', { text: 'Find a player' }), form, el('p', { class: 'err', text: lookupMsg }),
     shown ? [el('h3', {}, 'Published by ' + shown.name, shown.supporter ? el('span', { class: 'tag supporter', title: 'Supports the site on Ko-fi', text: 'Supporter' }) : null), shown.skins === null ? el('p', { class: 'need', text: 'Looking…' })
       : shown.skins.length ? el('div', { class: 'cards' }, shown.skins.map(r => card(r, 'pub'))) : el('p', { class: 'need', text: shown.failed ? 'Published skins could not be loaded.' : `${shown.name} has not published any skins here yet.` })] : null,
-    el('h3', { text: 'Open skin files' }), el('p', { class: 'dim', text: 'Skins saved by this site (.json files in your skins folder or a backup), or skins Hytale keeps on this PC in %APPDATA%\\Hytale\\UserData\\CachedPlayerSkins.' }),
+    el('h3', { text: 'Open skin files' }),
     el('button', { class: 'btn ghost', text: 'Choose skin files', onclick: () => pickSkinFiles(file) }), file,
     found.length ? [el('h3', { text: 'Found this session' }), el('div', { class: 'cards' }, found.map(r => card(r, 'found')))] : null)];
 }
@@ -692,14 +712,43 @@ async function copyAsset(a) { if (ASSETS.length >= assets.MAX) throw new Error(`
 function anyItem() {   // or start from any free item in the game, worn or not
   const slots = game.FIELDS.filter(f => CAT.items[f].some(e => !e.custom && !paidLocked(e))), slot = el('select', { title: 'Slot' }, slots.map(f => el('option', { value: f, text: LABEL[f] })));
   const ok = e => !e.custom && !paidLocked(e) && !/^\s*\[?tmp\]?/i.test(itemName(e)) && !/(^|_)tmp(_|$)/i.test(e.Id);
-  const item = el('select', { title: 'Item' }), find_ = el('input', { type: 'search', placeholder: 'Search', class: 'anysearch' }), pic = el('div', { class: 'pic anypic' });
-  const pick = () => { const [f, id] = item.value.split('|'); return [f, CAT.items[f]?.find(x => x.Id === id)]; };
-  const show = () => { const [f, e] = pick(); pic.replaceChildren(e ? itemThumb(f, e) : ''); };
+  // the item list is our own drop-down (a plain one can't tell us what the pointer is over): the picture shows the item under the pointer or arrow keys, and goes back to the chosen one
+  const item = el('button', { type: 'button', class: 'anypick', title: 'Item' }), menu = el('div', { class: 'anymenu', role: 'listbox', hidden: true });
+  item.setAttribute('aria-haspopup', 'listbox'); item.setAttribute('aria-expanded', 'false');
+  const find_ = el('input', { type: 'search', placeholder: 'Search', class: 'anysearch' }), pic = el('div', { class: 'pic anypic' });
+  let list = [], at = -1, act = -1, hov = 0;
+  const pick = () => { const r = list[at]; return r ? [r[1], r[2]] : []; };
+  const draw = i => { const r = list[i]; if (!r) { pic.replaceChildren(); return; } const img = itemThumb(r[1], r[2]);
+    if (img.src || !pic.firstChild) { pic.replaceChildren(img); return; }   // ready now: swap at once; otherwise keep the old picture until the new one is drawn
+    img.classList.add('next'); img.addEventListener('load', () => { if (img.isConnected) { img.classList.remove('next'); pic.replaceChildren(img); } }, { once: true });
+    [...pic.querySelectorAll('img.next')].forEach(x => x.remove()); pic.append(img); };
+  const peek = i => { clearTimeout(hov); hov = setTimeout(() => draw(i), 40); };
+  const mark = i => { act = i; menu.querySelectorAll('[aria-selected=true]').forEach(o => o.setAttribute('aria-selected', 'false')); const o = menu.children[i]; if (o) { o.setAttribute('aria-selected', 'true'); o.scrollIntoView({ block: 'nearest' }); } };
+  const label = () => { item.textContent = list[at]?.[0] || 'Nothing found'; };
+  const away = ev => { if (!menu.contains(ev.target) && ev.target !== item) close(); };
+  const drift = ev => { if (!menu.contains(ev.target)) close(); };   // the list floats over the page, so it closes when the page under it scrolls
+  const close = () => { if (menu.hidden) return; menu.hidden = true; if (item.isConnected) item.after(menu); else menu.remove(); item.setAttribute('aria-expanded', 'false'); peek(at); document.removeEventListener('pointerdown', away, true); removeEventListener('scroll', drift, true); removeEventListener('resize', close); };
+  const place = () => { const r = item.getBoundingClientRect(), below = innerHeight - r.bottom - 8, above = r.top - 8, up = below < 220 && above > below, h = Math.min(320, up ? above : below);
+    Object.assign(menu.style, { left: r.left + 'px', width: r.width + 'px', maxHeight: h + 'px', top: up ? '' : r.bottom + 2 + 'px', bottom: up ? innerHeight - r.top + 2 + 'px' : '' }); };
+  const open = () => { if (!list.length || !menu.hidden) return; document.querySelectorAll('body > .anymenu').forEach(x => x.remove()); document.body.append(menu); place(); menu.hidden = false; item.setAttribute('aria-expanded', 'true'); mark(at);
+    document.addEventListener('pointerdown', away, true); addEventListener('scroll', drift, true); addEventListener('resize', close); };
+  const choose = i => { at = i; label(); close(); clearTimeout(hov); draw(at); };
+  item.onclick = () => menu.hidden ? open() : close();
+  item.onkeydown = ev => { const k = ev.key, n = list.length; if (!n) return;
+    if (k === 'ArrowDown' || k === 'ArrowUp') { ev.preventDefault(); if (menu.hidden) open(); const i = Math.max(0, Math.min(n - 1, act + (k === 'ArrowDown' ? 1 : -1))); mark(i); peek(i); }
+    else if ((k === 'Home' || k === 'End') && !menu.hidden) { ev.preventDefault(); const i = k === 'Home' ? 0 : n - 1; mark(i); peek(i); }
+    else if ((k === 'Enter' || k === ' ') && !menu.hidden) { ev.preventDefault(); choose(act); }
+    else if (k === 'Escape' && !menu.hidden) { ev.preventDefault(); close(); } else if (k === 'Tab') close(); };
+  menu.onpointerover = ev => { const o = ev.target.closest('[role=option]'); if (o && +o.dataset.i !== act) { const i = +o.dataset.i; mark(i); peek(i); } };
+  menu.onpointerleave = () => peek(at);
+  menu.onclick = ev => { const o = ev.target.closest('[role=option]'); if (o) { choose(+o.dataset.i); item.focus(); } };
   const fill = () => { const q = find_.value.trim().toLowerCase(), from = q ? slots : [slot.value];   // a search looks in every slot
-    const list = from.flatMap(f => CAT.items[f].filter(e => ok(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e]));
-    item.replaceChildren(...(list.length ? list.sort((a, b) => a[0].localeCompare(b[0])).map(([n, f, e]) => el('option', { value: f + '|' + e.Id, text: n })) : [el('option', { value: '', text: 'Nothing found' })])); show(); };
-  slot.value = slots.includes(anyItem.slot) ? anyItem.slot : slots.includes('overtop') ? 'overtop' : slots[0]; fill(); slot.onchange = () => { anyItem.slot = slot.value; find_.value = ''; fill(); }; find_.oninput = fill; item.onchange = show;
-  return [el('h3', { text: 'Or start from any item' }), el('div', { class: 'row anyitem' }, pic, el('div', { class: 'anycol' }, el('div', { class: 'row' }, slot, find_), item),
+    list = from.flatMap(f => CAT.items[f].filter(e => ok(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e])).sort((a, b) => a[0].localeCompare(b[0]));
+    menu.replaceChildren(...list.map(([n], i) => el('div', { role: 'option', class: 'anyopt', text: n, data: { i } })));
+    at = list.length ? 0 : -1; act = at; label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
+  slot.value = slots.includes(anyItem.slot) ? anyItem.slot : slots.includes('overtop') ? 'overtop' : slots[0]; fill(); slot.onchange = () => { anyItem.slot = slot.value; find_.value = ''; fill(); }; find_.oninput = fill;
+  find_.onkeydown = ev => { if (ev.key === 'ArrowDown' && list.length) { ev.preventDefault(); item.focus(); item.onkeydown(ev); } };
+  return [el('h3', { text: 'Or start from any item' }), el('div', { class: 'row anyitem' }, pic, el('div', { class: 'anycol' }, el('div', { class: 'row' }, slot, find_), el('div', { class: 'anywrap' }, item, menu)),
     el('button', { class: 'btn primary', text: 'Edit a copy', onclick: () => { const [f, e] = pick(); if (e) newAsset(f, R.partStr(e)); } }))];
 }
 function assetCard(a) {
@@ -710,7 +759,11 @@ function assetCard(a) {
     el('div', { class: 'acts' }, act('Edit', guard(() => openAsset(a)), 'primary'), act('Copy', guard(() => copyAsset(a))), worn ? el('span', { class: 'worn', text: 'Worn ✓', title: 'Your character has this on' }) : act('Wear', () => setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' })),
 
       act('Delete', guard(async () => { if (!await confirmBox('Delete custom asset', `Delete "${a.name}"? Skins wearing it lose that part. This cannot be undone.`, 'Delete', true)) return;
-        await assets.remove(a.id); ASSETS = await assets.list(); syncFolder(); registerAssets(); if (worn) setSkin(R.fit(cur.skin)); else cur.skin = R.fit(cur.skin); pics.clear(); rebuild(); pressing = false; render(); say(`Deleted "${a.name}"`); }), 'danger')));
+        pressing = false; await deleteAsset(a); }), 'danger')));
+}
+async function deleteAsset(a) {   // skins wearing it fall back to the slot's usual item
+  const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
+  await assets.remove(a.id); ASSETS = await assets.list(); syncFolder(); registerAssets(); if (worn) setSkin(R.fit(cur.skin)); else cur.skin = R.fit(cur.skin); pics.clear(); rebuild(); render(); say(`Deleted "${a.name}"`);
 }
 const disclosure = () => el('div', { class: 'disclose' }, el('b', { text: 'Site only' }), el('span', { text: 'With the Skin Editor Sync mod installed and Show in game on, your character in your own worlds wears what you have on here, custom assets included. Repaints of edition and reward items stay on this site.' }));
 // the drawn area over the flat texture: everything outside it is dimmed and each drawn face is outlined
@@ -926,7 +979,7 @@ async function finishAsset() {
   store_.set('se_finished', '1');
   const btns = [{ label: 'Back to my items', value: 'back', primary: true }, { label: 'Keep editing', value: 'edit' }, { label: 'Make a copy', value: 'copy' },
     ...(linked && !SHOWGAME ? [{ label: 'Show in game', value: 'game' }] : !linked ? [{ label: 'Set up in game', value: 'setup' }] : [])];
-  const unsaved = !cur.id || dirty;
+  await flush(); const unsaved = !cur.id || dirty;
   const big = el('img', { alt: '', draggable: false }); fig.build(R.fit(cur.skin), R).then(root => { big.src = fig.snapshot(root, 'full', false, 256); }).catch(() => {});   // drawn now, not behind the thumbnail queue
   const v = await ask('You are wearing it', [el('div', { class: 'finishpic' }, big), el('p', { text }),
     unsaved ? el('p', { class: 'dim', text: 'Your item is saved. The outfit you are wearing is not saved yet: press Save under the preview to keep it in My skins.' }) : null].filter(Boolean), btns);
