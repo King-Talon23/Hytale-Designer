@@ -137,9 +137,10 @@ async function flush() { clearTimeout(autosave.t); if (!dirty || flush.busy) ret
   finally { flush.busy = false; if (dirty && cur.id) autosave(); } }
 function keepDraft() { clearTimeout(keepDraft.t); keepDraft.t = setTimeout(() => db.put('meta', 'draft', { id: cur.id, kind: cur.kind, slot: cur.slot, name: cur.name, skin: cur.skin, auto: !!cur.auto }).catch(() => {}), 300); }
 let building = 0;
-async function rebuild() { const my = ++building;
+async function rebuild() { const my = ++building, stg = $('view').parentElement, slow = setTimeout(() => stg.classList.add('loading'), 300);   // a slow build says so instead of an empty stage
   try { const root = await fig.build(cur.skin, R); if (my !== building) return fig.dispose(root); st.show(root); }
-  catch (e) { console.error(e); if (my === building) say('Could not build this skin: ' + e.message, true); } }
+  catch (e) { console.error(e); if (my === building) say('Could not build this skin: ' + e.message, true); }
+  finally { clearTimeout(slow); if (my === building) stg.classList.remove('loading'); } }
 let peekT;
 function peek(part) { clearTimeout(peekT); peekT = setTimeout(async () => { const my = ++building;
   try { const root = await fig.build(part === undefined ? cur.skin : { ...cur.skin, [slot]: part }, R); if (my !== building) return fig.dispose(root); st.show(root); } catch (e) { console.warn(e); } }, part === undefined ? 140 : 70); }
@@ -154,15 +155,24 @@ function plate() {
 let jobGen = 0; const pics = new Map(); let chain = Promise.resolve();
 const HEADF = new Set(['face', 'eyes', 'eyebrows', 'mouth', 'ears', 'haircut', 'facialHair', 'headAccessory', 'faceAccessory', 'earAccessory']), LEGF = new Set(['pants', 'overpants', 'shoes', 'underwear']);
 const BASE = ['bodyCharacteristic', 'face', 'eyes', 'eyebrows', 'mouth', 'ears', 'underwear'];
-function picture(key, make) { if (pics.has(key)) return Promise.resolve(pics.get(key)); const gen = jobGen;
-  return chain = chain.then(async () => { if (gen !== jobGen) return null; if (pics.has(key)) return pics.get(key);
-    try { const u = await make(); pics.set(key, u); if (pics.size > 1500) pics.delete(pics.keys().next().value); await new Promise(r => setTimeout(r)); return u; } catch (e) { console.warn(e); return null; } }); }
+// pictures of game items are also kept in this browser (per game version), so the next visit shows them at once instead of drawing each again;
+// a custom piece in the picture is named with the time it was last changed, so a repaint makes a new picture
+const THUMB_V = 1, keepKey = key => { if (!META) return null; let gone = false;
+  const k = key.replace(/Custom_([A-Za-z0-9_-]+)/g, (m, id) => { const a = ASSETS.find(x => x.id === id); if (!a || !a.updated) gone = true; return m + '@' + (a && a.updated); });
+  return gone ? null : THUMB_V + '|' + META.size + '|' + META.modified + '|' + k; };
+function picture(key, make) { if (pics.has(key)) return Promise.resolve(pics.get(key)); const gen = jobGen, kk = keepKey(key);
+  return (kk ? db.get('thumbs', kk).catch(() => null) : Promise.resolve(null)).then(saved => { if (saved) { pics.set(key, saved); return saved; }
+    return chain = chain.then(async () => { if (gen !== jobGen) return undefined; if (pics.has(key)) return pics.get(key);
+      try { const u = await make(); pics.set(key, u); if (pics.size > 1500) pics.delete(pics.keys().next().value); if (kk) db.put('thumbs', kk, u).catch(() => {}); await new Promise(r => setTimeout(r)); return u; } catch (e) { console.warn(e); return null; } }); }); }
+// the kept pictures are dropped when the game files change, or when there are a lot of them
+async function trimThumbs() { try { const ks = await db.keys('thumbs'), pre = keepKey(''); if (ks.length > 3000 || ks.some(k => !k.startsWith(pre))) await db.clear('thumbs'); } catch { /* no store yet */ } }
 const lazy = new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) { lazy.unobserve(e.target); e.target._load?.(); } }, { rootMargin: '200px' });
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';   // a picture that could not be drawn stops pulsing
 const lastPic = new Map();   // the previous picture of a tile stays up until its new one is drawn
 function lazyImg(key, make, prev) { const img = el('img', { alt: '', draggable: false });
   if (pics.has(key)) { img.src = pics.get(key); if (prev) lastPic.set(prev, img.src); }
   else { if (prev && lastPic.has(prev)) img.src = lastPic.get(prev);
-    img._load = async () => { const u = await picture(key, make); if (u) { img.src = u; if (prev) lastPic.set(prev, u); } }; lazy.observe(img); }
+    img._load = async () => { const u = await picture(key, make); if (u) { img.src = u; if (prev) lastPic.set(prev, u); } else if (u === null && !img.src) img.src = BLANK; }; lazy.observe(img); }
   return img; }
 // in a picture of one face item, the things that would cover it come off (a hood hides hair, a beard hides the mouth ...)
 const HIDE = { haircut: ['headAccessory'], face: ['headAccessory', 'faceAccessory', 'facialHair', 'haircut'], eyes: ['headAccessory', 'faceAccessory', 'haircut'],
@@ -201,7 +211,7 @@ let pressing = false, renderLater = false;
 const flushRender = () => { pressing = false; if (renderLater) { renderLater = false; render(); } };
 addEventListener('pointerdown', e => { if (e.target.closest?.('button, a, summary, label, select, .skin')) { pressing = true; setTimeout(flushRender, 1500); } }, true);
 for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => { if (pressing) setTimeout(flushRender, 0); }, true);
-function render() { if (pressing) { renderLater = true; return; } jobGen++; plate(); drawEmotes(); drawGameSwitch(); outlineBox();
+function render() { if (pressing) { renderLater = true; return; } jobGen++; plate(); drawEmotes(); drawStageBtns(); drawGameSwitch(); outlineBox();
   if (!!ED !== $('app').classList.contains('ws')) scrollTo(0, 0);   // opening or closing the Creator workspace starts at the top of the page
   $('app').classList.toggle('ws', !!ED); if (ED) return renderWorkspace(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
   p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, creator: panelCreator, help: panelHelp }[tab])());
@@ -226,12 +236,14 @@ function tierOf(e) {   // from how the game unlocks the item (its entitlements),
   if (t.some(x => !String(x).startsWith('game.'))) return 4; if (t.includes('game.base')) return 1; if (t.includes('game.deluxe')) return 2; return 3;
 }
 const tierClass = e => e && e.custom ? 'mine' : 't' + tierOf(e);
-let LOCK = { favs: new Set(), seen: null }, picking = false, seenSlot = null, lockFilter = 'all', lockSort = 'up';
+let LOCK = { favs: new Set(), seen: null, recent: {} }, picking = false, seenSlot = null, lockFilter = 'all', lockSort = 'up';
 const favKey = (f, e) => f + '|' + e.Id, isNew = (f, e) => !e.custom && LOCK.seen && !LOCK.seen.has(favKey(f, e));
-const saveLock = () => db.put('meta', 'locker', { favs: [...LOCK.favs], seen: [...LOCK.seen] }).catch(() => {});
+const saveLock = () => db.put('meta', 'locker', { favs: [...LOCK.favs], seen: [...LOCK.seen], recent: LOCK.recent }).catch(() => {});
+// the last items worn in each slot, newest first, for the picker's Recent filter
+const noteWorn = (f, e) => { if (!e) return; const l = (LOCK.recent[f] || []).filter(id => id !== e.Id); l.unshift(e.Id); LOCK.recent[f] = l.slice(0, 12); saveLock(); };
 async function loadLock() {
   const m = await db.get('meta', 'locker').catch(() => null), all = game.FIELDS.flatMap(f => R.ITEMS[f].filter(e => !e.custom).map(e => favKey(f, e)));
-  LOCK.favs = new Set(m?.favs || []); LOCK.seen = m ? new Set(m.seen || []) : new Set(all); if (!m) saveLock();   // on a first visit nothing counts as new
+  LOCK.favs = new Set(m?.favs || []); LOCK.recent = m && m.recent && typeof m.recent === 'object' ? m.recent : {}; LOCK.seen = m ? new Set(m.seen || []) : new Set(all); if (!m) saveLock();   // on a first visit nothing counts as new
 }
 function leavePicker() { if (seenSlot) { for (const e of R.ITEMS[seenSlot]) if (!e.custom) LOCK.seen.add(favKey(seenSlot, e)); saveLock(); seenSlot = null; } picking = false; }
 function variantName(it, v) { const nk = it?.Variants?.[v]?.NameKey; return (nk && CAT.names[nk]) || nice(v); }
@@ -249,13 +261,14 @@ function panelLocker() {
 }
 function panelPicker() {
   const f = slot, it = R.find(f, cur.skin[f]), { color, variant } = parse(cur.skin[f]);
-  const change = (item, c, v) => setSkin({ ...cur.skin, [f]: R.partStr(item, c, v) });
+  const change = (item, c, v) => { if (item !== it) noteWorn(f, it); noteWorn(f, item); setSkin({ ...cur.skin, [f]: R.partStr(item, c, v) }); };
   const all = oneEach(R.ITEMS[f].filter(e => e === it || !isTmp(e))).concat(it && !it.custom && !oneEach(R.ITEMS[f]).includes(it) ? [it] : []), tiersHere = [...new Set(all.filter(e => !e.custom).map(tierOf))].sort();
-  const counts = { fav: all.filter(e => LOCK.favs.has(favKey(f, e))).length, new: all.filter(e => isNew(f, e)).length, mine: all.filter(e => e.custom).length };
+  const recentIds = (LOCK.recent[f] || []).filter(id => all.some(e => e.Id === id));
+  const counts = { recent: recentIds.length, fav: all.filter(e => LOCK.favs.has(favKey(f, e))).length, new: all.filter(e => isNew(f, e)).length, mine: all.filter(e => e.custom).length };
   const chip = (id, label) => el('button', { class: 'chip' + (lockFilter === id ? ' on' : ''), text: label, onclick: () => { lockFilter = id; sortBox.hidden = id !== 'all'; drawCards(); for (const c of bar.querySelectorAll('.chip[data-f]')) c.classList.toggle('on', c.dataset.f === id); }, data: { f: id } });
   const sortBox = el('select', { class: 'sort', title: 'Order', hidden: lockFilter !== 'all', onchange: e => { lockSort = e.target.value; drawCards(); } },
     [['up', 'Standard first'], ['down', 'Event first']].map(([v, t]) => el('option', { value: v, text: t, selected: v === lockSort })));
-  const bar = el('div', { class: 'options lockbar' }, chip('all', 'All'), counts.fav ? chip('fav', `Favourites ${counts.fav}`) : null, counts.new ? chip('new', `New ${counts.new}`) : null,
+  const bar = el('div', { class: 'options lockbar' }, chip('all', 'All'), chip('fav', counts.fav ? `★ Favourites ${counts.fav}` : '☆ Favourites'), counts.recent > 1 ? chip('recent', 'Recent') : null, counts.new ? chip('new', `New ${counts.new}`) : null,
     tiersHere.length > 1 ? tiersHere.map(t => chip('t' + t, TIERS[t])) : null, counts.mine ? chip('mine', 'Custom') : null,
     sortBox);
   const detail = el('div', { class: 'detail' }), showDetail = (e, trying) => { const t = e ? (e.custom ? 'Custom asset · site only' : TIERS[tierOf(e)]) : '';
@@ -263,10 +276,11 @@ function panelPicker() {
   const cardsBox = el('div', { class: 'cards lcards' });
   function drawCards() {
     const q = filter.toLowerCase(); let items = all.filter(e => itemName(e).toLowerCase().includes(q));
-    if (lockFilter === 'fav') items = items.filter(e => LOCK.favs.has(favKey(f, e))); else if (lockFilter === 'new') items = items.filter(e => isNew(f, e));
+    if (lockFilter === 'fav') items = items.filter(e => LOCK.favs.has(favKey(f, e))); else if (lockFilter === 'recent') items = recentIds.map(id => items.find(e => e.Id === id)).filter(Boolean); else if (lockFilter === 'new') items = items.filter(e => isNew(f, e));
     else if (lockFilter === 'mine') items = items.filter(e => e.custom); else if (/^t\d$/.test(lockFilter)) items = items.filter(e => !e.custom && 't' + tierOf(e) === lockFilter);
     const dir = lockFilter === 'all' && lockSort === 'down' ? -1 : 1, rank = e => e.custom ? 5 : tierOf(e);   // the game's order inside each tier; custom assets last
-    items = items.map((e, i) => [e, i]).sort((a, b) => (rank(a[0]) - rank(b[0])) * dir || a[1] - b[1]).map(x => x[0]);
+    const pin = e => lockFilter === 'all' && LOCK.favs.has(favKey(f, e)) ? 0 : 1;   // starred items sit at the top of All
+    if (lockFilter !== 'recent') items = items.map((e, i) => [e, i]).sort((a, b) => pin(a[0]) - pin(b[0]) || (rank(a[0]) - rank(b[0])) * dir || a[1] - b[1]).map(x => x[0]);
     const card = e => { const part = e ? R.partStr(e, color, variant) : null, hv = hover(part), k = e && favKey(f, e), fav = e && LOCK.favs.has(k);
       const star = e ? el('span', { class: 'star' + (fav ? ' on' : ''), role: 'button', title: fav ? 'Remove from favourites' : 'Add to favourites', text: fav ? '★' : '☆',
         onclick: ev => { ev.stopPropagation(); LOCK.favs.has(k) ? LOCK.favs.delete(k) : LOCK.favs.add(k); saveLock(); render(); } }) : null;
@@ -280,7 +294,7 @@ function panelPicker() {
         onpointerenter: ev => { hv.onpointerenter(ev); showDetail(e, e !== it); }, onpointerleave: ev => { hv.onpointerleave(ev); showDetail(it); } },
         e ? itemThumb(f, e, color, variant) : el('span', { class: 'nothing', text: '✕' }), star, bin, e && isNew(f, e) ? el('span', { class: 'new', text: 'NEW' }) : null, el('b', { text: e ? itemName(e) : 'None' })); };
     cardsBox.replaceChildren(...(REQUIRED.has(f) || lockFilter !== 'all' ? [] : [card(null)]), ...items.map(card));
-    if (!items.length) cardsBox.append(el('p', { class: 'blank', text: filter.trim() ? `No items match "${filter.trim()}".` : 'Nothing here.' }));
+    if (!items.length) cardsBox.append(el('p', { class: 'blank', text: filter.trim() ? `No items match "${filter.trim()}".` : lockFilter === 'fav' ? 'No favourites yet. Press the ☆ on any item to keep it here.' : 'Nothing here.' }));
   }
   drawCards(); showDetail(it);
   const search = el('input', { type: 'search', placeholder: 'Search', value: filter, maxLength: 40, oninput: e => { filter = e.target.value; drawCards(); } });
@@ -295,6 +309,20 @@ function panelPicker() {
       return a ? el('button', { class: 'btn ghost small', text: 'Recolour in the Creator', onclick: guard(() => openAsset(a)) }) : null; })())]
       : cols.length ? [el('h3', { text: 'Colour' }), swatches] : null, vs.length > 1 ? [el('h3', { text: 'Option' }), options] : null))];
 }
+// top-left of the stage: the backdrop behind the character, and a clean view with the controls hidden (for a good look or a screenshot)
+const BACKDROPS = [['dark', 'Dark'], ['light', 'Light'], ['sky', 'Sky'], ['grass', 'Meadow']];
+function drawStageBtns() {
+  const box = $('stagebtns'), stg = $('view').parentElement; if (!box) return;
+  let bd = store_.get('se_backdrop'); if (!BACKDROPS.some(b => b[0] === bd)) bd = 'dark';
+  for (const [k] of BACKDROPS) stg.classList.toggle('bd-' + k, k === bd);
+  const name = BACKDROPS.find(b => b[0] === bd)[1], clean = stg.classList.contains('clean');
+  box.replaceChildren(...[
+    el('button', { class: 'stbtn', title: 'Change the background behind your character', 'aria-label': 'Background: ' + name, onclick: () => { const i = BACKDROPS.findIndex(b => b[0] === bd); store_.set('se_backdrop', BACKDROPS[(i + 1) % BACKDROPS.length][0]); drawStageBtns(); } },
+      el('span', { class: 'bdchip' }), el('b', { text: name })),
+    ED ? null : el('button', { class: 'stbtn', title: clean ? 'Show the buttons again (Esc)' : 'Hide the buttons for a clean look at your character', onclick: () => { stg.classList.toggle('clean'); drawStageBtns(); } },
+      el('span', { text: clean ? '◉' : '◎' }), el('b', { text: clean ? 'Show buttons' : 'Clean view' }))].filter(Boolean));
+}
+addEventListener('keydown', e => { if (e.key === 'Escape' && !ED) { const stg = $('view')?.parentElement; if (stg?.classList.contains('clean')) { stg.classList.remove('clean'); drawStageBtns(); } } });
 // six favourite moves under the character, one click to play
 let EMOTES = null;
 const EMOTE_DEFAULT = ['Wave', 'Clap', 'Dance_Boogie', 'Shrug', 'Salute_Chest', 'Laugh_Strong'];
@@ -618,16 +646,17 @@ async function openAsset(a) {
   if (a.shape) ED.model = JSON.parse(a.shape);
   try { ED.rects = fig.usedRects(ED.model || await game.json(game.common(a.model))); } catch (e) { console.warn('no drawn area for', a.model, e); }
   ED.painter = makePainter(c, a); Object.assign(ED.painter, BRUSH);
+  ED.painter.faceAt = (x, y) => ED && ED.rects.find(r => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h);   // Fill > Whole side: which side was clicked
   if (ED.rects.length) { const m = new Uint8Array(c.width * c.height); for (const r of ED.rects) for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1; ED.painter.mask = m; }
-  ED.palette = ED.painter.palette(); ED.ovl = el('canvas', { className: 'limits' }); requestAnimationFrame(() => { fitTexture(); render(); if (!store_.get('se_tour')) requestAnimationFrame(() => tour(0)); });
+  ED.palette = ED.painter.palette(); ED.ovl = el('canvas', { className: 'limits' }); requestAnimationFrame(() => { fitTexture(); render(); });
   const flatPx = e => { const r = c.getBoundingClientRect(); return { x: Math.min(c.width - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * c.width))), y: Math.min(c.height - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * c.height))) }; };
   bindPaint(c, flatPx, 1e9); bindSelect(c, flatPx);
   c.addEventListener('pointermove', e => { if (!ED) return; ED.hover = flatPx(e); ED.hoverM = null; drawOvl(); }); c.addEventListener('pointerleave', () => { if (!ED) return; ED.hover = null; drawOvl(); });
   registerAssets(); if (!(cur.skin[a.field] || '').startsWith('Custom_' + a.id)) setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' });
   setMount(null); ED.iso = true; st.isolate(c); st.anim.set(null); st.paintMode(true); tab = 'creator'; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === 'creator'); render(); rebuild();
 }
-const BRUSH = (() => { try { const b = JSON.parse(store_.get('se_brush') || '{}'), o = {}; if (/^#[0-9a-f]{6}$/i.test(b.color)) o.color = b.color; if (b.size >= 1 && b.size <= 8) o.size = Math.round(b.size); if (b.opacity > 0 && b.opacity <= 1) o.opacity = b.opacity; if (['brush', 'erase', 'part', 'fill', 'pick', 'replace', 'line', 'box', 'boxfill', 'light', 'dark', 'noise'].includes(b.tool)) o.tool = b.tool; return o; } catch { return {}; } })();
-const keepBrush = () => { if (!ED) return; const P = ED.painter; Object.assign(BRUSH, { color: P.color, size: P.size, opacity: P.opacity, tool: P.tool === 'select' ? 'brush' : P.tool }); store_.set('se_brush', JSON.stringify(BRUSH)); };
+const BRUSH = (() => { try { const b = JSON.parse(store_.get('se_brush') || '{}'), o = {}; if (/^#[0-9a-f]{6}$/i.test(b.color)) o.color = b.color; if (b.size >= 1 && b.size <= 8) o.size = Math.round(b.size); if (b.opacity > 0 && b.opacity <= 1) o.opacity = b.opacity; if (['area', 'side', 'every'].includes(b.fillMode)) o.fillMode = b.fillMode; if (['brush', 'erase', 'part', 'fill', 'pick', 'replace', 'line', 'box', 'boxfill', 'light', 'dark', 'noise'].includes(b.tool)) o.tool = b.tool; return o; } catch { return {}; } })();
+const keepBrush = () => { if (!ED) return; const P = ED.painter; Object.assign(BRUSH, { color: P.color, size: P.size, opacity: P.opacity, fillMode: P.fillMode, tool: P.tool === 'select' ? 'brush' : P.tool }); store_.set('se_brush', JSON.stringify(BRUSH)); };
 const markSaved = ok => { if (!ED) return; ED.saved = ok; const s = $('wssaved'); if (s) { s.textContent = ok ? 'Saved' : 'Saving…'; s.classList.toggle('busy', !ok); } };
 function queueAssetSave() { markSaved(false); clearTimeout(queueAssetSave.t); queueAssetSave.t = setTimeout(() => flushAsset().catch(e => say(e.message, true)), 900); }
 async function flushAsset() { clearTimeout(queueAssetSave.t); if (!ED) return; const e = ED, data = await new Promise(ok => e.canvas.toBlob(ok, 'image/png'));
@@ -646,7 +675,7 @@ async function colourPart(node) {
   tintAll(ED.painter.color, node);
   if (others.length) say(`${partName(node)} got paint of its own (it shared it with ${others.map(partName).join(', ')}) and is now this colour.`);
 }
-const partName = n => { const b = ED.model && boxesOf(ED.model).find(x => x.node.name === n); return b ? boxLabel(b.node) : n.replace(/^L-/, 'Left ').replace(/^R-/, 'Right ').replace(/[-_]+/g, ' '); };
+const partName = n => { const b = ED.model && boxesOf(ED.model).find(x => x.node.name === n); return b ? boxLabel(b.node) : /^Box_/.test(n) ? 'New box' : boxLabel({ name: n }); };   // same names in Paint as in Shape's outliner
 function partHover(e) { if (ED.mode === 'shape' || ED.painter.tool !== 'part') return;
   const m = st.pickMesh(e.clientX, e.clientY, o => o.material?.map?.image === ED.canvas), n = m ? m.userData.nodeName : null; if (n === ED.partLit) return;
   ED.partLit = n; st.highlight(n ? o => o.material?.map?.image === ED.canvas && o.userData.nodeName === n : null); }
@@ -811,7 +840,7 @@ function anyItem() {   // or start from any free item in the game, worn or not
     Object.assign(menu.style, { left: r.left + 'px', width: r.width + 'px', maxHeight: h + 'px', top: up ? '' : r.bottom + 2 + 'px', bottom: up ? innerHeight - r.top + 2 + 'px' : '' }); };
   const open = () => { if (!list.length || !menu.hidden) return; document.querySelectorAll('body > .anymenu').forEach(x => x.remove()); document.body.append(menu); place(); menu.hidden = false; item.setAttribute('aria-expanded', 'true'); mark(at);
     document.addEventListener('pointerdown', away, true); addEventListener('scroll', drift, true); addEventListener('resize', close); };
-  const choose = i => { at = i; label(); close(); clearTimeout(hov); draw(at); };
+  const choose = i => { at = i; if (!find_.value.trim() && list[i] && list[i][2]) (anyItem.picks ||= {})[slot.value] = list[i][2].Id; label(); close(); clearTimeout(hov); draw(at); };
   item.onclick = () => menu.hidden ? open() : close();
   item.onkeydown = ev => { const k = ev.key, n = list.length; if (!n) return;
     if (k === 'ArrowDown' || k === 'ArrowUp') { ev.preventDefault(); if (menu.hidden) open(); const i = Math.max(0, Math.min(n - 1, act + (k === 'ArrowDown' ? 1 : -1))); mark(i); peek(i); }
@@ -825,7 +854,9 @@ function anyItem() {   // or start from any free item in the game, worn or not
     list = from.flatMap(f => oneEach(CAT.items[f]).filter(e => ok(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e])).sort((a, b) => a[0].localeCompare(b[0]));
     if (!q) list.unshift(['None', slot.value, null]);   // None: the picture shows the slot empty; wearing nothing there starts on a random item
     menu.replaceChildren(...list.map(([n], i) => el('div', { role: 'option', class: 'anyopt', text: n, data: { i } })));
-    const worn = !q && parse(cur.skin[slot.value]).id; at = q ? (list.length ? 0 : -1) : list.findIndex(r => r[2] && r[2].Id === worn); if (!q && at < 0 && list.length > 1) at = 1 + Math.floor(Math.random() * (list.length - 1)); act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
+    const worn = !q && parse(cur.skin[slot.value]).id; at = q ? (list.length ? 0 : -1) : list.findIndex(r => r[2] && r[2].Id === worn); const kept = (anyItem.picks ||= {})[slot.value];   // the item shown last time stays, so the picker doesn't jump around between visits
+    if (!q && at < 0 && kept) at = list.findIndex(r => r[2] && r[2].Id === kept);
+    if (!q && at < 0 && list.length > 1) { at = 1 + Math.floor(Math.random() * (list.length - 1)); anyItem.picks[slot.value] = list[at][2].Id; } act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
   slot.value = slots.includes(anyItem.slot) ? anyItem.slot : slots.includes('overtop') ? 'overtop' : slots[0]; fill(); slot.onchange = () => { anyItem.slot = slot.value; find_.value = ''; fill(); }; find_.oninput = fill;
   find_.onkeydown = ev => { if (ev.key === 'ArrowDown' && list.length) { ev.preventDefault(); item.focus(); item.onkeydown(ev); } };
   return [el('h3', { text: 'Or start from any item' }), el('div', { class: 'row anyitem' }, pic, el('div', { class: 'anycol' }, el('div', { class: 'row' }, slot, find_), el('div', { class: 'anywrap' }, item, menu)), edit)];
@@ -862,7 +893,9 @@ function limits(c) {
   if (sel) { x.fillStyle = 'rgba(127, 211, 255, 0.28)'; x.strokeStyle = '#7fd3ff'; x.lineWidth = 2;
     for (const r of ED.rects) if (r.node === sel) { x.fillRect(r.x * z, r.y * z, r.w * z, r.h * z); x.strokeRect(r.x * z + 1, r.y * z + 1, r.w * z - 2, r.h * z - 2); } x.lineWidth = 1; }
   if (z >= 4) { x.fillStyle = 'rgba(244, 196, 82, 0.95)'; x.font = '700 10px Lexend, sans-serif';
-    for (const r of ED.rects) if (r.w * z > 34 && r.h * z > 14) x.fillText(r.face, r.x * z + 3, r.y * z + 11); }
+    const many = new Set(ED.rects.map(r => r.node)).size > 1;   // several parts: say which part as well as which side
+    for (const r of ED.rects) if (r.w * z > 34 && r.h * z > 14) { const long = many ? partName(r.node) + ' · ' + r.face : r.face, t = x.measureText(long).width <= r.w * z - 6 ? long : r.face;
+      if (x.measureText(t).width <= r.w * z - 6) x.fillText(t, r.x * z + 3, r.y * z + 11); } }
   return o;
 }
 // ---------------------------------------------------------------- shapes: an asset's own copy of its item's 3D model
@@ -894,7 +927,7 @@ function toQuat(dx, dy, dz) { const [c1, c2, c3] = [dx, dy, dz].map(d => Math.co
 // ---------------------------------------------------------------- the creator workspace, laid out like Blockbench
 // top: name, Paint/Shape tabs, undo, redo, Done. Left edge: tools with their shortcut keys. Left panel: the texture. Middle: the
 // model with view buttons and, in Shape mode, a gizmo. Right: colours and brush (Paint), or the outliner and box fields (Shape).
-const PAINT_TOOLS = [['select', 'Select area', 'M', '⬚'], ['brush', 'Brush', 'B', '✎'], ['erase', 'Eraser', 'E', '⌫'], ['part', 'Colour a part (click a part to colour all of it)', 'P', '◩'], ['fill', 'Fill', 'F', '◧'], ['pick', 'Pick colour', 'I', '◉'], ['replace', 'Replace colour', 'H', '⇄'],
+const PAINT_TOOLS = [['select', 'Select area', 'M', '⬚'], ['brush', 'Brush', 'B', '✎'], ['erase', 'Eraser', 'E', '⌫'], ['part', 'Colour a part (click a part to colour all of it)', 'P', '◩'], ['fill', 'Fill', 'F', '◧'], ['pick', 'Pick colour (or hold Alt)', 'I', '◉'], ['replace', 'Replace colour', 'H', '⇄'],
   ['line', 'Line', 'L', '╱'], ['box', 'Box', 'U', '▢'], ['boxfill', 'Filled box', '', '■'], ['light', 'Lighten', '', '☀'], ['dark', 'Darken', '', '☾'], ['noise', 'Noise', 'N', '░']];
 const SHORT = { part: 'Part', more: 'More', select: 'Select', pick: 'Pick', replace: 'Replace', boxfill: 'Filled', light: 'Lighten', dark: 'Darken', dup: 'Copy', del: 'Delete' };   // names under the tool icons
 const SHAPE_TOOLS = [['select', 'Select', 'V', '⬚'], ['move', 'Move', 'G', '✥'], ['resize', 'Resize', 'S', '⤢'], ['rotate', 'Rotate', 'R', '⟳']];
@@ -968,7 +1001,10 @@ function paintSide() {
     el('button', { class: 'btn primary wide', text: 'Colour whole item', title: 'Turn the whole item this colour and keep its light and dark shading', onclick: () => tintAll(P.color) }),
     el('div', { class: 'wshead', text: 'Brush' }),
     slider('Size', 1, 8, 1, () => P.size, v => { P.size = v; }, v => v), slider('Strength', 10, 100, 10, () => Math.round(P.opacity * 100), v => { P.opacity = v / 100; }, v => v + '%'),
-    P.tool === 'fill' ? slider('Similar colours', 0, 100, 4, () => P.tolerance, v => { P.tolerance = v; }, v => v ? v + '%' : 'exact only') : null,
+    P.tool === 'fill' ? [el('div', { class: 'swlabel', text: 'Fill what?' }), el('div', { class: 'seg', role: 'radiogroup' }, ...[['area', 'Area', 'The patch you click and the touching pixels of a similar colour'], ['side', 'Whole side', 'The whole side of the part you click, in one flat colour'], ['every', 'Everywhere', 'That colour everywhere on the item']]
+      .map(([m, t, why]) => el('button', { class: (P.fillMode || 'area') === m ? 'on' : '', role: 'radio', 'aria-checked': String((P.fillMode || 'area') === m), text: t, title: why, onclick: () => { P.fillMode = m; render(); viewHint(); } }))),
+      el('p', { class: 'dim small seghelp', text: { area: 'Fills the patch you click and the touching pixels of a similar colour.', side: 'Fills the whole side of the part you click, in one flat colour.', every: 'Changes that colour everywhere on the item, even where the patches are apart.' }[P.fillMode || 'area'] }),
+      P.fillMode !== 'side' ? slider('Similar colours', 0, 100, 4, () => P.tolerance, v => { P.tolerance = v; }, v => v ? v + '%' : 'exact only') : null] : null,
     el('div', { class: 'options' }, toggle('Mirror', ED.mirror, () => { ED.mirror = !ED.mirror; render(); }, 'Painting on the model also paints the matching spot on the other side')),
     P.tool === 'select' || ED.sel || ED.float || ED.clip ? [el('div', { class: 'wshead', text: 'Selection' }), el('div', { class: 'options' },
       ...(ED.float ? [chip('Place', placeFloat, 'Enter'), chip('Flip ↔', () => flipFloat(true)), chip('Flip ↕', () => flipFloat(false)), chip('Cancel', () => { ED.float = null; render(); }, 'Esc')]
@@ -1028,10 +1064,10 @@ function tour(i = 0) {
 // the tip on the model: what the picked tool does and how to use it
 const TOOL_TIPS = {
   select: 'Select: drag over the texture to pick an area. Ctrl+C copies, Ctrl+V pastes, drag the piece and press Enter to place it.',
-  brush: 'Brush: drag on the item to paint. Size and Strength are on the right. Drag off the item to turn the model.',
+  brush: 'Brush: drag on the item to paint. Size and Strength are on the right ([ and ] change the size, hold Alt to pick a colour). Drag off the item to turn the model.',
   erase: 'Eraser: drag on the item to make it see-through there.',
   part: 'Part: click a part of the item to colour all of it, keeping its shading.',
-  fill: 'Fill: click an area to fill it. "Similar colours" on the right sets how far it spreads.',
+  fill: 'Fill: click the item to fill. Pick Area, Whole side or Everywhere on the right.',
   pick: 'Pick colour: click the item to take a colour from it.',
   replace: 'Replace colour: click a colour on the item to swap it everywhere for your colour.',
   line: 'Line: drag from one point to another to draw a straight line.',
@@ -1044,12 +1080,16 @@ const TOOL_TIPS = {
   's-rotate': 'Rotate: drag a ring to tilt the part (5° steps), or type any angle in the Rotation numbers.' };
 function viewHint() {
   let h = $('viewhint'); if (!h) { h = el('div', { id: 'viewhint', class: 'viewhint' }); $('view').parentElement.appendChild(h); }
-  h.hidden = !ED; if (ED && ED.placing) h.textContent = 'Add box: click on the item where it should go. Esc cancels.'; else if (ED) h.textContent = TOOL_TIPS[ED.mode === 'shape' ? 's-' + (ED.stool || 'select') : ED.painter.tool] || '';
+  const key = ED ? (ED.mode === 'shape' ? 's-' + (ED.stool || 'select') : ED.painter.tool) : '';
+  h.hidden = !ED; if (ED && ED.placing) h.textContent = 'Add box: click on the item where it should go. Esc cancels.'; else if (ED) h.textContent = TOOL_TIPS[key] || '';
+  // the first time a tool is used, its tip lights up for a few seconds (help when it is needed, instead of a tour up front)
+  if (ED && key && !ED.placing) { let seen; try { seen = new Set(JSON.parse(store_.get('se_tips') || '[]')); } catch { seen = new Set(); }
+    if (!seen.has(key)) { seen.add(key); store_.set('se_tips', JSON.stringify([...seen])); h.classList.remove('fresh'); void h.offsetWidth; h.classList.add('fresh'); clearTimeout(h._t); h._t = setTimeout(() => h.classList.remove('fresh'), 9000); } }
 }
 // ---- colours: a fixed set of basics, the item's own colours and the ones used lately
 const BASIC = ['#ffffff', '#c9c9c9', '#808080', '#3d3d3d', '#000000', '#e23b3b', '#ef8a35', '#f4d24a', '#7cc444', '#2e9a58', '#3db7c9', '#3b6fe0', '#7a4fd6', '#d65ab4', '#8a5a32', '#f2c9a1'];
 let RECENT = (() => { try { const r = JSON.parse(store_.get('se_recent') || '[]'); return Array.isArray(r) ? r.filter(h => /^#[0-9a-f]{6}$/i.test(h)).slice(0, 8) : []; } catch { return []; } })();
-function useColour(h) { const P = ED.painter; P.color = h; if (P.tool === 'pick' || P.tool === 'erase' || P.tool === 'select') P.tool = 'brush';
+function useColour(h) { const P = ED.painter; P.color = h; if (!ED.altFrom && P.tool === 'pick' || P.tool === 'erase' || P.tool === 'select') P.tool = 'brush';
   RECENT = [h, ...RECENT.filter(x => x !== h)].slice(0, 8); store_.set('se_recent', JSON.stringify(RECENT)); render(); }
 const swatchRow = list => el('div', { class: 'swatches' }, list.map(h => { const b = el('button', { title: h, class: h === ED.painter.color ? 'on' : '', onclick: () => useColour(h) }); b.style.background = h; return b; }));
 // ---- the finish: after Done, say what happens next
@@ -1124,7 +1164,7 @@ const dupBox = () => addBox('dup');
 function delBox() { const boxes = boxesOf(ED.model), i = ED.box || 0, b = boxes[i]; if (boxes.length <= 1) return say('A shape needs at least one box.', true);
   if ((b.node.children || []).length) return say('This box holds other boxes. Delete those first.', true);
   shapeEdit(() => { const list = b.parent ? b.parent.children : ED.model.nodes; list.splice(list.indexOf(b.node), 1); ED.box = Math.max(0, i - 1); }); }
-const resetShape = guard(async () => { if (!await confirmBox('Reset shape', 'Go back to the item’s original shape? You can undo this.', 'Reset', true)) return;
+const resetShape = guard(async () => { say('Back to the original shape. Ctrl+Z undoes it.');
   const orig = structuredClone(await game.json(game.common(ED.asset.model))); shapeEdit(() => { ED.model = orig; ED.box = 0; }); });
 function renderWorkspace() {
   const P = ED.painter, a = ED.asset, c = ED.canvas, mode = ED.mode || 'paint'; ED.shapeOpen = mode === 'shape';
@@ -1176,11 +1216,15 @@ addEventListener('keydown', e => {
     shapeEdit(() => { const o = { x: 0, y: 0, z: 0, ...sh.offset }; if (e.shiftKey) o.z += d[1] || -d[0]; else { o.x += d[0]; o.y += d[1]; } sh.offset = o; }); }
   else if (k === 'tab') setMode(ED.mode === 'shape' ? 'paint' : 'shape');
   else if (['1', '2', '3', '7', '5'].includes(k) && !ctrl) { st.setView({ 1: 'front', 2: 'back', 3: 'side', 7: 'top', 5: 'persp' }[k]); st.frameOn(ED.canvas); }
+  else if (ED.mode !== 'shape' && !ctrl && (k === '[' || k === ']')) { const P = ED.painter; P.size = Math.max(1, Math.min(8, P.size + (k === ']' ? 1 : -1))); render(); say('Brush size ' + P.size); }
+  else if (ED.mode !== 'shape' && k === 'alt' && !e.repeat && ED.painter.tool !== 'pick') { ED.altFrom = ED.painter.tool; pickTool('pick'); }
   else if (!ctrl && !e.altKey) { const t = (ED.mode === 'shape' ? SHAPE_TOOLS : PAINT_TOOLS).find(x => x[2] && x[2].toLowerCase() === k); if (t) pickTool(t[0]); else done = false; }
   else done = false;
   if (done) { e.preventDefault(); e.stopImmediatePropagation(); }
 }, true);
 
+addEventListener('keyup', e => { if (ED && e.key === 'Alt' && ED.altFrom) { const t = ED.altFrom; ED.altFrom = null; if (ED.mode !== 'shape') pickTool(t); e.preventDefault(); } }, true);   // holding Alt picks colours, letting go goes back
+addEventListener('blur', () => { if (ED && ED.altFrom) { const t = ED.altFrom; ED.altFrom = null; if (ED.mode !== 'shape') pickTool(t); } });
 // ---- brush outline, area selection and copy-paste on the flat texture
 const brushSize = () => { const t = ED.painter.tool; return SHAPES.has(t) || ONCE.has(t) || t === 'select' ? 1 : ED.painter.size; };
 function sizeOvl() { const o = ED.ovl, z = ED.zoom, c = ED.canvas; if (o.width !== c.width * z || o.height !== c.height * z) { o.width = c.width * z; o.height = c.height * z; o.style.width = c.width * z + 'px'; } drawOvl(); return o; }
@@ -1354,6 +1398,6 @@ addEventListener('keydown', e => { if (!R || e.target?.matches?.('input, textare
     // Local development only: read the developer's own Assets.zip through the dev server (dev/ is never deployed).
     if ((['localhost', '127.0.0.1'].includes(location.hostname) || location.hostname.endsWith('.localhost')) && new URLSearchParams(location.search).has('devzip') && !(await game.status()))
       { const { devSource } = await import('../dev/devsource.js'); showConnect(); return doConnect(async () => game.importFrom(await devSource(), { name: 'Assets.zip (dev)', size: 0, modified: 0 }, progress)); }
-    if (await game.status()) { await startApp(); checkGameUpdate(); } else showConnect();
+    if (await game.status()) { await startApp(); checkGameUpdate().then(trimThumbs); } else showConnect();
   } catch (e) { console.error(e); showConnect(); $('connerr').textContent = 'This browser blocked local storage, which the editor needs. Try a normal (not private) window.'; }
 })();
