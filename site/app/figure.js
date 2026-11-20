@@ -171,7 +171,7 @@ export function stage(canvas, Controls) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const scene = new THREE.Scene(); lights(scene);
   const cam = new THREE.PerspectiveCamera(32, 1, 1, 2000); cam.position.set(-75, 95, 255);
-  const ctl = new Controls(cam, canvas); ctl.target.set(0, 62, 0); ctl.enablePan = false; ctl.minDistance = 90; ctl.maxDistance = 480; ctl.maxPolarAngle = Math.PI * 0.55; ctl.update();
+  const ctl = new Controls(cam, canvas); ctl.target.set(0, 62, 0); ctl.enablePan = false; ctl.zoomToCursor = true; ctl.minDistance = 40; ctl.maxDistance = 480; ctl.maxPolarAngle = Math.PI * 0.55; ctl.update();
   const disc = new THREE.Mesh(new THREE.CircleGeometry(58, 48), new THREE.MeshBasicMaterial({ color: 0x0b1626, transparent: true, opacity: 0.55 })); disc.rotation.x = -Math.PI / 2; disc.position.y = -0.2; scene.add(disc);
   const CELL = 32, grid = new THREE.GridHelper(CELL * 40, 40, 0x4a76ad, 0x33557f); grid.material.transparent = true; grid.material.opacity = 0; grid.material.depthWrite = false; scene.add(grid);
   const vel = new THREE.Vector2(), want = new THREE.Vector2();
@@ -214,10 +214,17 @@ export function stage(canvas, Controls) {
     const p = texel(image); if (!p || !mirror) return p;
     ray.ray.origin.x *= -1; ray.ray.direction.x *= -1; p.m = texel(image); return p; }   // the same ray flipped left to right lands on the matching spot of the other side
   // while painting, the left button paints and the right button turns the view
-  function paintMode(on) { ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE; ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE; ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE; canvas.style.cursor = on ? 'crosshair' : ''; }
+  function paintMode(on) { ctl.maxPolarAngle = on ? Math.PI * 0.97 : Math.PI * 0.55; ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE; ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE; ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE; canvas.style.cursor = on ? 'crosshair' : ''; }
   // the box under a screen point (first hit that passes the filter), and outlines around the boxes a filter picks
-  function drawHL() { for (const h of helpers) { scene.remove(h); h.geometry.dispose(); } helpers = []; if (!hl || !figure) return;
-    figure.updateMatrixWorld(true); figure.traverse(o => { if (o.isMesh && o.visible && hl(o)) { const h = new THREE.BoxHelper(o, 0xf4c452); h.material.depthTest = false; h.renderOrder = 10; helpers.push(h); scene.add(h); } }); }
+  // the picked box glows (its own copy of the material, lit gold) as well as getting an outline
+  let lit = []; const glow = new Map();
+  function drawHL() { for (const h of helpers) { scene.remove(h); h.geometry.dispose(); } helpers = []; for (const m of lit) if (m.userData.baseMat) { m.material = m.userData.baseMat; delete m.userData.baseMat; } lit = []; if (!hl || !figure) return;
+    figure.updateMatrixWorld(true); figure.traverse(o => { if (o.isMesh && o.visible && hl(o)) { const h = new THREE.BoxHelper(o, 0xf4c452); h.material.depthTest = false; h.renderOrder = 10; helpers.push(h); scene.add(h);
+      const base = o.material; if (!glow.has(base)) { const g = base.clone(); g.emissive = new THREE.Color(0x6a4a08); glow.set(base, g); } o.userData.baseMat = base; o.material = glow.get(base); lit.push(o); } }); }
+  // the item being edited stands out: every other part of the character turns into a faint see-through mannequin
+  const ghost = new THREE.MeshLambertMaterial({ color: 0xa9bfd6, transparent: true, opacity: 0.14, depthWrite: false }); let isoImage = null;
+  function applyIsolate() { figure?.traverse(o => { if (!o.isMesh) return; const real = o.userData.realMat || o.material, keep = !isoImage || real?.map?.image === isoImage;
+    if (keep && o.userData.realMat) { o.material = o.userData.realMat; delete o.userData.realMat; } else if (!keep && !o.userData.realMat) { o.userData.realMat = o.material; o.material = ghost; } }); }
   function pickMesh(cx, cy, keep) { if (!figure) return null; const r = canvas.getBoundingClientRect(); ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, cam);
     for (const h of ray.intersectObject(figure, true)) if (h.object.visible && keep(h.object)) return h.object; return null; }
   // the gizmo: drag arrows (move), cubes (resize) or rings (rotate) on one box, like Blockbench and Blender. The box itself
@@ -254,12 +261,19 @@ export function stage(canvas, Controls) {
     if (was !== !!root) { const k = root ? 1.6 : 1 / 1.6, ty = root ? 62 + at[1] * 0.7 : 62, off = cam.position.clone().sub(ctl.target).multiplyScalar(k);
       ctl.target.set(0, ty, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
   }
-  const api = { anim, mountAnim, mount, hover: h => { hoverTo = Math.max(0, h || 0); }, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
+  const api = { isolate: img => { isoImage = img || null; applyIsolate(); drawHL(); }, anim, mountAnim, mount, hover: h => { hoverTo = Math.max(0, h || 0); }, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
     gizmoBusy: () => tc.dragging || tc.axis !== null,
+    frameOn(img) {   // turn the view on the parts painted with this texture, close enough to fill the view
+      if (!figure || !img) return; const box = new THREE.Box3(); figure.updateMatrixWorld(true);
+      figure.traverse(o => { if (o.isMesh && (o.userData.realMat || o.material)?.map?.image === img) box.expandByObject(o); }); if (box.isEmpty()) return;
+      const c = box.getCenter(new THREE.Vector3()), r = Math.max(14, box.getSize(new THREE.Vector3()).length() / 2), dir = cam.position.clone().sub(ctl.target).normalize();
+      ctl.target.copy(c); const half = Math.min(cam.fov * Math.PI / 360, Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect));   // the narrower of the two view angles
+      cam.position.copy(c).add(dir.multiplyScalar(Math.min(ctl.maxDistance, Math.max(ctl.minDistance, r / Math.sin(half) * 1.1)))); ctl.update(); },
+    orbit(dx, dy) { const off = cam.position.clone().sub(ctl.target), s = new THREE.Spherical().setFromVector3(off); const k = 2 * Math.PI / Math.max(1, canvas.clientHeight); s.theta -= dx * k; s.phi = Math.max(0.05, Math.min(Math.PI - 0.05, s.phi - dy * k)); off.setFromSpherical(s); cam.position.copy(ctl.target).add(off); ctl.update(); },
     findMesh(keep) { let hit = null; figure?.traverse(o => { if (!hit && o.isMesh && keep(o)) hit = o; }); return hit; },
     setView(name) { const v = VIEWS[name] || VIEWS.persp; cam.position.set(...v); ctl.target.set(0, 62, 0); ctl.update(); },
     highlight(f) { hl = f; drawHL(); },
-    show(root) { if (figure) { scene.remove(figure); dispose(figure); } figure = root; scene.add(root); seatAt(); anim.setFigure(root); drawHL(); if (api.afterShow) api.afterShow(); },
+    show(root) { if (figure) { scene.remove(figure); dispose(figure); } figure = root; scene.add(root); seatAt(); anim.setFigure(root); lit = []; applyIsolate(); drawHL(); if (api.afterShow) api.afterShow(); },
     view(front) { cam.position.set(front ? 0 : -75, 95, front ? 265 : 255); ctl.target.set(0, 62, 0); ctl.update(); } };
   return api;
 }
@@ -267,11 +281,11 @@ let TR, tscene, tcam;
 // [look-at height, half size, sideways camera offset, camera height above the target]
 const FRAME = { head: [112, 36, -120, 40], face: [112, 24, -55, 12], ear: [114, 32, -170, 14], hat: [118, 34, -110, 70],
   pants: [34, 36, -110, 10], socks: [22, 30, -130, 8], shoes: [10, 22, -150, 34], gloves: [52, 18, -130, 12, -22], hips: [44, 28, -120, 20], top: [76, 34, -110, 30], legs: [30, 34, -120, 40], body: [64, 70, -120, 40], torso: [74, 36, -120, 40], full: [66, 76, -120, 40] };
-export function snapshot(root, frame = 'full', back = false) {   // a 128 px picture of a built figure, as a data URL
-  if (!TR) { TR = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); TR.setSize(128, 128);
+export function snapshot(root, frame = 'full', back = false, px = 128) {   // a square picture of a built figure (128 px unless asked), as a data URL
+  if (!TR) { TR = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     tscene = new THREE.Scene(); lights(tscene); tcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 2000); }
   const [cy, h, sx, up, tx = 0] = FRAME[frame] || FRAME.full, s = back ? -1 : 1;
   tcam.left = -h; tcam.right = h; tcam.top = h; tcam.bottom = -h; tcam.updateProjectionMatrix(); tcam.position.set(sx * s + tx, cy + up, 300 * s); tcam.lookAt(tx, cy, 0);
-  tscene.add(root); TR.render(tscene, tcam); tscene.remove(root); dispose(root);
+  TR.setSize(px, px); tscene.add(root); TR.render(tscene, tcam); tscene.remove(root); dispose(root);
   return TR.domElement.toDataURL();
 }
