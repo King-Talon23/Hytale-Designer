@@ -45,7 +45,25 @@ function showConnect() {
   for (const b of $('os').children) b.onclick = () => pick(b.dataset.os); pick(os);
   $('copypath').onclick = async () => { try { await navigator.clipboard.writeText($('path').textContent); $('copypath').textContent = 'Copied'; } catch { $('copypath').textContent = 'Select and copy it'; } setTimeout(() => $('copypath').textContent = 'Copy path', 1800); };
   $('zipfile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) doConnect(() => game.connect(f, progress)); };
+  // Chrome and Edge: pick through the file-system picker so the site can remember this Assets.zip and re-read it after a game update
+  if (typeof self.showOpenFilePicker === 'function') $('zipfile').parentElement.onclick = async e => { e.preventDefault(); if (connecting) return;
+    let h; try { [h] = await showOpenFilePicker({ id: 'hytale-assets', types: [{ description: 'Hytale Assets.zip', accept: { 'application/zip': ['.zip'] } }] }); } catch { return; }   // cancelled
+    connectHandle(h); };
+  game.zipHandle().then(h => { const b = $('samezip'); if (b) b.remove(); if (!h) return;
+    $('zipfile').parentElement.after(el('button', { id: 'samezip', class: 'btn ghost', text: 'Use the same Assets.zip again', onclick: () => connectHandle(h, true) })); });
 }
+// read Assets.zip from a remembered file handle; ask=true asks the browser for permission (needs a click)
+async function connectHandle(h, ask) {
+  if (ask && (await h.queryPermission({ mode: 'read' })) !== 'granted' && (await h.requestPermission({ mode: 'read' })) !== 'granted') return;
+  doConnect(async () => { const f = await h.getFile(); await game.connect(f, progress); await game.rememberZip(h); });
+}
+// on every visit: if the remembered Assets.zip changed (a game update) and the browser still allows reading it, refresh quietly
+async function checkGameUpdate() {
+  const h = await game.zipHandle().catch(() => null); if (!h || !META) return;
+  try { if ((await h.queryPermission({ mode: 'read' })) !== 'granted') return; const f = await h.getFile();
+    if (f.size === META.size && f.lastModified === META.modified) return;
+    say('Hytale updated, reading the new game files…'); await game.connect(f, () => {}); fig.clearCache(); pics.clear(); META = await game.status(); CAT = await game.catalog(); R = rules(CAT); registerAssets(); setConn(META); rebuild(); render(); say('Game files updated.');
+  } catch (e) { console.warn('game update check', e); say('Hytale seems to have updated, but the new game files could not be read. Use Connect again in Help.', true); } }
 function progress(p) { const b = $('progress'); b.hidden = false; b.firstElementChild.style.width = Math.round(p * 100) + '%'; b.lastElementChild.textContent = p < 1 ? `Reading your game files… ${Math.round(p * 100)}%` : 'Done'; }
 let connecting = false;
 async function doConnect(run) {
@@ -57,7 +75,8 @@ async function doConnect(run) {
 addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); $('drop').hidden = false; } });
 addEventListener('dragleave', e => { if (!e.relatedTarget) $('drop').hidden = true; });
 addEventListener('drop', e => { e.preventDefault(); $('drop').hidden = true; const fs = [...e.dataTransfer.files]; if (!fs.length) return;
-  const zip = fs.find(f => /\.zip$/i.test(f.name)); if (zip) return doConnect(() => game.connect(zip, progress));
+  const zi = [...e.dataTransfer.items].findIndex(i => i.kind === 'file' && /\.zip$/i.test(i.getAsFile()?.name || '')), hp = zi >= 0 && e.dataTransfer.items[zi].getAsFileSystemHandle ? e.dataTransfer.items[zi].getAsFileSystemHandle() : null;
+  const zip = fs.find(f => /\.zip$/i.test(f.name)); if (zip) return doConnect(async () => { await game.connect(zip, progress); const h = await hp?.catch(() => null); if (h && h.kind === 'file') await game.rememberZip(h); });
   if (R) importSkinFiles(fs); });
 function setConn(meta) { const c = $('conn'); c.classList.toggle('ok', !!meta); c.lastElementChild.textContent = meta ? 'Game files connected' : 'Not connected'; c.onclick = () => meta ? setTab('help') : showConnect(); }
 
@@ -111,7 +130,7 @@ async function flush() { clearTimeout(autosave.t); if (!dirty || flush.busy) ret
     if (!c.id) { if (WARD.custom.length >= store.CUSTOM_MAX) { if (!flush.full) { flush.full = true; say(`My skins is full (${store.CUSTOM_MAX}), so this skin isn't saved. Delete one in the Locker, or use Save as to put it in an in-game slot.`, true); } return; }
       const used = new Set(WARD.custom.map(r => r.name)); let k = WARD.custom.length + 1, n; while (used.has(n = 'My skin ' + k)) k++;
       const r = await store.saveCustom(n, c.skin); if (cur === was && !cur.id) Object.assign(cur, { id: r.id, kind: r.kind, slot: null, name: r.name, auto: true }); c.id = r.id; keepDraft();
-      say(`Saved to My skins as "${r.name}". Save as renames it.`); }
+      say(`Saved to My skins as "${r.name}". Rename it in the Locker.`); }
     else await persist(c);
     WARD = await store.list(); if (cur.id === c.id && JSON.stringify(cur.skin) === JSON.stringify(c.skin)) dirty = false; plate();
   } catch (e) { console.error(e); say(e.message || 'Could not save.', true); }
@@ -171,13 +190,19 @@ const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.str
 
 // ---------------------------------------------------------------- panels
 function setTab(t) { if (t !== 'editor' && picking) leavePicker();
-  if (t === 'animations' && R && !(playing.group === 'Default' && playing.name === 'Idle')) playAnim('Default', 'Idle', 0.5);   // opening the Animations tab stops whatever move is playing if (ED && t !== 'creator') closeAsset(true).then(() => { playAnim('Default', 'Idle', 0.5); rebuild(); });
-  tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t); if (R) render(); }
+  // opening or leaving the Animations tab stops whatever move is playing (and drops what it holds)
+  if (t !== tab && (t === 'animations' || tab === 'animations') && R && !(playing.group === 'Default' && playing.name === 'Idle')) playAnim('Default', 'Idle', 0.5);
+  if (ED && t !== 'creator') closeAsset(true).then(() => { playAnim('Default', 'Idle', 0.5); rebuild(); });
+  tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t);
+  const on = $('tabs').querySelector('.on'), nav = on?.parentElement;   // on a phone the tab row scrolls sideways: keep the open tab in view
+  if (nav && nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: nav.scrollLeft + on.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - on.offsetWidth) / 2, behavior: 'smooth' });
+  if (R) render(); }
 let pressing = false, renderLater = false;
 const flushRender = () => { pressing = false; if (renderLater) { renderLater = false; render(); } };
 addEventListener('pointerdown', e => { if (e.target.closest?.('button, a, summary, label, select, .skin')) { pressing = true; setTimeout(flushRender, 1500); } }, true);
 for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => { if (pressing) setTimeout(flushRender, 0); }, true);
 function render() { if (pressing) { renderLater = true; return; } jobGen++; plate(); drawEmotes(); drawGameSwitch(); outlineBox();
+  if (!!ED !== $('app').classList.contains('ws')) scrollTo(0, 0);   // opening or closing the Creator workspace starts at the top of the page
   $('app').classList.toggle('ws', !!ED); if (ED) return renderWorkspace(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
   p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, creator: panelCreator, help: panelHelp }[tab])());
   if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; } }
@@ -255,7 +280,7 @@ function panelPicker() {
         onpointerenter: ev => { hv.onpointerenter(ev); showDetail(e, e !== it); }, onpointerleave: ev => { hv.onpointerleave(ev); showDetail(it); } },
         e ? itemThumb(f, e, color, variant) : el('span', { class: 'nothing', text: '✕' }), star, bin, e && isNew(f, e) ? el('span', { class: 'new', text: 'NEW' }) : null, el('b', { text: e ? itemName(e) : 'None' })); };
     cardsBox.replaceChildren(...(REQUIRED.has(f) || lockFilter !== 'all' ? [] : [card(null)]), ...items.map(card));
-    if (!cardsBox.children.length) cardsBox.append(el('p', { class: 'blank', text: 'Nothing here.' }));
+    if (!items.length) cardsBox.append(el('p', { class: 'blank', text: filter.trim() ? `No items match "${filter.trim()}".` : 'Nothing here.' }));
   }
   drawCards(); showDetail(it);
   const search = el('input', { type: 'search', placeholder: 'Search', value: filter, maxLength: 40, oninput: e => { filter = e.target.value; drawCards(); } });
@@ -265,10 +290,10 @@ function panelPicker() {
   const options = el('div', { class: 'options' }, vs.map(v => el('button', { class: 'chip' + (v === (variant || vs[0]) ? ' on' : ''), text: variantName(it, v), onclick: () => change(it, color, v), ...hover(R.partStr(it, color, v)) })));
   return [head('Wardrobe'), el('div', { class: 'pbody' },
     el('div', { class: 'pickhead' }, el('button', { class: 'btn ghost', text: '‹ Wardrobe', onclick: () => { leavePicker(); render(); } }), icon(SLOT_ICON[f]), el('b', { text: LABEL[f] })),
-    el('div', { class: 'row' }, search, locked('Owned only', 'the owned cosmetics filter', 'chip')), bar, cardsBox, detail,
+    el('div', { class: 'row' }, search, locked('Owned only', 'the owned cosmetics filter', 'chip')), bar, cardsBox, el('div', { class: 'pickfoot' }, detail,
     it?.custom ? [el('h3', { text: 'Colour' }), el('p', { class: 'dim' }, 'This is your own piece, painted in the Creator. ', (() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id);
       return a ? el('button', { class: 'btn ghost small', text: 'Recolour in the Creator', onclick: guard(() => openAsset(a)) }) : null; })())]
-      : cols.length ? [el('h3', { text: 'Colour' }), swatches] : null, vs.length > 1 ? [el('h3', { text: 'Option' }), options] : null)];
+      : cols.length ? [el('h3', { text: 'Colour' }), swatches] : null, vs.length > 1 ? [el('h3', { text: 'Option' }), options] : null))];
 }
 // six favourite moves under the character, one click to play
 let EMOTES = null;
@@ -308,8 +333,8 @@ const forgetMe = guard(async () => {
 function card(rec, kind, i) {
   if (!rec) return el('div', { class: 'skin empty ' + kind }, el('div', { class: 'pic' }, el('span', { text: '+' })), el('b', { text: 'Slot ' + (i + 1) }), el('small', { text: 'Empty' }));
   const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
-  const acts = kind === 'game' ? [act('Set in game', () => checklist(rec)), act('Move out', () => moveOut(rec)), pubButton(rec), locked('Send to game', 'sending this skin to your in-game preset', 'mini')]
-    : kind === 'custom' ? [act('To in-game', () => toGame(rec)), act('Copy', () => duplicate(rec)), pubButton(rec), act('Export', () => download(rec.name.replace(/[^\w -]/g, '') + '.skin.json', { name: rec.name, skin: rec.skin })), act('Delete', () => removeSkin(rec), 'danger')]
+  const acts = kind === 'game' ? [act('Set in game', () => checklist(rec)), act('Rename', () => renameSkin(rec)), act('Move out', () => moveOut(rec)), pubButton(rec), locked('Send to game', 'sending this skin to your in-game preset', 'mini')]
+    : kind === 'custom' ? [act('To in-game', () => toGame(rec)), act('Rename', () => renameSkin(rec)), act('Copy', () => duplicate(rec)), pubButton(rec), act('Export', () => download(rec.name.replace(/[^\w -]/g, '') + '.skin.json', { name: rec.name, skin: rec.skin })), act('Delete', () => removeSkin(rec), 'danger')]
     : [act('Save', () => { open(rec, true); saveAs(); })];
   return el('div', { class: 'skin ' + kind + (cur.id && cur.id === rec.id ? ' on' : ''), tabIndex: 0, title: 'Open in the editor', onclick: () => { if (kind === 'pub') { open(rec, true, true); return render(); } open(rec, kind === 'found'); setTab('editor'); },
     onkeydown: e => { if (e.key === 'Enter') e.currentTarget.click(); } },
@@ -369,6 +394,13 @@ const toGame = guard(async rec => {
   if (v === '') return; await store.swap(rec.id, +v); await movePub(rec.id, 'game-' + v); if (cur.id === rec.id) { cur.id = 'game-' + v; cur.kind = 'game'; cur.slot = +v; } await refreshWard(); say('Moved to in-game slot ' + (+v + 1));
 });
 const moveOut = guard(async rec => { const n = await store.saveCustom(rec.name, rec.skin); await movePub(rec.id, n && n.id); await store.remove(rec.id); await refreshWard(); say('Moved to My skins'); });
+const renameSkin = guard(async rec => {
+  const name = el('input', { type: 'text', value: rec.name || '', maxLength: 40, placeholder: 'Skin name', autofocus: true });
+  if (await ask('Rename skin', [el('label', { text: 'Name' }), name], [{ label: 'Cancel', value: '' }, { label: 'Rename', value: 'yes', primary: true }]) !== 'yes') return;
+  const n = cleanName(name.value); if (!n || n === rec.name) return;
+  const r = rec.kind === 'game' ? await store.saveGame(rec.slot, n, rec.skin) : await store.saveCustom(n, rec.skin, rec.id);
+  if (cur.id === rec.id) { cur.name = r.name; cur.auto = false; keepDraft(); }
+  await refreshWard(); if (PUBMAP[r.id] && canPublish() && !hasCustom(r.skin)) publish(r, true); say(`Renamed to "${r.name}"`); });
 const duplicate = guard(async rec => { await store.saveCustom(cleanName(rec.name + ' copy'), rec.skin); await refreshWard(); });
 const removeSkin = guard(async rec => { if (!await confirmBox('Delete skin', `Delete "${rec.name}"? This cannot be undone.`, 'Delete', true)) return; if (PUBMAP[rec.id] && canPublish()) await unpublish(rec, true); await store.remove(rec.id); await refreshWard(); });
 function checklist(rec) {
@@ -442,16 +474,19 @@ async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); tr
       onceT = setTimeout(() => { if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); }, ms); } st.anim.setMove(fig.motionOf(g, n)); st.anim.playing = true; drawEmotes(); } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
 let animGroup = 'Emote';
 // the move groups as locker tiles: the game's 16 folders folded into a few, each tile showing its signature move
-const CATS = [['Emote', ['Emote']], ['Moves', ['Default']], ['Poses', ['Poses']], ['Taunt', ['Taunt']], ['Idle extras', ['Flavor']], ['Faces', ['Expressions']],
+// a group can be split with "Group:part": Sit and Sleep live in Flavor in the game files but players look for them under Poses
+const REST = /^(Sit|Sleep)/, PART = { rest: n => REST.test(n), idle: n => !REST.test(n) }, PARTNAME = { rest: 'Sit and lie' };
+const animsOf = spec => { const [g, part] = spec.split(':'), all = CAT.anims[g] || []; return part ? all.filter(PART[part]) : all; };
+const CATS = [['Emote', ['Emote']], ['Moves', ['Default']], ['Poses', ['Poses', 'Flavor:rest']], ['Taunt', ['Taunt']], ['Idle extras', ['Flavor:idle']], ['Faces', ['Expressions']],
   ['Travel', ['Fly', 'Glide', 'Dash', 'Roll', 'Slide', 'Swim', 'Climb', 'Mantle']], ['Mount', ['Mount']]];
 function animCats() {
-  const have = g => (CAT.anims[g] || []).length, out = CATS.map(([k, gs]) => [k, gs.filter(have)]).filter(([, gs]) => gs.length);
-  const used = new Set(out.flatMap(c => c[1])); for (const g of Object.keys(CAT.anims)) if (!used.has(g) && have(g)) out.push([nice(g), [g]]);
+  const have = g => animsOf(g).length, out = CATS.map(([k, gs]) => [k, gs.filter(have)]).filter(([, gs]) => gs.length);
+  const used = new Set(out.flatMap(c => c[1].map(g => g.split(':')[0]))); for (const g of Object.keys(CAT.anims)) if (!used.has(g) && have(g)) out.push([nice(g), [g]]);
   return out;
 }
 function panelAnimations() {
   const cats = animCats(); if (!cats.some(c => c[0] === animGroup)) animGroup = cats[0][0];
-  const gs = cats.find(c => c[0] === animGroup)[1], A = st.anim, count = list => list.reduce((t, g) => t + CAT.anims[g].length, 0);
+  const gs = cats.find(c => c[0] === animGroup)[1], A = st.anim, count = list => list.reduce((t, g) => t + animsOf(g).length, 0);
   const item = (g, n) => { const k = g + '/' + n, pinned = EMOTES && EMOTES.includes(k);
     return el('button', { class: A.anim && playing.group === g && playing.name === n ? 'on' : '', title: nice(n), onclick: () => playAnim(g, n) }, animThumb(g, n), el('span', { text: nice(n) }),
       el('i', { class: 'star' + (pinned ? ' on' : ''), title: pinned ? 'Remove from quick slots' : 'Add to quick slots', text: pinned ? '★' : '☆', onclick: e => { e.stopPropagation(); toggleEmote(g, n); render(); } })); };
@@ -462,8 +497,8 @@ function panelAnimations() {
     animGroup === 'Mount' ? el('div', { class: 'options' }, el('b', { class: 'dim', text: 'Ride:' }), Object.keys(MOUNTS).map(k => el('button', { class: 'chip' + (k === mountKind ? ' on' : ''), text: k,
       onclick: () => { mountKind = k; if (playing.group === 'Mount' && A.anim) playAnim('Mount', playing.name); else render(); } }))) : null,
     animGroup === 'Mount' && mountMsg ? el('div', { class: 'row' }, el('p', { class: 'need', text: mountMsg }), el('button', { class: 'btn ghost', text: 'Refresh game files', onclick: () => showConnect() })) : null,
-    gs.length > 1 ? gs.map(g => [el('h3', { class: 'animhead', text: nice(g) }), el('div', { class: 'animlist' }, CAT.anims[g].map(n => item(g, n)))])
-      : el('div', { class: 'animlist' }, CAT.anims[gs[0]].map(n => item(gs[0], n))))];
+    gs.length > 1 ? gs.map(spec => { const [g, part] = spec.split(':'); return [el('h3', { class: 'animhead', text: PARTNAME[part] || nice(g) }), el('div', { class: 'animlist' }, animsOf(spec).map(n => item(g, n)))]; })
+      : el('div', { class: 'animlist' }, animsOf(gs[0]).map(n => item(gs[0].split(':')[0], n))))];
 }
 
 // other players' skins
@@ -512,12 +547,12 @@ function panelLookup() {
 function panelHelp() {
   const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
   const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const r = await store.importAll(await readJsonFile(f, 40_000_000)); await reloadAssets(); await refreshWard(); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}${r.skipped ? `, ${r.skipped} did not fit` : ''}`); }) });
-  const steps = [['Wardrobe', 'pick a slot like Haircut or Capes, then click items to try them on. Changes save themselves.'], ['Locker', 'all your skins. Load one, rename it, put it in an in-game slot, or publish it once you sign in.'],
+  const steps = [['Wardrobe', 'pick a slot like Haircut or Capes, then click items to try them on. Changes save themselves.'], ['Locker', 'all your skins. Load one, rename it, copy it or put it in an in-game slot. Publishing comes once Sign in with Hytale is switched on.'],
     ['Animations', "play the game's own moves on your skin. Click the tab again to stop."], ['Creator', 'make your own pieces. Start from any game item, paint it, and it shows up under Custom in the Wardrobe.'],
     ['Players', "look up someone by username to see what they're wearing and what they've published."]];
   return [head('Help'), el('div', { class: 'pbody prose' },
     sec('How it works', el('ul', { class: 'howto' }, steps.map(([t, d]) => el('li', {}, el('b', { text: t + ' ' }), d))),
-      'Drag the character to turn it, scroll to zoom. Front puts the camera back.'),
+      'Drag the character to turn it, scroll to zoom. Front turns it back to face you.'),
     sec('Game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: showConnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
@@ -535,7 +570,7 @@ const itemName = e => e && e.custom ? e.Name : (e && CAT.names && CAT.names[e.Na
 function gameNamed(n) { const k = String(n).trim().toLowerCase(); if (!gameNamed.set || gameNamed.cat !== CAT) {
     gameNamed.cat = CAT; gameNamed.set = new Set([...Object.values(CAT.items).flat().filter(e => !e.custom).map(e => itemName(e).toLowerCase()), ...Object.values(CAT.anims || {}).flat().map(a => nice(a).toLowerCase())]); }
   return gameNamed.set.has(k); }
-const isTmp = e => !e.custom && (/^\s*\[?tmp\]?/i.test(itemName(e)) || /(^|_)tmp(_|$)/i.test(e.Id));   // the game's unfinished placeholder items
+const isTmp = e => !e.custom && (/^\s*\[?tmp\]?/i.test(itemName(e)) || /\bW\.?I\.?P\b/i.test(itemName(e)) || /(^|_)(tmp|wip)(_|$)/i.test(e.Id));   // the game's unfinished placeholder items
 const oneEach = items => { const seen = new Set(); return items.filter(e => { if (e.custom) return true; const k = itemName(e).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); };
 const hasCustom = skin => Object.values(skin).some(v => typeof v === 'string' && v.startsWith('Custom_'));
 async function reloadAssets() { ASSETS = await assets.list().catch(() => []); registerAssets(); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false)); cur.skin = R.fit(cur.skin); }
@@ -805,9 +840,13 @@ function assetCard(a) {
       act('Delete', guard(async () => { if (!await confirmBox('Delete custom asset', `Delete "${a.name}"? Skins wearing it lose that part. This cannot be undone.`, 'Delete', true)) return;
         pressing = false; await deleteAsset(a); }), 'danger')));
 }
-async function deleteAsset(a) {   // skins wearing it fall back to the slot's usual item
-  const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
-  await assets.remove(a.id); ASSETS = await assets.list(); syncFolder(); registerAssets(); if (worn) setSkin(R.fit(cur.skin)); else cur.skin = R.fit(cur.skin); pics.clear(); rebuild(); render(); say(`Deleted "${a.name}"`);
+async function deleteAsset(a) {   // skins wearing it go back to the game item it was copied from (or the slot's usual item)
+  const mine = v => typeof v === 'string' && v.startsWith('Custom_' + a.id), base = R.ITEMS[a.field]?.find(e => e.Id === a.baseId && !e.custom), back = base ? R.partStr(base) : null;
+  const swap = sk => (mine(sk[a.field]) ? { ...sk, [a.field]: back } : sk), worn = mine(cur.skin[a.field]);
+  for (const rec of [...WARD.custom, ...WARD.game].filter(r => r && mine(r.skin?.[a.field])))   // saved skins too, so none is left missing a part
+    await (rec.kind === 'game' ? store.saveGame(rec.slot, rec.name, swap(rec.skin)) : store.saveCustom(rec.name, swap(rec.skin), rec.id)).catch(e => console.warn(e));
+  await assets.remove(a.id); ASSETS = await assets.list(); syncFolder(); registerAssets(); WARD = await store.list();
+  if (worn) setSkin(R.fit(swap(cur.skin))); else cur.skin = R.fit(cur.skin); pics.clear(); rebuild(); render(); say(`Deleted "${a.name}"` + (back ? `. Skins wearing it now wear ${itemName(base)} again.` : ''));
 }
 const disclosure = () => el('div', { class: 'disclose' }, el('b', { text: 'Site only' }), el('span', { text: 'With the Skin Editor Sync mod installed and Show in game on, your character in your own worlds wears what you have on here, custom assets included. Repaints of edition and reward items stay on this site.' }));
 // the drawn area over the flat texture: everything outside it is dimmed and each drawn face is outlined
@@ -1315,6 +1354,6 @@ addEventListener('keydown', e => { if (!R || e.target?.matches?.('input, textare
     // Local development only: read the developer's own Assets.zip through the dev server (dev/ is never deployed).
     if ((['localhost', '127.0.0.1'].includes(location.hostname) || location.hostname.endsWith('.localhost')) && new URLSearchParams(location.search).has('devzip') && !(await game.status()))
       { const { devSource } = await import('../dev/devsource.js'); showConnect(); return doConnect(async () => game.importFrom(await devSource(), { name: 'Assets.zip (dev)', size: 0, modified: 0 }, progress)); }
-    if (await game.status()) await startApp(); else showConnect();
+    if (await game.status()) { await startApp(); checkGameUpdate(); } else showConnect();
   } catch (e) { console.error(e); showConnect(); $('connerr').textContent = 'This browser blocked local storage, which the editor needs. Try a normal (not private) window.'; }
 })();
