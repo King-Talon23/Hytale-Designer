@@ -1,4 +1,4 @@
-# Skin Editor companion mod (for Hytale)
+# Skin Editor Sync (companion mod for Hytale)
 
 Shows the skin you are wearing on https://hytale-skin-editor.com on your character in your own worlds, custom assets
 included. No commands. Unofficial; not affiliated with or endorsed by Hypixel Studios.
@@ -22,4 +22,7 @@ Everyone in the world sees you dressed, because the server sends it.
   a paid cosmetic on anyone.
 
 ## Build
-`bash build.sh` (JDK 25, compiles against your installed `HytaleServer.jar`) gives `out/SkinEditor-<version>.jar`.
+`bash build.sh` (JDK 25, compiles against your installed `HytaleServer.jar`) gives `out/SkinEditor-<version>.jar`. Released on CurseForge from 1.0.0.
+
+## License
+MIT (see `LICENSE` in this folder). This covers the mod only; the website code is not licensed for reuse.
