@@ -4,6 +4,8 @@ import * as db from './db.js';
 import * as fig from './figure.js';
 import * as store from './store.js';
 import * as auth from './auth.js';
+import * as assets from './assets.js';
+import { createPainter, SHAPES, ONCE } from './paint.js';
 import { rules, sanitize, cleanName, parse, nice, LABEL, GROUPS, REQUIRED } from './skin.js';
 
 const $ = id => document.getElementById(id);
@@ -26,7 +28,7 @@ function ask(title, body, buttons) {
 }
 const confirmBox = (title, text, yes, danger) => ask(title, el('p', { text }), [{ label: 'Cancel', value: '' }, { label: yes, value: 'yes', primary: !danger, danger }]).then(v => v === 'yes');
 function download(name, data) { const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' })), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
-async function readJsonFile(file) { if (file.size > 2_000_000) throw new Error('That file is too large to be a skin.'); return JSON.parse(await file.text()); }
+async function readJsonFile(file, max = 2_000_000) { if (file.size > max) throw new Error('That file is too large.'); return JSON.parse(await file.text()); }
 
 // ---------------------------------------------------------------- connect screen
 const PATHS = { win: '%APPDATA%\\Hytale\\install\\release\\package\\game\\latest', mac: '~/Library/Application Support/Hytale/install/release/package/game/latest', linux: '~/.local/share/Hytale/install/release/package/game/latest' };
@@ -60,10 +62,10 @@ let FOLDER = { state: 'none' }, ACCOUNT = null;
 let found = [];   // skins brought in this session by a lookup or from files; not saved until the player saves them
 
 async function startApp() {
-  META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META);
+  META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets();
   $('connect').hidden = true; $('app').hidden = false;
-  st ??= fig.stage($('view'), OrbitControls);
-  try { await store.resumeFolder(false); } catch (e) { console.warn(e); }
+  if (!st) { st = fig.stage($('view'), OrbitControls); bindPaint($('view'), e => ED ? st.pick(e.clientX, e.clientY, ED.canvas, ED.mirror) : null, 10, true); }
+  try { if (await store.resumeFolder(false)) await reloadAssets(); } catch (e) { console.warn(e); }
   FOLDER = await store.folderState(); WARD = await store.list(); ACCOUNT = await auth.account().catch(() => null);
   const draft = await db.get('meta', 'draft'), ds = sanitize(draft?.skin);
   cur = ds ? { id: draft.id || null, kind: draft.kind || null, slot: draft.slot ?? null, name: cleanName(draft.name), skin: R.fit(ds) } : { id: null, kind: null, slot: null, name: '', skin: R.blank() };
@@ -123,9 +125,10 @@ function animThumb(g, n) { const s = R.fit(cur.skin);
 const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.stringify(s), async () => fig.snapshot(await fig.build(s, R), 'full')); };
 
 // ---------------------------------------------------------------- panels
-function setTab(t) { tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t); if (R) render(); }
+function setTab(t) { if (ED && t !== 'creator') closeAsset(true).then(() => { playAnim('Default', 'Idle', 0.5); rebuild(); });
+  tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t); if (R) render(); }
 function render() { jobGen++; plate(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
-  p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, feedback: panelFeedback, help: panelHelp }[tab])());
+  p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, feedback: panelFeedback, creator: panelCreator, help: panelHelp }[tab])());
   if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; } }
 // our own small symbols for the category rail (drawn here, not taken from the game)
 const ICON = { Head: 'M6 3h12v13H6zM9 8v3h2V8zM13 8v3h2V8zM9 17h6v4H9z', Body: 'M9 2h6v6H9zM7 9h10v8H7zM3 9h3v8H3zM18 9h3v8h-3zM8 18h3v4H8zM13 18h3v4h-3z',
@@ -145,11 +148,11 @@ function panelEditor() {
   const it = R.find(slot, cur.skin[slot]), { color, variant } = parse(cur.skin[slot]);
   const change = (item, c, v) => setSkin({ ...cur.skin, [slot]: R.partStr(item, c, v) });
   const rail = el('div', { class: 'rail' }, GROUPS.map(([g]) => el('button', { class: g === group ? 'on' : '', onclick: () => { group = g; filter = ''; render(); } }, icon(ICON[g]), el('span', { text: g }))));
-  const sub = el('div', { class: 'rail sub' }, fields.map(f => el('button', { class: f === slot ? 'on' : '', onclick: () => { slot = f; filter = ''; render(); } }, icon(SLOT_ICON[f]), el('div', {}, el('span', { text: LABEL[f] }), el('small', { text: cur.skin[f] ? nice(parse(cur.skin[f]).id) : 'None' })))));
-  const q = filter.toLowerCase(), items = R.ITEMS[slot].filter(e => nice(e.Id).toLowerCase().includes(q));
+  const sub = el('div', { class: 'rail sub' }, fields.map(f => el('button', { class: f === slot ? 'on' : '', onclick: () => { slot = f; filter = ''; render(); } }, icon(SLOT_ICON[f]), el('div', {}, el('span', { text: LABEL[f] }), el('small', { text: cur.skin[f] ? itemName(R.find(f, cur.skin[f]) || { Id: parse(cur.skin[f]).id }) : 'None' })))));
+  const q = filter.toLowerCase(), items = R.ITEMS[slot].filter(e => itemName(e).toLowerCase().includes(q));
   const grid = el('div', { class: 'grid' },
     REQUIRED.has(slot) ? null : el('button', { class: 'tile none' + (!it ? ' on' : ''), title: 'None', onclick: () => change(null), ...hover(null) }, el('span', { text: '✕' })),
-    items.map(e => el('button', { class: 'tile' + (e === it ? ' on' : ''), title: nice(e.Id), onclick: () => change(e, color, variant), ...hover(R.partStr(e, color, variant)) }, itemThumb(slot, e, color, variant))));
+    items.map(e => el('button', { class: 'tile' + (e === it ? ' on' : '') + (e.custom ? ' mine' : ''), title: itemName(e), onclick: () => change(e, color, variant), ...hover(R.partStr(e, color, variant)) }, itemThumb(slot, e, color, variant))));
   const search = el('input', { type: 'search', placeholder: 'Search', value: filter, maxLength: 40, oninput: e => { filter = e.target.value; const g = panelEditor(); $('panel').querySelector('.grid').replaceWith(g[1].querySelector('.grid')); } });
   const cols = it ? R.colorsOf(it, variant) : [], vs = it?.Variants ? Object.keys(it.Variants) : [];
   const swatches = el('div', { class: 'swatches' }, cols.map(([k, base]) => { const b = el('button', { title: nice(k), class: k === color ? 'on' : '', onclick: () => change(it, k, variant), ...hover(R.partStr(it, k, variant)) });
@@ -176,23 +179,23 @@ const locked = (label, feature, cls = 'btn ghost') => el('button', { class: cls 
 const need = feature => el('p', { class: 'need', text: NEED(feature) + '.' });
 function accountRow() {
   if (!auth.enabled) return el('div', { class: 'folder account' }, el('div', {}, el('b', {}, 'Hytale account ', el('span', { class: 'tag none', text: 'WIP' })),
-    el('small', { text: 'Sign in with Hytale is not available yet. The greyed-out buttons across the site turn on when it is.' })),
+    ),
     el('button', { class: 'btn primary locked', disabled: true, title: 'Coming soon', text: 'Connect Hytale account' }));
   if (!ACCOUNT) return el('div', { class: 'folder account' }, el('div', {}, el('b', { text: 'Hytale account' }),
-    el('small', { text: 'Sign in on Hytale’s own page to show your equipped skin without typing your name. The site receives only the game profile you pick (username and ID) and keeps it in this browser.' })),
+    ),
     el('button', { class: 'btn primary', text: 'Connect Hytale account', onclick: guard(() => auth.start()) }));
-  return el('div', { class: 'folder account on' }, el('div', {}, el('b', { text: 'Signed in as ' + ACCOUNT.username }), el('small', { text: 'Kept in this browser only. Presets and friends still wait on Hytale offering them.' })),
+  return el('div', { class: 'folder account on' }, el('div', {}, el('b', { text: 'Signed in as ' + ACCOUNT.username })),
     el('button', { class: 'btn ghost', text: 'Show my skin', onclick: () => { setTab('lookup'); lookup(ACCOUNT.username); } }),
     el('button', { class: 'btn ghost', text: 'Sign out', onclick: guard(async () => { await auth.signOut(); ACCOUNT = null; render(); }) }));
 }
 function folderRow() {
-  if (!store.folderSupported) return el('p', { class: 'note', text: 'This browser can only keep skins in its own storage. Chrome and Edge can also save them to a folder on your computer; in any browser you can download a backup from Help.' });
-  const after = async r => { FOLDER = await store.folderState(); await refreshWard(); if (r) say(r.imported ? `Folder connected, ${r.imported} skin${r.imported > 1 ? 's' : ''} brought in` : 'Folder connected'); };
+  if (!store.folderSupported) return el('p', { class: 'note', text: 'Saving to a folder needs Chrome or Edge.' });
+  const after = async r => { FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); if (r) say(r.imported ? `Folder connected, ${r.imported} skin${r.imported > 1 ? 's' : ''} brought in` : 'Folder connected'); };
   const btn = (t, fn, c = 'ghost') => el('button', { class: 'btn ' + c, text: t, onclick: guard(fn) });
-  const [title, text] = FOLDER.state === 'on' ? ['Saving to folder: ' + FOLDER.name, 'Every skin is a small file in this folder and updates as you edit.']
+  const [title, text] = FOLDER.state === 'on' ? ['Saving to folder: ' + FOLDER.name, 'Every skin and custom asset is a small file in this folder and updates as you edit.']
     : FOLDER.state === 'ask' ? ['Folder paused: ' + FOLDER.name, 'Your browser needs your OK again before it can write to the folder. Until then, changes are kept in the browser.']
     : ['Save skins to a folder', 'Pick a folder on your computer, for example a "Hytale Skins" folder in Documents. Each skin becomes a small file there and updates as you edit.'];
-  return el('div', { class: 'folder ' + FOLDER.state }, el('div', {}, el('b', { text: title }), el('small', { text })),
+  return el('div', { class: 'folder ' + FOLDER.state }, el('div', {}, el('b', { text: title })),
     FOLDER.state === 'none' ? btn('Choose folder', async () => after(await store.chooseFolder()), 'primary')
       : [FOLDER.state === 'ask' ? btn('Reconnect', async () => after(await store.resumeFolder(true)), 'primary') : btn('Change', async () => after(await store.chooseFolder())),
          btn('Stop', async () => { await store.forgetFolder(); await after(); })]);
@@ -200,17 +203,16 @@ function folderRow() {
 function panelWardrobe() {
   return [head('Wardrobe'), el('div', { class: 'pbody' }, folderRow(), accountRow(),
     el('div', { class: 'shelf game' }, el('h3', {}, el('span', { text: 'In-game slots' }), el('em', { text: `${WARD.game.filter(Boolean).length} / ${store.GAME_SLOTS}` })),
-      el('p', { class: 'note', text: 'These mirror your 5 presets inside Hytale. The site cannot read or change your Hytale account, so after you move a skin here, use "Set in game" for the list of parts to pick in My Avatar.' }),
       el('div', { class: 'row' }, locked('Load my presets', 'loading your in-game presets'), locked('Send all to game', 'sending skins to your in-game presets')), need('preset sync'),
       el('div', { class: 'cards' }, WARD.game.map((r, i) => card(r, 'game', i)))),
     el('div', { class: 'shelf custom' }, el('h3', {}, el('span', { text: 'My skins' }), el('em', { text: `${WARD.custom.length} / ${store.CUSTOM_MAX}` })),
-      el('p', { class: 'note', text: 'Extra skins that exist only here, not in the game. Saved skins update by themselves as you edit them.' }),
       WARD.custom.length ? el('div', { class: 'cards' }, WARD.custom.map(r => card(r, 'custom'))) : el('p', { class: 'blank', text: 'Nothing saved yet. Design a skin in the Editor and press Save.' })))];
 }
 async function refreshWard() { WARD = await store.list(); if (cur.id && ![...WARD.game, ...WARD.custom].some(r => r && r.id === cur.id)) { cur.id = null; cur.kind = null; cur.slot = null; } render(); }
 const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { if (e && e.name === 'AbortError') return; console.error(e); say(e.message || 'That did not work.', true); } };
 const slotButtons = () => WARD.game.map((r, i) => ({ label: `Slot ${i + 1}${r ? ': ' + r.name : ' (empty)'}`, value: String(i) }));
 const toGame = guard(async rec => {
+  if (hasCustom(rec.skin)) throw new Error('In-game slots cannot hold custom assets, because the game does not have them.');
   const v = await ask('Move to an in-game slot', el('p', { text: `"${rec.name}" goes into the slot you pick. A skin already in that slot moves to My skins, so nothing is lost.` }), [...slotButtons(), { label: 'Cancel', value: '' }]);
   if (v === '') return; await store.swap(rec.id, +v); if (cur.id === rec.id) { cur.id = 'game-' + v; cur.kind = 'game'; cur.slot = +v; } await refreshWard(); say('Moved to in-game slot ' + (+v + 1));
 });
@@ -229,6 +231,7 @@ async function saveAs() {
   const where = el('select', {}, el('option', { value: 'custom', text: `My skins (${WARD.custom.length} / ${store.CUSTOM_MAX})` }), WARD.game.map((r, i) => el('option', { value: String(i), text: `In-game slot ${i + 1}${r ? ', replaces "' + r.name + '"' : ' (empty)'}` })));
   const v = await ask('Save skin', [el('label', { text: 'Name' }), name, el('label', { text: 'Save to' }), where], [{ label: 'Cancel', value: '' }, { label: 'Save', value: 'yes', primary: true }]);
   if (v !== 'yes') return; const n = cleanName(name.value) || 'Unnamed';
+  if (where.value !== 'custom' && hasCustom(cur.skin)) return say('In-game slots cannot hold custom assets. Save this one to My skins.', true);
   await guard(async () => { const r = where.value === 'custom' ? await store.saveCustom(n, cur.skin) : await store.saveGame(+where.value, n, cur.skin);
     cur.id = r.id; cur.kind = r.kind; cur.slot = r.slot ?? null; cur.name = r.name; dirty = false; keepDraft(); await refreshWard(); say(`Saved "${r.name}"`); })();
 }
@@ -242,7 +245,6 @@ function panelAnimations() {
   const groups = Object.keys(CAT.anims).sort((a, b) => (ORDER.indexOf(a) + 99) % 99 - (ORDER.indexOf(b) + 99) % 99 || a.localeCompare(b)); if (!groups.includes(animGroup)) animGroup = groups[0];
   const A = st.anim;
   return [head('Animations'), el('div', { class: 'pbody' },
-    el('p', { class: 'note', text: 'See how the skin moves. These are the game\'s own player animations, read from your game files.' }),
     el('div', { class: 'now' }, el('b', { text: A.anim ? nice(playing.name) : 'Rest pose' }),
       el('button', { class: 'btn ghost', text: A.playing ? 'Pause' : 'Play', onclick: () => { A.playing = !A.playing; render(); } }),
       el('button', { class: 'btn ghost', text: 'Rest pose', onclick: () => { A.set(null); render(); } })),
@@ -271,15 +273,14 @@ function panelLookup() {
   const form = el('form', { class: 'row', onsubmit: e => { e.preventDefault(); lookup(input.value); } }, input, el('button', { class: 'btn primary', text: 'Find' }));
   const file = el('input', { type: 'file', accept: '.json,.skin,application/json', multiple: true, hidden: true, onchange: e => { importSkinFiles(e.target.files); e.target.value = ''; } });
   return [head('Players'), el('div', { class: 'pbody' },
-    el('h3', { text: 'Find a player' }), el('p', { class: 'note', text: 'Look up any player by username or UUID to see the skin they have equipped right now. Saved presets are private to each player’s Hytale account, so only the equipped skin can be shown. What you type is sent to playerdb.co, a public community lookup service; nothing else is.' }), form, el('p', { class: 'err', text: lookupMsg }),
-    el('h3', { text: 'Open skin files' }), el('p', { class: 'note', text: 'Your game keeps your equipped skin in UserData\\CachedPlayerSkins and the skins of players it has seen in UserData\\CachedAvatarPreviews (the .skin files). Choose or drop them here.' }),
-    el('label', { class: 'btn ghost' }, 'Choose skin files', file),
+    el('h3', { text: 'Find a player' }), form, el('p', { class: 'err', text: lookupMsg }),
+    el('h3', { text: 'Open skin files' }), el('label', { class: 'btn ghost' }, 'Choose skin files', file),
     found.length ? [el('h3', { text: 'Found this session' }), el('div', { class: 'cards' }, found.map(r => card(r, 'found')))] : null)];
 }
 
 function panelHelp() {
   const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
-  const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const r = await store.importAll(await readJsonFile(f)); await refreshWard(); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}${r.skipped ? `, ${r.skipped} did not fit` : ''}`); }) });
+  const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const r = await store.importAll(await readJsonFile(f, 40_000_000)); await reloadAssets(); await refreshWard(); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}${r.skipped ? `, ${r.skipped} did not fit` : ''}`); }) });
   return [head('Help'), el('div', { class: 'pbody prose' },
     sec('How it works', 'The editor draws your character from the cosmetic files in your own copy of Hytale. When you connect, it reads the small character files out of Assets.zip and keeps a copy in this browser, on your computer. This website hosts no Hytale files and none of yours are uploaded.'),
     sec('Your game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
@@ -302,7 +303,101 @@ function panelFeedback() {
     link('Report a bug', `${REPO}/issues/new?template=bug.yml&diagnostics=${encodeURIComponent(diag)}`, 'primary'),
     el('h3', { text: 'Request a feature' }), el('p', { text: 'Vote for a request with a thumbs-up, or add your own. The most wanted get built first.' }),
     el('div', { class: 'row' }, link('See and vote on requests', `${REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement+sort%3Areactions-%2B1-desc`, 'ghost'), link('Request a feature', `${REPO}/issues/new?template=feature.yml`, 'primary')),
-    el('p', { class: 'note', text: 'Reports are public and need a free GitHub account. This site collects nothing itself.' }))];
+    )];
+}
+
+// ---------------------------------------------------------------- asset creator
+let ASSETS = [], ED = null, edN = 0;
+const itemName = e => e && e.custom ? e.Name : nice(e ? e.Id : '');
+const hasCustom = skin => Object.values(skin).some(v => typeof v === 'string' && v.startsWith('Custom_'));
+async function reloadAssets() { ASSETS = await assets.list().catch(() => []); registerAssets(); cur.skin = R.fit(cur.skin); }
+const syncFolder = () => store.sync().catch(e => say(e.message, true));
+function registerAssets() {   // custom assets join the catalogue as extra items in their slot, so the editor treats them like any other
+  for (const f of game.FIELDS) { const arr = CAT.items[f]; for (let i = arr.length - 1; i >= 0; i--) if (arr[i].custom) arr.splice(i, 1); }
+  for (const a of ASSETS) { const base = CAT.items[a.field].find(e => e.Id === a.baseId) || {};
+    CAT.items[a.field].push({ ...base, Id: 'Custom_' + a.id, custom: true, baseId: a.baseId, Name: a.name, Model: a.model, Variants: undefined, GradientSet: undefined, GreyscaleTexture: undefined, IsDefaultAsset: false,
+      Textures: { Mine: { Texture: `custom:${a.id}@${ED && ED.asset.id === a.id ? 'live' + ED.n : a.updated}`, BaseColor: ['#f4c452'] } } }); }
+}
+fig.setCustomSource(async id => {
+  if (ED && ED.asset.id === id) return ED.canvas;
+  const a = ASSETS.find(x => x.id === id); if (!a) throw new Error('that custom asset is gone');
+  const bmp = await createImageBitmap(a.data), c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height; c.getContext('2d').drawImage(bmp, 0, 0); return c;
+});
+const newAsset = guard(async f => {
+  if (ASSETS.length >= assets.MAX) throw new Error(`You have ${assets.MAX} custom assets, the most this site keeps. Delete one first.`);
+  const r = R.resolve(f, cur.skin), it = R.find(f, cur.skin[f]); if (!r || !it) throw new Error('Wear something in that slot first.');
+  const c = await fig.bakedCanvas(r.tex, r.tint), data = await new Promise(ok => c.toBlob(ok, 'image/png'));
+  const a = await assets.save({ id: assets.newId(), name: itemName(it) + (it.custom ? ' copy' : ' (mine)'), field: f, baseId: it.custom ? it.baseId : it.Id, model: r.model, w: c.width, h: c.height, data });
+  ASSETS = await assets.list(); registerAssets(); setSkin({ ...cur.skin, [f]: 'Custom_' + a.id + '.Mine' }); await openAsset(a);
+});
+async function openAsset(a) {
+  if (ED) await closeAsset(true);
+  const bmp = await createImageBitmap(a.data), c = el('canvas', { width: bmp.width, height: bmp.height, className: 'paint' }); c.getContext('2d', { willReadFrequently: true }).drawImage(bmp, 0, 0);
+  ED = { asset: a, canvas: c, n: ++edN, zoom: Math.max(2, Math.min(8, Math.floor(440 / bmp.width))) };
+  ED.painter = createPainter(c, final => { fig.refreshCustom(a.id); if (final) queueAssetSave(); }, () => render());
+  ED.palette = ED.painter.palette(); bindPaint(c, e => { const r = c.getBoundingClientRect(); return { x: Math.min(c.width - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * c.width))), y: Math.min(c.height - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * c.height))) }; }, 1e9);
+  registerAssets(); st.anim.set(null); st.paintMode(true); tab = 'creator'; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === 'creator'); render(); rebuild();
+}
+function queueAssetSave() { clearTimeout(queueAssetSave.t); queueAssetSave.t = setTimeout(() => flushAsset().catch(e => say(e.message, true)), 900); }
+async function flushAsset() { clearTimeout(queueAssetSave.t); if (!ED) return; const e = ED, data = await new Promise(ok => e.canvas.toBlob(ok, 'image/png'));
+  e.asset = await assets.save({ ...e.asset, data }); ASSETS = await assets.list(); syncFolder(); }
+async function closeAsset(quiet) {
+  if (!ED) return; await flushAsset().catch(e => say(e.message, true)); ED = null; registerAssets(); st.paintMode(false); pics.clear(); lastPic.clear();
+  if (!quiet) { playAnim('Default', 'Idle', 0.5); rebuild(); render(); }
+}
+// painting: the same strokes whether the pointer is on the flat texture or on the 3D model
+function bindPaint(target, toPixel, reach, onModel) { let down = false, last = null;
+  const twin = (a, b) => { const t = ED.painter.tool; if (ED.mirror && b.m && !SHAPES.has(t) && !ONCE.has(t)) ED.painter.stroke(a && a.m ? a.m : b.m, b.m); };
+  target.addEventListener('pointerdown', e => { if (!ED || e.button !== 0) return; const p = toPixel(e); if (!p) return; e.preventDefault(); try { target.setPointerCapture(e.pointerId); } catch { /* fine */ }
+    down = true; last = p; ED.painter.begin(); ED.painter.stroke(p, p); twin(null, p); });
+  target.addEventListener('pointermove', e => { if (!down || !ED) return; const p = toPixel(e); if (!p) { last = null; return; }
+    const from = last && (Math.abs(last.x - p.x) + Math.abs(last.y - p.y) <= reach || (onModel && SHAPES.has(ED.painter.tool))) ? last : p;
+    ED.painter.stroke(from, p); twin(from === last ? last : null, p); last = p; });   // on the model, a jump to another face starts a new dab instead of streaking across the texture
+  const up = () => { if (!down) return; down = false; ED && ED.painter.end(); }; target.addEventListener('pointerup', up); target.addEventListener('pointercancel', up);
+}
+const urls = new Map();
+function assetPicture(a) { const k = a.id + '@' + a.updated; if (!urls.has(k)) { for (const [o, u] of urls) if (o.startsWith(a.id + '@')) { URL.revokeObjectURL(u); urls.delete(o); } urls.set(k, URL.createObjectURL(a.data)); } return el('img', { alt: '', src: urls.get(k), draggable: false }); }
+function downloadBlob(name, blob) { const a = el('a', { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+function assetCard(a) {
+  const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
+  const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
+  return el('div', { class: 'skin asset' + (worn ? ' on' : ''), tabIndex: 0, title: 'Open in the creator', onclick: guard(() => openAsset(a)) },
+    el('div', { class: 'pic tex' }, assetPicture(a)), el('b', { text: a.name }), el('small', { text: LABEL[a.field] }),
+    el('div', { class: 'acts' }, act(worn ? 'Wearing' : 'Wear', () => setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' })), act('Export', () => downloadBlob(a.name.replace(/[^\w -]/g, '') + '.png', a.data)),
+      act('Delete', guard(async () => { if (!await confirmBox('Delete custom asset', `Delete "${a.name}"? Skins wearing it lose that part. This cannot be undone.`, 'Delete', true)) return;
+        await assets.remove(a.id); ASSETS = await assets.list(); syncFolder(); registerAssets(); cur.skin = R.fit(cur.skin); pics.clear(); rebuild(); render(); }), 'danger')));
+}
+function panelCreator() {
+  if (!ED) { const worn = game.FIELDS.filter(f => R.resolve(f, cur.skin));
+    const sel = el('select', {}, worn.map(f => el('option', { value: f, text: `${LABEL[f]}: ${itemName(R.find(f, cur.skin[f]))}` })));
+    return [head('Asset Creator'), el('div', { class: 'pbody' },
+      el('h3', { text: 'Start from something you are wearing' }), el('div', { class: 'row' }, sel, el('button', { class: 'btn primary', text: 'Create', onclick: () => newAsset(sel.value) })),
+      el('h3', { text: `My custom assets (${ASSETS.length} / ${assets.MAX})` }),
+      ASSETS.length ? el('div', { class: 'cards' }, ASSETS.map(assetCard)) : el('p', { class: 'blank', text: 'None yet. Pick a slot above and press Create.' }))]; }
+  const P = ED.painter, a = ED.asset, c = ED.canvas; c.style.width = c.width * ED.zoom + 'px';
+  const tool = (id, label) => el('button', { class: 'chip' + (P.tool === id ? ' on' : ''), text: label, onclick: () => { P.tool = id; render(); } });
+  const btn = (t, fn, cls = 'ghost') => el('button', { class: 'btn ' + cls, text: t, onclick: fn });
+  const sizeLabel = el('label', { text: `Brush size ${P.size}` }), opLabel = el('label', { text: `Strength ${Math.round(P.opacity * 100)}%` });
+  // recolour the whole item: three sliders that preview live and are kept or dropped together
+  const adj = { h: 0, s: 0, l: 0 }, adjRow = (key, label, min, max) => { const lab = el('label', { text: `${label} 0` });
+    return el('div', { class: 'grow' }, lab, el('input', { type: 'range', min, max, step: 1, value: 0, 'data-adj': key, oninput: e => { adj[key] = +e.target.value; lab.textContent = `${label} ${e.target.value}`; P.adjust(adj.h, adj.s / 100, adj.l / 100, false); } })); };
+  const endAdjust = keep => { if (!keep) adj.h = adj.s = adj.l = 0; P.adjust(adj.h, adj.s / 100, adj.l / 100, true); ED.palette = P.palette(); render(); };
+  const file = el('input', { type: 'file', accept: 'image/png', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (f.size > 2_000_000) throw new Error('That image is too large.');
+    const bmp = await createImageBitmap(f); if (bmp.width !== c.width || bmp.height !== c.height) throw new Error(`The image must be ${c.width} by ${c.height} pixels, the size of this texture.`); P.replace(bmp); ED.palette = P.palette(); render(); }) });
+  return [head('Asset Creator'), el('div', { class: 'pbody' },
+    el('div', { class: 'row' }, el('input', { type: 'text', value: a.name, maxLength: 40, onchange: e => { ED.asset = { ...ED.asset, name: cleanName(e.target.value) || a.name }; queueAssetSave(); } }), btn('Done', () => closeAsset(), 'primary')),
+    el('div', { class: 'options' }, tool('brush', 'Brush'), tool('erase', 'Eraser'), tool('fill', 'Fill'), tool('replace', 'Replace colour'), tool('pick', 'Pick colour'), tool('light', 'Lighten'), tool('dark', 'Darken'), tool('noise', 'Noise'),
+      tool('line', 'Line'), tool('box', 'Box'), tool('boxfill', 'Filled box'),
+      el('button', { class: 'chip' + (ED.mirror ? ' on' : ''), text: 'Mirror: ' + (ED.mirror ? 'on' : 'off'), title: 'When painting on the model, paint the matching spot on the other side too', onclick: () => { ED.mirror = !ED.mirror; render(); } })),
+    el('div', { class: 'row tools' }, el('input', { type: 'color', value: P.color, title: 'Colour', oninput: e => { P.color = e.target.value; }, onchange: () => { if (P.tool === 'pick' || P.tool === 'erase') P.tool = 'brush'; render(); } }),
+      el('div', { class: 'grow' }, sizeLabel, el('input', { type: 'range', min: 1, max: 8, step: 1, value: P.size, oninput: e => { P.size = +e.target.value; sizeLabel.textContent = `Brush size ${P.size}`; } })),
+      el('div', { class: 'grow' }, opLabel, el('input', { type: 'range', min: 10, max: 100, step: 10, value: Math.round(P.opacity * 100), oninput: e => { P.opacity = +e.target.value / 100; opLabel.textContent = `Strength ${e.target.value}%`; } }))),
+    el('div', { class: 'swatches' }, ED.palette.map(h => { const b = el('button', { title: h, class: h === P.color ? 'on' : '', onclick: () => { P.color = h; if (P.tool === 'pick' || P.tool === 'erase') P.tool = 'brush'; render(); } }); b.style.background = h; return b; })),
+    el('div', { class: 'row' }, btn('Undo', () => P.undo()), btn('Redo', () => P.redo()), btn('Zoom −', () => { ED.zoom = Math.max(1, ED.zoom - 1); render(); }), btn('Zoom +', () => { ED.zoom = Math.min(16, ED.zoom + 1); render(); }),
+      el('label', { class: 'btn ghost' }, 'Import PNG', file), btn('Export PNG', () => c.toBlob(b => downloadBlob(a.name.replace(/[^\w -]/g, '') + '.png', b), 'image/png'))),
+    el('h3', { text: 'Recolour the whole item' }), el('div', { class: 'row tools' }, adjRow('h', 'Hue', -180, 180), adjRow('s', 'Saturation', -100, 100), adjRow('l', 'Brightness', -100, 100)),
+    el('div', { class: 'row' }, btn('Keep recolour', () => endAdjust(true), 'primary'), btn('Cancel recolour', () => endAdjust(false))),
+    el('div', { class: 'paintbox' }, c))];
 }
 
 // ---------------------------------------------------------------- wiring
