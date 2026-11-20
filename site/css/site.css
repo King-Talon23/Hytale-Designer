@@ -25,8 +25,9 @@ button { cursor: pointer; }
 .brand svg { height: 36px; width: auto; filter: drop-shadow(0 2px 0 #0008); }
 .brand span { font: 800 21px/1 var(--h); text-transform: uppercase; letter-spacing: .07em; white-space: nowrap; }
 .brand small { display: block; margin-top: 3px; font: 700 11px/1.3 var(--h); letter-spacing: .08em; color: var(--dim); text-transform: uppercase; }
-.brand .hy { font: 900 12.5px/1 var(--h); letter-spacing: .07em; background: linear-gradient(#fff2c4 0%, #f7cf5c 45%, #d98a24 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
-  -webkit-text-stroke: .5px #4a2a08; filter: drop-shadow(0 1px 0 #000c); }
+.brand .for { color: var(--text); font-weight: 800; }
+.brand .hy { font: 900 13.5px/1 var(--h); letter-spacing: .05em; background: linear-gradient(180deg, #ffffff 0%, #dfe7f7 38%, #a3b3da 58%, #cdbdf0 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  -webkit-text-stroke: .4px #161b33; filter: drop-shadow(0 1px 0 #0b0f1f) drop-shadow(0 0 1.5px #1d2550); }
 nav { display: flex; gap: 4px; height: 100%; }
 nav button { position: relative; background: none; border: 0; padding: 0 16px; font-size: 14px; font-weight: 700; color: #b9cbd9; }
 nav button:hover { color: #fff; }
@@ -141,7 +142,7 @@ button.tag { cursor: help; border: 0; font: inherit; }
 .tag.supporter { margin-left: 8px; background: #3a2a0c; color: var(--gold); border: 1px solid #8a6a1c; vertical-align: 2px; }
 .tag { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 2px; white-space: nowrap; }
 .tag.game { background: var(--gold); color: #2a1d00; } .tag.custom { background: var(--custom); color: #04233d; } .tag.none { background: #33475f; color: #c5d6e2; }
-.status { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 30; max-width: min(560px, 90%); font-size: 13.5px; color: #cfe6d8; background: #13233aee; border: 1px solid var(--line); border-radius: 5px; padding: 7px 12px; box-shadow: 0 6px 20px #0008; pointer-events: none; }
+.status { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); z-index: 30; max-width: min(560px, 90%); font-size: 13.5px; color: #cfe6d8; background: #13233aee; border: 1px solid var(--line); border-radius: 5px; padding: 7px 12px; box-shadow: 0 6px 20px #0008; pointer-events: none; }
 .status:empty { display: none; }
 .status.bad { color: #ffb3a8; border-color: #c4574a; }
 .bar { position: absolute; left: 0; right: 0; bottom: 4px; display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
