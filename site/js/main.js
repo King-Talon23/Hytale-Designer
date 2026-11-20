@@ -55,13 +55,15 @@ function setConn(meta) { const c = $('conn'); c.classList.toggle('ok', !!meta); 
 // ---------------------------------------------------------------- app state
 let CAT, R, st, META, tab = 'editor', group = 'Head', slot = 'haircut', filter = '';
 let cur = { id: null, kind: null, slot: null, name: '', skin: null }, hist = [], hpos = -1, dirty = false, WARD = { game: [], custom: [] };
+let FOLDER = { state: 'none' };
 let found = [];   // skins brought in this session by a lookup or from files; not saved until the player saves them
 
 async function startApp() {
   META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META);
   $('connect').hidden = true; $('app').hidden = false;
   st ??= fig.stage($('view'), OrbitControls);
-  WARD = await store.list();
+  try { await store.resumeFolder(false); } catch (e) { console.warn(e); }
+  FOLDER = await store.folderState(); WARD = await store.list();
   const draft = await db.get('meta', 'draft'), ds = sanitize(draft?.skin);
   cur = ds ? { id: draft.id || null, kind: draft.kind || null, slot: draft.slot ?? null, name: cleanName(draft.name), skin: R.fit(ds) } : { id: null, kind: null, slot: null, name: '', skin: R.blank() };
   if (cur.id && ![...WARD.game, ...WARD.custom].some(r => r && r.id === cur.id)) { cur.id = null; cur.kind = null; }
@@ -69,19 +71,28 @@ async function startApp() {
   playAnim('Default', 'Idle', 0.5); render(); rebuild();
 }
 function open(rec, asNew) {   // put a skin on the stage: a wardrobe record, or a found skin (asNew)
+  flush();
   cur = asNew ? { id: null, kind: null, slot: null, name: cleanName(rec.name), skin: R.fit(rec.skin) } : { id: rec.id, kind: rec.kind, slot: rec.slot ?? null, name: rec.name, skin: R.fit(rec.skin) };
   hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = !!asNew; keepDraft(); rebuild(); plate();
 }
-function setSkin(s) { cur.skin = s; hist = hist.slice(0, hpos + 1); hist.push(JSON.stringify(s)); if (hist.length > 200) hist.shift(); hpos = hist.length - 1; dirty = true; keepDraft(); rebuild(); render(); }
-function step(d) { const p = hpos + d; if (p < 0 || p >= hist.length) return; hpos = p; cur.skin = JSON.parse(hist[p]); dirty = true; keepDraft(); rebuild(); render(); }
+function setSkin(s) { cur.skin = s; autosave(); hist = hist.slice(0, hpos + 1); hist.push(JSON.stringify(s)); if (hist.length > 200) hist.shift(); hpos = hist.length - 1; dirty = true; keepDraft(); rebuild(); render(); }
+function step(d) { const p = hpos + d; if (p < 0 || p >= hist.length) return; hpos = p; cur.skin = JSON.parse(hist[p]); dirty = true; autosave(); keepDraft(); rebuild(); render(); }
+const persist = c => c.kind === 'game' ? store.saveGame(c.slot, c.name, c.skin) : store.saveCustom(c.name, c.skin, c.id);
+function autosave() { if (!cur.id) return; clearTimeout(autosave.t); autosave.t = setTimeout(flush, 700); }   // a saved skin saves itself as it changes
+async function flush() { clearTimeout(autosave.t); if (!cur.id || !dirty) return; const c = { ...cur };
+  try { await persist(c); WARD = await store.list(); if (cur.id === c.id && JSON.stringify(cur.skin) === JSON.stringify(c.skin)) { dirty = false; plate(); } } catch (e) { console.error(e); say(e.message || 'Could not save.', true); } }
 function keepDraft() { clearTimeout(keepDraft.t); keepDraft.t = setTimeout(() => db.put('meta', 'draft', { id: cur.id, kind: cur.kind, slot: cur.slot, name: cur.name, skin: cur.skin }).catch(() => {}), 300); }
 let building = 0;
 async function rebuild() { const my = ++building;
   try { const root = await fig.build(cur.skin, R); if (my !== building) return fig.dispose(root); st.show(root); }
   catch (e) { console.error(e); if (my === building) say('Could not build this skin: ' + e.message, true); } }
+let peekT;
+function peek(part) { clearTimeout(peekT); peekT = setTimeout(async () => { const my = ++building;
+  try { const root = await fig.build(part === undefined ? cur.skin : { ...cur.skin, [slot]: part }, R); if (my !== building) return fig.dispose(root); st.show(root); } catch (e) { console.warn(e); } }, part === undefined ? 140 : 70); }
+const hover = part => ({ onpointerenter: e => { if (e.pointerType === 'mouse') peek(part); }, onpointerleave: e => { if (e.pointerType === 'mouse') peek(); } });
 function plate() {
   const tag = cur.kind === 'game' ? ['In-game slot ' + (cur.slot + 1), 'game'] : cur.kind === 'custom' ? ['My skin', 'custom'] : ['Not saved', 'none'];
-  $('nameplate').replaceChildren(el('b', { text: cur.name || 'New skin' }), el('span', { class: 'tag ' + tag[1], text: tag[0] }), ...(dirty && cur.id ? [el('span', { class: 'tag none', text: 'Edited' })] : []));
+  $('nameplate').replaceChildren(el('b', { text: cur.name || 'New skin' }), el('span', { class: 'tag ' + tag[1], text: tag[0] }), ...(cur.id ? [el('span', { class: 'tag none', text: dirty ? 'Saving…' : 'Saved' })] : []));
   $('undo').disabled = hpos <= 0; $('redo').disabled = hpos >= hist.length - 1;
 }
 
@@ -93,39 +104,56 @@ function picture(key, make) { if (pics.has(key)) return Promise.resolve(pics.get
   return chain = chain.then(async () => { if (gen !== jobGen) return null; if (pics.has(key)) return pics.get(key);
     try { const u = await make(); pics.set(key, u); if (pics.size > 1500) pics.delete(pics.keys().next().value); await new Promise(r => setTimeout(r)); return u; } catch (e) { console.warn(e); return null; } }); }
 const lazy = new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) { lazy.unobserve(e.target); e.target._load?.(); } }, { rootMargin: '200px' });
-function lazyImg(key, make) { const img = el('img', { alt: '', draggable: false }); if (pics.has(key)) img.src = pics.get(key); else { img._load = async () => { const u = await picture(key, make); if (u) img.src = u; }; lazy.observe(img); } return img; }
-function itemThumb(f, it, color, variant) {
-  const s = R.empty(); for (const k of BASE) s[k] = cur.skin[k]; s[f] = R.partStr(it, color, variant);
+const lastPic = new Map();   // the previous picture of a tile stays up until its new one is drawn
+function lazyImg(key, make, prev) { const img = el('img', { alt: '', draggable: false });
+  if (pics.has(key)) { img.src = pics.get(key); if (prev) lastPic.set(prev, img.src); }
+  else { if (prev && lastPic.has(prev)) img.src = lastPic.get(prev);
+    img._load = async () => { const u = await picture(key, make); if (u) { img.src = u; if (prev) lastPic.set(prev, u); } }; lazy.observe(img); }
+  return img; }
+function itemThumb(f, it, color, variant) {   // the current character, wearing this option
+  const s = { ...cur.skin, [f]: R.partStr(it, color, variant) };
   const frame = HEADF.has(f) ? 'head' : LEGF.has(f) ? 'legs' : f === 'bodyCharacteristic' || f === 'skinFeature' ? 'body' : 'torso';
-  return lazyImg('i|' + f + '|' + BASE.map(k => s[k]).join('|') + '|' + s[f], async () => fig.snapshot(await fig.build(s, R), frame, f === 'cape'));
+  return lazyImg('i|' + f + '|' + JSON.stringify(s), async () => fig.snapshot(await fig.build(s, R), frame, f === 'cape'), f + '|' + it.Id);
 }
 // an animation's picture: the current skin caught part-way through the move
 function animThumb(g, n) { const s = R.fit(cur.skin);
   return lazyImg('a|' + g + '|' + n + '|' + JSON.stringify(s), async () => { const [root, a] = await Promise.all([fig.build(s, R), fig.loadAnim(g, n)]);
-    const an = new fig.Animator(); an.setFigure(root); an.set(a); an.t = an.duration * 0.45; an.apply(); return fig.snapshot(root, 'full'); }); }
+    const an = new fig.Animator(); an.setFigure(root); an.set(a, 1, true); an.t = an.duration * 0.45; an.apply(); return fig.snapshot(root, 'full'); }); }
 const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.stringify(s), async () => fig.snapshot(await fig.build(s, R), 'full')); };
 
 // ---------------------------------------------------------------- panels
 function setTab(t) { tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t); if (R) render(); }
-function render() { jobGen++; plate(); const p = $('panel'); p.className = 'panel tab-' + tab;
-  p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, feedback: panelFeedback, help: panelHelp }[tab])()); }
+function render() { jobGen++; plate(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
+  p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, feedback: panelFeedback, help: panelHelp }[tab])());
+  if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; } }
+// our own small symbols for the category rail (drawn here, not taken from the game)
+const ICON = { Head: 'M6 3h12v13H6zM9 8v3h2V8zM13 8v3h2V8zM9 17h6v4H9z', Body: 'M9 2h6v6H9zM7 9h10v8H7zM3 9h3v8H3zM18 9h3v8h-3zM8 18h3v4H8zM13 18h3v4h-3z',
+  Torso: 'M8 3l4 2 4-2 5 3-2 4-2-1v12H7V9l-2 1-2-4z', Legs: 'M6 3h12l1 18h-5l-2-11-2 11H5z', Capes: 'M8 3h8l4 18-4-2-4 2-4-2-4 2z' };
+const SLOT_ICON = { haircut: 'M5 13V8l2-4 3 2 2-3 2 3 3-2 2 4v5h-3V9H8v4z', eyebrows: 'M3 11l7-3 1 2-7 3zM21 11l-7-3-1 2 7 3z', eyes: 'M3 8h8v8H3zM13 8h8v8h-8zM6 11v3h3v-3zM15 11v3h3v-3z',
+  facialHair: 'M5 5h3v6h8V5h3v10l-4 5H9l-4-5z', headAccessory: 'M7 6h10v8h5v3H2v-3h5z', faceAccessory: 'M2 9h9v6H2zM13 9h9v6h-9zM4 11v2h5v-2zM15 11v2h5v-2z',
+  earAccessory: 'M11 2h2v5h-2zM7 13a5 5 0 1 0 10 0a5 5 0 1 0-10 0zM10 13a2 2 0 1 1 4 0a2 2 0 1 1-4 0z', bodyCharacteristic: ICON.Body, face: 'M5 4h14v16H5zM8 9v3h2V9zM14 9v3h2V9zM9 15v2h6v-2z',
+  mouth: 'M3 9h18v3l-3 5H6l-3-5zM6 12v1h12v-1z', ears: 'M8 20V9l10-6-3 9v8z', skinFeature: 'M5 6h3v3H5zM14 4h3v3h-3zM10 11h3v3h-3zM17 12h3v3h-3zM5 15h3v3H5zM13 18h3v3h-3z',
+  underwear: 'M4 6h16v6l-6 6h-4l-6-6z', undertop: ICON.Torso, overtop: 'M8 3l4 3 4-3 5 3-2 4-2-1v12h-4V8l-1 1-1-1v13H7V9l-2 1-2-4z', gloves: 'M7 21v-8L5 9l2-1 2 3V4h2v6h1V3h2v7h1V5h2v9l-2 7z',
+  pants: ICON.Legs, overpants: 'M9 3h7v10l4 4v4H9z', shoes: 'M6 4h7v9l7 3v5H6z', cape: ICON.Capes };
+function icon(d) { const NS = 'http://www.w3.org/2000/svg', s = document.createElementNS(NS, 'svg'), p = document.createElementNS(NS, 'path');
+  s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true'); p.setAttribute('d', d); p.setAttribute('fill-rule', 'evenodd'); s.append(p); return s; }
 const head = (title, right) => el('div', { class: 'phead' }, el('h2', { text: title }), right);
 
 function panelEditor() {
   const fields = GROUPS.find(g => g[0] === group)[1].filter(f => R.ITEMS[f].length); if (!fields.includes(slot)) slot = fields[0];
   const it = R.find(slot, cur.skin[slot]), { color, variant } = parse(cur.skin[slot]);
   const change = (item, c, v) => setSkin({ ...cur.skin, [slot]: R.partStr(item, c, v) });
-  const rail = el('div', { class: 'rail' }, GROUPS.map(([g]) => el('button', { class: g === group ? 'on' : '', text: g, onclick: () => { group = g; filter = ''; render(); } })));
-  const sub = el('div', { class: 'rail sub' }, fields.map(f => el('button', { class: f === slot ? 'on' : '', onclick: () => { slot = f; filter = ''; render(); } }, el('span', { text: LABEL[f] }), el('small', { text: cur.skin[f] ? nice(parse(cur.skin[f]).id) : 'None' }))));
+  const rail = el('div', { class: 'rail' }, GROUPS.map(([g]) => el('button', { class: g === group ? 'on' : '', onclick: () => { group = g; filter = ''; render(); } }, icon(ICON[g]), el('span', { text: g }))));
+  const sub = el('div', { class: 'rail sub' }, fields.map(f => el('button', { class: f === slot ? 'on' : '', onclick: () => { slot = f; filter = ''; render(); } }, icon(SLOT_ICON[f]), el('div', {}, el('span', { text: LABEL[f] }), el('small', { text: cur.skin[f] ? nice(parse(cur.skin[f]).id) : 'None' })))));
   const q = filter.toLowerCase(), items = R.ITEMS[slot].filter(e => nice(e.Id).toLowerCase().includes(q));
   const grid = el('div', { class: 'grid' },
-    REQUIRED.has(slot) ? null : el('button', { class: 'tile none' + (!it ? ' on' : ''), title: 'None', onclick: () => change(null) }, el('span', { text: '✕' })),
-    items.map(e => el('button', { class: 'tile' + (e === it ? ' on' : ''), title: nice(e.Id), onclick: () => change(e, color, variant) }, itemThumb(slot, e, color, variant))));
+    REQUIRED.has(slot) ? null : el('button', { class: 'tile none' + (!it ? ' on' : ''), title: 'None', onclick: () => change(null), ...hover(null) }, el('span', { text: '✕' })),
+    items.map(e => el('button', { class: 'tile' + (e === it ? ' on' : ''), title: nice(e.Id), onclick: () => change(e, color, variant), ...hover(R.partStr(e, color, variant)) }, itemThumb(slot, e, color, variant))));
   const search = el('input', { type: 'search', placeholder: 'Search', value: filter, maxLength: 40, oninput: e => { filter = e.target.value; const g = panelEditor(); $('panel').querySelector('.grid').replaceWith(g[1].querySelector('.grid')); } });
   const cols = it ? R.colorsOf(it, variant) : [], vs = it?.Variants ? Object.keys(it.Variants) : [];
-  const swatches = el('div', { class: 'swatches' }, cols.map(([k, base]) => { const b = el('button', { title: nice(k), class: k === color ? 'on' : '', onclick: () => change(it, k, variant) });
+  const swatches = el('div', { class: 'swatches' }, cols.map(([k, base]) => { const b = el('button', { title: nice(k), class: k === color ? 'on' : '', onclick: () => change(it, k, variant), ...hover(R.partStr(it, k, variant)) });
     const ok = (Array.isArray(base) ? base : [base]).filter(c => HEX.test(c)); b.style.background = ok.length > 1 ? `linear-gradient(135deg, ${ok.join(',')})` : ok[0] || '#888'; return b; }));
-  const options = el('div', { class: 'options' }, vs.map(v => el('button', { class: 'chip' + (v === (variant || vs[0]) ? ' on' : ''), text: nice(v), onclick: () => change(it, color, v) })));
+  const options = el('div', { class: 'options' }, vs.map(v => el('button', { class: 'chip' + (v === (variant || vs[0]) ? ' on' : ''), text: nice(v), onclick: () => change(it, color, v), ...hover(R.partStr(it, color, v)) })));
   const body = el('div', { class: 'pbody' }, el('div', { class: 'crumb' }, el('span', { text: group }), el('i', { text: '▸' }), el('b', { text: LABEL[slot] })), search, grid,
     cols.length ? [el('h3', { text: 'Color' }), swatches] : null, vs.length > 1 ? [el('h3', { text: 'Option' }), options] : null);
   return [head('Customize Avatar'), el('div', { class: 'editor' }, rail, sub, body)];
@@ -141,17 +169,29 @@ function card(rec, kind, i) {
     onkeydown: e => { if (e.key === 'Enter') e.currentTarget.click(); } },
     el('div', { class: 'pic' }, portrait(rec.skin)), el('b', { text: rec.name }), kind === 'game' ? el('small', { text: 'Slot ' + (rec.slot + 1) }) : null, el('div', { class: 'acts' }, acts));
 }
+function folderRow() {
+  if (!store.folderSupported) return el('p', { class: 'note', text: 'This browser can only keep skins in its own storage. Chrome and Edge can also save them to a folder on your computer; in any browser you can download a backup from Help.' });
+  const after = async r => { FOLDER = await store.folderState(); await refreshWard(); if (r) say(r.imported ? `Folder connected, ${r.imported} skin${r.imported > 1 ? 's' : ''} brought in` : 'Folder connected'); };
+  const btn = (t, fn, c = 'ghost') => el('button', { class: 'btn ' + c, text: t, onclick: guard(fn) });
+  const [title, text] = FOLDER.state === 'on' ? ['Saving to folder: ' + FOLDER.name, 'Every skin is a small file in this folder and updates as you edit.']
+    : FOLDER.state === 'ask' ? ['Folder paused: ' + FOLDER.name, 'Your browser needs your OK again before it can write to the folder. Until then, changes are kept in the browser.']
+    : ['Save skins to a folder', 'Pick a folder on your computer, for example a "Hytale Skins" folder in Documents. Each skin becomes a small file there and updates as you edit.'];
+  return el('div', { class: 'folder ' + FOLDER.state }, el('div', {}, el('b', { text: title }), el('small', { text })),
+    FOLDER.state === 'none' ? btn('Choose folder', async () => after(await store.chooseFolder()), 'primary')
+      : [FOLDER.state === 'ask' ? btn('Reconnect', async () => after(await store.resumeFolder(true)), 'primary') : btn('Change', async () => after(await store.chooseFolder())),
+         btn('Stop', async () => { await store.forgetFolder(); await after(); })]);
+}
 function panelWardrobe() {
-  return [head('Wardrobe'), el('div', { class: 'pbody' },
+  return [head('Wardrobe'), el('div', { class: 'pbody' }, folderRow(),
     el('div', { class: 'shelf game' }, el('h3', {}, el('span', { text: 'In-game slots' }), el('em', { text: `${WARD.game.filter(Boolean).length} / ${store.GAME_SLOTS}` })),
       el('p', { class: 'note', text: 'These mirror your 5 presets inside Hytale. The site cannot read or change your Hytale account, so after you move a skin here, use "Set in game" for the list of parts to pick in My Avatar.' }),
       el('div', { class: 'cards' }, WARD.game.map((r, i) => card(r, 'game', i)))),
     el('div', { class: 'shelf custom' }, el('h3', {}, el('span', { text: 'My skins' }), el('em', { text: `${WARD.custom.length} / ${store.CUSTOM_MAX}` })),
-      el('p', { class: 'note', text: 'Extra skins that live only on this site, in this browser. Back them up from Help.' }),
+      el('p', { class: 'note', text: 'Extra skins that exist only here, not in the game. Saved skins update by themselves as you edit them.' }),
       WARD.custom.length ? el('div', { class: 'cards' }, WARD.custom.map(r => card(r, 'custom'))) : el('p', { class: 'blank', text: 'Nothing saved yet. Design a skin in the Editor and press Save.' })))];
 }
 async function refreshWard() { WARD = await store.list(); if (cur.id && ![...WARD.game, ...WARD.custom].some(r => r && r.id === cur.id)) { cur.id = null; cur.kind = null; cur.slot = null; } render(); }
-const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { console.error(e); say(e.message || 'That did not work.', true); } };
+const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { if (e && e.name === 'AbortError') return; console.error(e); say(e.message || 'That did not work.', true); } };
 const slotButtons = () => WARD.game.map((r, i) => ({ label: `Slot ${i + 1}${r ? ': ' + r.name : ' (empty)'}`, value: String(i) }));
 const toGame = guard(async rec => {
   const v = await ask('Move to an in-game slot', el('p', { text: `"${rec.name}" goes into the slot you pick. A skin already in that slot moves to My skins, so nothing is lost.` }), [...slotButtons(), { label: 'Cancel', value: '' }]);
@@ -179,7 +219,7 @@ async function saveAs() {
 // animations
 let playing = { group: 'Default', name: 'Idle' };
 const ORDER = ['Emote', 'Default', 'Poses', 'Taunt', 'Flavor', 'Expressions'];
-async function playAnim(g, n, speed = 1) { try { const a = await fig.loadAnim(g, n); playing = { group: g, name: n }; st.anim.set(a, speed); st.anim.playing = true; } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
+async function playAnim(g, n, speed = 1) { try { const a = await fig.loadAnim(g, n); playing = { group: g, name: n }; st.anim.set(a, speed); st.anim.setMove(fig.motionOf(g, n)); st.anim.playing = true; } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
 let animGroup = 'Emote';
 function panelAnimations() {
   const groups = Object.keys(CAT.anims).sort((a, b) => (ORDER.indexOf(a) + 99) % 99 - (ORDER.indexOf(b) + 99) % 99 || a.localeCompare(b)); if (!groups.includes(animGroup)) animGroup = groups[0];
@@ -230,7 +270,7 @@ function panelHelp() {
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: showConnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
     sec('In-game slots and My skins', 'In-game slots (gold) mirror the 5 presets inside Hytale. My skins (blue) are up to 45 extra skins that exist only here. Hytale offers no way for other sites to read or change your presets, so you keep the gold slots in step yourself: "Set in game" lists exactly which parts to pick.'),
-    sec('Back up your skins', 'Skins are stored in this browser only. Clearing site data, or using another browser or computer, starts empty. Keep a backup file.',
+    sec('Back up your skins', 'Skins are kept in this browser, and in your skins folder if you chose one in the Wardrobe. Without a folder, clearing site data or switching browser starts empty, so keep a backup file.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Download backup', onclick: guard(async () => download('skin-editor-backup.json', await store.exportAll())) }), el('label', { class: 'btn ghost' }, 'Restore backup', backupFile))),
     sec('Privacy', 'No account, no cookies, no analytics, no ads. The only request this site makes to another server is the player lookup, and only when you press Find.'),
     sec('About', 'An unofficial fan tool. Not affiliated with or endorsed by Hypixel Studios. Hytale is a trademark of Hypixel Studios; the cosmetics you see come from your own game.'))];
@@ -253,7 +293,7 @@ for (const b of $('tabs').children) b.onclick = () => setTab(b.dataset.tab);
 document.addEventListener('click', e => { const a = e.target.closest('a[data-tab]'); if (a) { e.preventDefault(); if (R) setTab(a.dataset.tab); else ask('How this works', el('p', { text: 'The editor reads the character files from your own Assets.zip and keeps them in this browser only. Nothing is uploaded, and this site hosts no Hytale files.' }), [{ label: 'OK', value: '', primary: true }]); } });
 $('undo').onclick = () => step(-1); $('redo').onclick = () => step(1);
 $('random').onclick = () => setSkin(R.random());
-$('new').onclick = () => { cur = { id: null, kind: null, slot: null, name: '', skin: R.blank() }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; keepDraft(); rebuild(); render(); };
+$('new').onclick = () => { flush(); cur = { id: null, kind: null, slot: null, name: '', skin: R.blank() }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; keepDraft(); rebuild(); render(); };
 $('front').onclick = () => st.view(true);
 $('save').onclick = save; $('saveas').onclick = saveAs;
 addEventListener('keydown', e => { if (!R || e.target.matches('input, textarea, select') || $('dlg').open) return;
