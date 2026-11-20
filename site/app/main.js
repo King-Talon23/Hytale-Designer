@@ -64,7 +64,10 @@ let found = [];   // skins brought in this session by a lookup or from files; no
 async function startApp() {
   META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets(); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false));
   $('connect').hidden = true; $('app').hidden = false;
-  if (!st) { st = fig.stage($('view'), OrbitControls); bindPaint($('view'), e => ED ? st.pick(e.clientX, e.clientY, ED.canvas, ED.mirror) : null, 10, true); }
+  if (!st) { st = fig.stage($('view'), OrbitControls); bindPaint($('view'), e => ED && !ED.shapeOpen ? st.pick(e.clientX, e.clientY, ED.canvas, ED.mirror) : null, 10, true);
+    $('view').addEventListener('pointerdown', e => { if (!ED || !ED.shapeOpen || e.button !== 0) return;
+      const hit = st.pickMesh(e.clientX, e.clientY, o => o.material?.map?.image === ED.canvas); if (!hit) return;
+      const k = boxesOf(ED.model).findIndex(b => b.node.name === hit.userData.nodeName); if (k >= 0 && k !== ED.box) { ED.box = k; render(); } }); }
   try { if (await store.resumeFolder(false)) await reloadAssets(); } catch (e) { console.warn(e); }
   FOLDER = await store.folderState(); WARD = await store.list(); ACCOUNT = await auth.account().catch(() => null);
   const draft = await db.get('meta', 'draft'), ds = sanitize(draft?.skin);
@@ -141,7 +144,7 @@ const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.str
 // ---------------------------------------------------------------- panels
 function setTab(t) { if (t !== 'editor' && picking) leavePicker(); if (ED && t !== 'creator') closeAsset(true).then(() => { playAnim('Default', 'Idle', 0.5); rebuild(); });
   tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t); if (R) render(); }
-function render() { jobGen++; plate(); drawEmotes(); drawGameSwitch(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
+function render() { jobGen++; plate(); drawEmotes(); drawGameSwitch(); outlineBox(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
   p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, feedback: panelFeedback, creator: panelCreator, help: panelHelp }[tab])());
   if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; } }
 // our own small symbols for the category rail (drawn here, not taken from the game)
@@ -393,7 +396,8 @@ const syncFolder = () => store.sync().catch(e => say(e.message, true));
 function registerAssets() {   // custom assets join the catalogue as extra items in their slot, so the editor treats them like any other
   for (const f of game.FIELDS) { const arr = CAT.items[f]; for (let i = arr.length - 1; i >= 0; i--) if (arr[i].custom) arr.splice(i, 1); }
   for (const a of ASSETS) { const base = CAT.items[a.field].find(e => e.Id === a.baseId) || {};
-    CAT.items[a.field].push({ ...base, Id: 'Custom_' + a.id, custom: true, baseId: a.baseId, Name: a.name, Model: a.model, Variants: undefined, GradientSet: undefined, GreyscaleTexture: undefined, IsDefaultAsset: false,
+    CAT.items[a.field].push({ ...base, Id: 'Custom_' + a.id, custom: true, baseId: a.baseId, Name: a.name,
+      Model: (ED && ED.asset.id === a.id ? ED.model : a.shape) ? `shape:${a.id}@${ED && ED.asset.id === a.id ? 'e' + ED.n + '.' + (ED.shapeN || 0) : a.updated}` : a.model, Variants: undefined, GradientSet: undefined, GreyscaleTexture: undefined, IsDefaultAsset: false,
       Textures: { Mine: { Texture: `custom:${a.id}@${ED && ED.asset.id === a.id ? 'live' + ED.n : a.updated}`, BaseColor: ['#f4c452'] } } }); }
 }
 fig.setCustomSource(async id => {
@@ -414,17 +418,19 @@ async function openAsset(a) {
   if (ED) await closeAsset(true);
   const bmp = await createImageBitmap(a.data), c = el('canvas', { width: bmp.width, height: bmp.height, className: 'paint' }); c.getContext('2d', { willReadFrequently: true }).drawImage(bmp, 0, 0);
   ED = { asset: a, canvas: c, n: ++edN, zoom: Math.max(2, Math.min(8, Math.floor(440 / bmp.width))), rects: [] };
-  try { ED.rects = fig.usedRects(await game.json(game.common(a.model))); } catch (e) { console.warn('no drawn area for', a.model, e); }
+  if (a.shape) ED.model = JSON.parse(a.shape);
+  try { ED.rects = fig.usedRects(ED.model || await game.json(game.common(a.model))); } catch (e) { console.warn('no drawn area for', a.model, e); }
   ED.painter = createPainter(c, final => { fig.refreshCustom(a.id); if (final) queueAssetSave(); }, () => render());
   if (ED.rects.length) { const m = new Uint8Array(c.width * c.height); for (const r of ED.rects) for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1; ED.painter.mask = m; }
   ED.palette = ED.painter.palette(); bindPaint(c, e => { const r = c.getBoundingClientRect(); return { x: Math.min(c.width - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * c.width))), y: Math.min(c.height - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * c.height))) }; }, 1e9);
-  registerAssets(); st.anim.set(null); st.paintMode(true); tab = 'creator'; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === 'creator'); render(); rebuild();
+  registerAssets(); if (!(cur.skin[a.field] || '').startsWith('Custom_' + a.id)) setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' });
+  st.anim.set(null); st.paintMode(true); tab = 'creator'; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === 'creator'); render(); rebuild();
 }
 function queueAssetSave() { clearTimeout(queueAssetSave.t); queueAssetSave.t = setTimeout(() => flushAsset().catch(e => say(e.message, true)), 900); }
 async function flushAsset() { clearTimeout(queueAssetSave.t); if (!ED) return; const e = ED, data = await new Promise(ok => e.canvas.toBlob(ok, 'image/png'));
-  e.asset = await assets.save({ ...e.asset, data }); ASSETS = await assets.list(); syncFolder(); }
+  e.asset = await assets.save({ ...e.asset, data, shape: e.model && e.shapeN ? JSON.stringify(e.model) : e.asset.shape }); ASSETS = await assets.list(); syncFolder(); }
 async function closeAsset(quiet) {
-  if (!ED) return; await checkReplica(); await flushAsset().catch(e => say(e.message, true)); ED = null; registerAssets(); st.paintMode(false); pics.clear(); lastPic.clear();
+  if (!ED) return; await checkReplica(); await flushAsset().catch(e => say(e.message, true)); ED = null; registerAssets(); st.paintMode(false); st.highlight(null); pics.clear(); lastPic.clear();
   if (!quiet) { playAnim('Default', 'Idle', 0.5); rebuild(); render(); }
 }
 // painting: the same strokes whether the pointer is on the flat texture or on the 3D model
@@ -476,11 +482,43 @@ async function replicaOf(a, canvas, mask) {
   let hit = null, top = 0; for (const e of paid) { const s = await best(e); if (s > top) { top = s; hit = e; } }
   return top >= 0.85 && top >= own + 0.1 ? itemName(hit) : null;
 }
-async function checkReplica() {   // after an import, a recolour or leaving the editor
-  if (!ED) return; const e = ED, flag = await replicaOf(e.asset, e.canvas, e.painter.mask).catch(() => null);
+// ---- shapes: a reshaped item may not copy a paid item's shape either. Each model becomes its list of boxes (centre and sorted
+// sizes, with every node's position, turn and offset applied); two shapes match when most boxes of each have a twin in the
+// other (centre and sizes within a tolerance that grows with the box). Flagged like a texture copy: the shape matches a paid item closely
+// and clearly better than the free item it was made from does.
+function qmul(a, b) { return { x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z }; }
+function qrot(q, v) { const p = qmul(qmul(q, { x: v[0], y: v[1], z: v[2], w: 0 }), { x: -q.x, y: -q.y, z: -q.z, w: q.w }); return [p.x, p.y, p.z]; }
+function boxList(model) {
+  const out = [], v = o => [o?.x ?? 0, o?.y ?? 0, o?.z ?? 0];
+  const walk = (n, R, t) => { const q = { x: n.orientation?.x ?? 0, y: n.orientation?.y ?? 0, z: n.orientation?.z ?? 0, w: n.orientation?.w ?? 1 };
+    const p = qrot(R, v(n.position)), R2 = qmul(R, q), t2 = [t[0] + p[0], t[1] + p[1], t[2] + p[2]], sh = n.shape || {}, o = qrot(R2, v(sh.offset)), c = [t2[0] + o[0], t2[1] + o[1], t2[2] + o[2]];
+    if ((sh.type === 'box' || sh.type === 'quad') && sh.visible !== false) { const st = v(sh.stretch).map(x => x || 1), sz = v(sh.settings?.size).map((x, k) => Math.abs(x * st[k])).sort((a, b) => a - b); out.push({ c, s: sz }); }
+    for (const ch of n.children || []) walk(ch, R2, c); };
+  for (const n of model.nodes || []) walk(n, { x: 0, y: 0, z: 0, w: 1 }, [0, 0, 0]);
+  return out;
+}
+function shapeLikeness(A, B) {
+  if (!A.length || !B.length) return 0;
+  // tolerances grow with the box, so small shifts and stretches of a copied shape still count as the same box
+  const twin = (b, list) => list.some(a => Math.hypot(a.c[0] - b.c[0], a.c[1] - b.c[1], a.c[2] - b.c[2]) <= Math.max(2.5, 0.3 * b.s[2]) && a.s.every((x, k) => Math.abs(x - b.s[k]) <= Math.max(2, 0.25 * b.s[k])));
+  return Math.min(B.filter(b => twin(b, A)).length / B.length, A.filter(a => twin(a, B)).length / A.length);
+}
+async function shapeReplicaOf(a, model) {
+  const items = CAT.items[a.field].filter(e => !e.custom), models = e => [...new Set([e.Model, ...Object.values(e.Variants || {}).map(v => v.Model)].filter(Boolean))];
+  const mine = boxList(model), load = async p => { try { return boxList(await game.json(game.common(p))); } catch { return []; } };
+  const base = items.find(e => e.Id === a.baseId); let own = 0;
+  let hit = null, top = 0;
+  for (const e of items.filter(e => tierOf(e) > 0)) for (const m of models(e)) { const s = shapeLikeness(mine, await load(m)); if (s > top) { top = s; hit = e;
+    if (base) for (const bm of models(base)) own = Math.max(own, shapeLikeness(await load(bm), await load(m))); } }
+  return top >= 0.8 && top >= own + 0.15 ? itemName(hit) : null;
+}
+async function checkReplica() {   // after an import, a recolour, a shape change or leaving the editor
+  if (!ED) return; const e = ED;
+  let flag = await replicaOf(e.asset, e.canvas, e.painter.mask).catch(() => null), why = 'looks';
+  if (!flag && e.model && (e.shapeN || e.asset.shape)) { flag = await shapeReplicaOf(e.asset, e.model).catch(() => null); why = 'shape is'; }
   if ((flag || undefined) === e.asset.flag) return;
   e.asset = { ...e.asset, flag: flag || undefined }; queueAssetSave();
-  if (flag) say(`This looks too close to ${flag}, a paid item. It stays on this site: it won't show in game or export.`, true);
+  if (flag) say(`This ${why} too close to ${flag}, a paid item. It stays on this site: it won't show in game or export.`, true);
   render();
 }
 
@@ -508,6 +546,59 @@ function limits(c) {
     for (const r of ED.rects) if (r.w * z > 34 && r.h * z > 14) x.fillText(r.face, r.x * z + 3, r.y * z + 11); }
   return o;
 }
+// ---------------------------------------------------------------- shapes: an asset's own copy of its item's 3D model
+fig.setShapeSource(async id => {
+  if (ED && ED.asset.id === id && ED.model) return ED.model;
+  const a = ASSETS.find(x => x.id === id); if (!a || !a.shape) throw new Error('that shape is gone'); return JSON.parse(a.shape);
+});
+const boxesOf = m => { const out = []; const walk = (n, parent) => { const s = n.shape || {}; if ((s.type === 'box' || s.type === 'quad') && s.visible !== false) out.push({ node: n, parent }); for (const c of n.children || []) walk(c, n); }; for (const n of m.nodes) walk(n, null); return out; };
+async function editModel() { if (!ED.model) ED.model = ED.asset.shape ? JSON.parse(ED.asset.shape) : structuredClone(await game.json(game.common(ED.asset.model))); return ED.model; }
+function shapeChanged() {   // the preview, the drawn-area guide and the saved copy follow every edit
+  ED.shapeN = (ED.shapeN || 0) + 1; ED.rects = fig.usedRects(ED.model); maskFromRects();
+  registerAssets(); rebuild(); queueAssetSave(); render();
+  clearTimeout(shapeChanged.t); shapeChanged.t = setTimeout(() => checkReplica(), 1200);
+}
+function maskFromRects() { const c = ED.canvas, m = new Uint8Array(c.width * c.height);
+  for (const r of ED.rects) for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1;
+  ED.painter.mask = ED.rects.length ? m : null; }
+function outlineBox() {   // the selected box, outlined on the model while the shape tools are open
+  if (!st) return; if (!ED || !ED.shapeOpen || !ED.model) return st.highlight(null);
+  const b = boxesOf(ED.model)[ED.box || 0]; st.highlight(b ? o => o.material?.map?.image === ED.canvas && o.userData.nodeName === b.node.name : null); }
+// turning a box: its node's orientation as X/Y/Z degrees (applied X, then Y, then Z, as the 3D view does)
+const D2R = Math.PI / 180;
+function toEuler(q) { const { x = 0, y = 0, z = 0, w = 1 } = q || {};
+  const m11 = 1 - 2 * (y * y + z * z), m12 = 2 * (x * y - w * z), m13 = 2 * (x * z + w * y), m22 = 1 - 2 * (x * x + z * z), m23 = 2 * (y * z - w * x), m32 = 2 * (y * z + w * x), m33 = 1 - 2 * (x * x + y * y);
+  const ey = Math.asin(Math.max(-1, Math.min(1, m13))), far = Math.abs(m13) > 0.9999999;
+  return [far ? Math.atan2(m32, m22) : Math.atan2(-m23, m33), ey, far ? 0 : Math.atan2(-m12, m11)].map(r => Math.round(r / D2R * 10) / 10); }
+function toQuat(dx, dy, dz) { const [c1, c2, c3] = [dx, dy, dz].map(d => Math.cos(d * D2R / 2)), [s1, s2, s3] = [dx, dy, dz].map(d => Math.sin(d * D2R / 2)), r = v => Math.round(v * 1e6) / 1e6;
+  return { x: r(s1 * c2 * c3 + c1 * s2 * s3), y: r(c1 * s2 * c3 - s1 * c2 * s3), z: r(c1 * c2 * s3 + s1 * s2 * c3), w: r(c1 * c2 * c3 - s1 * s2 * s3) }; }
+function shapePanel() {
+  if (!ED.shapeOpen) return el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Edit shape', onclick: guard(async () => { await editModel(); ED.shapeOpen = true; ED.box = 0; render(); }) }));
+  const boxes = boxesOf(ED.model), i = Math.min(ED.box || 0, boxes.length - 1), b = boxes[i], sh = b.node.shape;
+  const num = (label, obj, key, axis, min, max) => el('label', { class: 'numfield' }, el('span', { text: label }),
+    el('input', { type: 'number', step: 1, min, max, value: Math.round((obj[key]?.[axis] ?? 0) * 10) / 10, onchange: e => { const v = Math.max(min, Math.min(max, Number(e.target.value) || 0)); obj[key] = { x: 0, y: 0, z: 0, ...obj[key], [axis]: v }; shapeChanged(); } }));
+  const nudge = (axis, d) => el('button', { class: 'chip', text: (d > 0 ? '+' : '−') + axis, onclick: () => { sh.offset = { x: 0, y: 0, z: 0, ...sh.offset, [axis]: (sh.offset?.[axis] ?? 0) + d }; shapeChanged(); } });
+  const dup = () => { if (boxes.length >= assets.MAX_BOXES) return say(`A shape can have up to ${assets.MAX_BOXES} boxes.`, true);
+    const copy = structuredClone({ ...b.node, children: [] }); copy.name = 'Box_' + Math.random().toString(36).slice(2, 7); copy.shape.offset = { x: 0, y: 0, z: 0, ...copy.shape.offset }; copy.shape.offset.x += 2;
+    (b.parent ? b.parent.children : ED.model.nodes).push(copy); ED.box = boxesOf(ED.model).findIndex(x => x.node === copy); shapeChanged(); };
+  const del = () => { if (boxes.length <= 1) return say('A shape needs at least one box.', true); if ((b.node.children || []).length) return say('This box holds other boxes. Delete those first.', true);
+    const list = b.parent ? b.parent.children : ED.model.nodes; list.splice(list.indexOf(b.node), 1); ED.box = Math.max(0, i - 1); shapeChanged(); };
+  const reset = guard(async () => { if (!await confirmBox('Reset shape', 'Go back to the item’s original shape? Your shape changes are lost.', 'Reset', true)) return;
+    ED.model = structuredClone(await game.json(game.common(ED.asset.model))); ED.asset = { ...ED.asset, shape: undefined }; ED.box = 0; shapeChanged(); });
+  return el('div', { class: 'shape' },
+    el('div', { class: 'row' }, el('select', { onchange: e => { ED.box = +e.target.value; render(); } }, boxes.map((x, k) => el('option', { value: k, selected: k === i, text: `${k + 1}. ${x.node.name}` }))),
+      el('button', { class: 'btn ghost', text: 'Duplicate', onclick: dup }), el('button', { class: 'btn ghost', text: 'Delete', onclick: del })),
+    el('div', { class: 'nums' }, el('b', { text: 'Size' }), num('W', sh.settings, 'size', 'x', 0, 64), num('H', sh.settings, 'size', 'y', 0, 64), num('D', sh.settings, 'size', 'z', 0, 64)),
+    el('div', { class: 'nums' }, el('b', { text: 'Move' }), num('X', sh, 'offset', 'x', -64, 64), num('Y', sh, 'offset', 'y', -64, 64), num('Z', sh, 'offset', 'z', -64, 64)),
+    el('div', { class: 'options' }, nudge('x', -1), nudge('x', 1), nudge('y', -1), nudge('y', 1), nudge('z', -1), nudge('z', 1)),
+    el('div', { class: 'nums' }, el('b', { text: 'Turn' }), ...['X', 'Y', 'Z'].map((ax, k) => el('label', { class: 'numfield' }, el('span', { text: ax }),
+      el('input', { type: 'number', step: 15, min: -180, max: 180, value: toEuler(b.node.orientation)[k], onchange: e => { const d = toEuler(b.node.orientation); d[k] = Math.max(-180, Math.min(180, Number(e.target.value) || 0)); b.node.orientation = toQuat(...d); shapeChanged(); } })))),
+    el('div', { class: 'options' }, ...['x', 'y', 'z'].flatMap((ax, k) => [-15, 15].map(st => el('button', { class: 'chip', text: (st > 0 ? '↻' : '↺') + ax + ' 15°',
+      onclick: () => { const d = toEuler(b.node.orientation); d[k] = ((d[k] + st + 540) % 360) - 180; b.node.orientation = toQuat(...d); shapeChanged(); } })))),
+    el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Reset shape', onclick: reset }), el('button', { class: 'btn ghost', text: 'Close shape', onclick: () => { ED.shapeOpen = false; render(); } })),
+    el('p', { class: 'need', text: 'Click a box on the model to pick it. Right-drag turns the model.' }));
+}
+
 function panelCreator() {
   if (!ED) { const worn = game.FIELDS.filter(f => R.resolve(f, cur.skin));
     const paidIn = f => { const it = R.find(f, cur.skin[f]), b = it && it.custom ? CAT.items[f].find(e => e.Id === it.baseId) : it; return b && tierOf(b) > 0; };
@@ -539,6 +630,7 @@ function panelCreator() {
     el('div', { class: 'swatches' }, ED.palette.map(h => { const b = el('button', { title: h, class: h === P.color ? 'on' : '', onclick: () => { P.color = h; if (P.tool === 'pick' || P.tool === 'erase') P.tool = 'brush'; render(); } }); b.style.background = h; return b; })),
     el('div', { class: 'row' }, btn('Undo', () => P.undo()), btn('Redo', () => P.redo()), btn('Zoom −', () => { ED.zoom = Math.max(1, ED.zoom - 1); render(); }), btn('Zoom +', () => { ED.zoom = Math.min(16, ED.zoom + 1); render(); }),
       el('label', { class: 'btn ghost' }, 'Import PNG', file), btn('Export PNG', () => c.toBlob(b => downloadBlob(a.name.replace(/[^\w -]/g, '') + '.png', b), 'image/png'))),
+    el('h3', { text: 'Shape' }), shapePanel(),
     el('h3', { text: 'Recolour the whole item' }), el('div', { class: 'row tools' }, adjRow('h', 'Hue', -180, 180), adjRow('s', 'Saturation', -100, 100), adjRow('l', 'Brightness', -100, 100)),
     el('div', { class: 'row' }, btn('Keep recolour', () => endAdjust(true), 'primary'), btn('Cancel recolour', () => endAdjust(false))),
     el('div', { class: 'paintbox' }, el('div', { class: 'paintwrap' }, c, limits(c))))];
