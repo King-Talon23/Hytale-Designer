@@ -1,5 +1,6 @@
 // Builds the character in 3D from the game's own model and texture files, and plays the game's own animations on it.
 import * as THREE from '../vendor/three.module.min.js';
+import { TransformControls } from '../vendor/TransformControls.js';
 import * as game from './game.js';
 import { FIELDS } from './game.js';
 
@@ -60,7 +61,7 @@ function shapeMesh(sh, T) {
   }
   if (!idx.length) return null;
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
-  return new THREE.Mesh(geo, T.mat);
+  const mesh = new THREE.Mesh(geo, T.mat); mesh.userData.texel = st; return mesh;
 }
 // a node: its pivot group, its own shape, and a child holder at the shape's offset (children hang from pivot + offset)
 function node(n, T, bones, parts) {
@@ -180,6 +181,28 @@ export function stage(canvas, Controls) {
   function texel(image) { for (const h of ray.intersectObject(figure, true)) { if (!h.uv || !h.object.visible || h.object.material?.map?.image !== image) continue;
       return { x: Math.min(image.width - 1, Math.max(0, Math.floor(h.uv.x * image.width))), y: Math.min(image.height - 1, Math.max(0, Math.floor((1 - h.uv.y) * image.height))) }; }
     return null; }
+  // the brush outline on the model: a square of brush-size texels, snapped to the texel grid of the face under the pointer
+  const curs = [0xffffff, 0xf4c452].map(col => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3));
+    const l = new THREE.LineLoop(g, new THREE.LineBasicMaterial({ color: col, depthTest: false, transparent: true })); l.renderOrder = 12; l.visible = false; l.frustumCulled = false; scene.add(l); return l; });
+  const hitOn = image => { for (const h of ray.intersectObject(figure, true)) if (h.uv && h.face && h.object.visible && h.object.material?.map?.image === image) return h; return null; };
+  const texOf = (h, image) => ({ x: Math.min(image.width - 1, Math.max(0, Math.floor(h.uv.x * image.width))), y: Math.min(image.height - 1, Math.max(0, Math.floor((1 - h.uv.y) * image.height))) });
+  const tv = new THREE.Vector3();
+  function square(l, h, size) {
+    if (!h) { l.visible = false; return; }
+    const o = h.object, n = h.face.normal, ax = Math.abs(n.x) > 0.5 ? 0 : Math.abs(n.y) > 0.5 ? 1 : 2, ts = (o.userData.texel || [1, 1, 1]).map(v => Math.abs(v) || 1);
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); const mn = o.geometry.boundingBox.min.toArray(), lp = o.worldToLocal(h.point.clone()).toArray(), [u, v] = [0, 1, 2].filter(k => k !== ax);
+    for (const k of [u, v]) lp[k] = mn[k] + (Math.floor((lp[k] - mn[k]) / ts[k] + 1e-6) + 0.5) * ts[k];
+    lp[ax] += Math.sign(n.getComponent(ax)) * 0.15; const pos = l.geometry.attributes.position;
+    [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([a, b], i) => { const p = lp.slice(); p[u] += a * size * ts[u] / 2; p[v] += b * size * ts[v] / 2; o.localToWorld(tv.fromArray(p)); pos.setXYZ(i, tv.x, tv.y, tv.z); });
+    pos.needsUpdate = true; l.visible = true;
+  }
+  function aim(cx, cy) { const r = canvas.getBoundingClientRect(); ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, cam); }
+  function cursor(cx, cy, image, size, mirror) {   // draws the outline(s) and returns the texel under the pointer (with .m for the mirrored spot)
+    if (cx == null || !figure) { for (const l of curs) l.visible = false; return null; }
+    aim(cx, cy); const h = hitOn(image); square(curs[0], h, size); const p = h ? texOf(h, image) : null;
+    if (mirror && h) { ray.ray.origin.x *= -1; ray.ray.direction.x *= -1; const h2 = hitOn(image); square(curs[1], h2, size); if (h2) p.m = texOf(h2, image); } else curs[1].visible = false;
+    return p;
+  }
   function pick(cx, cy, image, mirror) { if (!figure) return null; const r = canvas.getBoundingClientRect(); ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, cam);
     const p = texel(image); if (!p || !mirror) return p;
     ray.ray.origin.x *= -1; ray.ray.direction.x *= -1; p.m = texel(image); return p; }   // the same ray flipped left to right lands on the matching spot of the other side
@@ -190,9 +213,36 @@ export function stage(canvas, Controls) {
     figure.updateMatrixWorld(true); figure.traverse(o => { if (o.isMesh && o.visible && hl(o)) { const h = new THREE.BoxHelper(o, 0xf4c452); h.material.depthTest = false; h.renderOrder = 10; helpers.push(h); scene.add(h); } }); }
   function pickMesh(cx, cy, keep) { if (!figure) return null; const r = canvas.getBoundingClientRect(); ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, cam);
     for (const h of ray.intersectObject(figure, true)) if (h.object.visible && keep(h.object)) return h.object; return null; }
-  return { anim, pick, pickMesh, paintMode, highlight(f) { hl = f; drawHL(); },
-    show(root) { if (figure) { scene.remove(figure); dispose(figure); } figure = root; scene.add(root); anim.setFigure(root); drawHL(); },
+  // the gizmo: drag arrows (move), cubes (resize) or rings (rotate) on one box, like Blockbench and Blender. The box itself
+  // follows live; on release onEnd gets the change in the box's own axes, and the caller rebuilds the model from its data.
+  const tc = new TransformControls(cam, canvas); tc.setSize(0.85); tc.setTranslationSnap(0.5); tc.setRotationSnap(THREE.MathUtils.degToRad(15)); tc.setScaleSnap(0.05); scene.add(tc);
+  const handle = new THREE.Object3D(); scene.add(handle);
+  let gz = null, start = null;
+  tc.addEventListener('dragging-changed', e => { ctl.enabled = !e.value; });
+  tc.addEventListener('objectChange', () => { if (!gz) return; const g = gz.mesh.parent;
+    if (gz.mode === 'move') gz.mesh.position.copy(handle.position.clone().sub(start.p).applyQuaternion(start.q.clone().invert()));
+    else if (gz.mode === 'resize') gz.mesh.scale.copy(handle.scale);
+    else g.quaternion.copy(g.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(handle.quaternion)); });
+  tc.addEventListener('mouseUp', () => { if (!gz) return; const g = gz.mesh.parent;
+    gz.onEnd({ move: handle.position.clone().sub(start.p).applyQuaternion(start.q.clone().invert()), scale: handle.scale.clone(),
+      turn: g.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(handle.quaternion) }); });
+  function gizmo(o) {
+    gz = o; if (!o) { tc.detach(); return; }
+    const g = o.mesh.parent; g.updateMatrixWorld(true);
+    handle.position.copy(o.mode === 'rotate' ? g.getWorldPosition(new THREE.Vector3()) : new THREE.Box3().setFromObject(o.mesh).getCenter(new THREE.Vector3()));
+    handle.quaternion.copy(g.getWorldQuaternion(new THREE.Quaternion())); handle.scale.set(1, 1, 1);
+    start = { p: handle.position.clone(), q: handle.quaternion.clone() };
+    tc.setMode(o.mode === 'move' ? 'translate' : o.mode === 'resize' ? 'scale' : 'rotate'); tc.setSpace('local'); tc.attach(handle);
+  }
+  const VIEWS = { front: [0, 62, 270], back: [0, 62, -270], side: [-270, 62, 0], top: [0, 330, 1], persp: [-75, 95, 255] };
+  const api = { anim, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
+    gizmoBusy: () => tc.dragging || tc.axis !== null,
+    findMesh(keep) { let hit = null; figure?.traverse(o => { if (!hit && o.isMesh && keep(o)) hit = o; }); return hit; },
+    setView(name) { const v = VIEWS[name] || VIEWS.persp; cam.position.set(...v); ctl.target.set(0, 62, 0); ctl.update(); },
+    highlight(f) { hl = f; drawHL(); },
+    show(root) { if (figure) { scene.remove(figure); dispose(figure); } figure = root; scene.add(root); anim.setFigure(root); drawHL(); if (api.afterShow) api.afterShow(); },
     view(front) { cam.position.set(front ? 0 : -75, 95, front ? 265 : 255); ctl.target.set(0, 62, 0); ctl.update(); } };
+  return api;
 }
 let TR, tscene, tcam;
 // [look-at height, half size, sideways camera offset, camera height above the target]
