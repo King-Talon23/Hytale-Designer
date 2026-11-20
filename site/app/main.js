@@ -404,6 +404,8 @@ fig.setCustomSource(async id => {
 const newAsset = guard(async f => {
   if (ASSETS.length >= assets.MAX) throw new Error(`You have ${assets.MAX} custom assets, the most this site keeps. Delete one first.`);
   const r = R.resolve(f, cur.skin), it = R.find(f, cur.skin[f]); if (!r || !it) throw new Error('Wear something in that slot first.');
+  const paidBase = it.custom ? CAT.items[f].find(e => e.Id === it.baseId) : it;
+  if (paidBase && tierOf(paidBase) > 0) throw new Error(`${itemName(paidBase)} is a ${TIERS[tierOf(paidBase)]} item. Paid items can't be repainted.`);
   const c = await fig.bakedCanvas(r.tex, r.tint), data = await new Promise(ok => c.toBlob(ok, 'image/png'));
   const a = await assets.save({ id: assets.newId(), name: itemName(it) + (it.custom ? ' copy' : ' (mine)'), field: f, baseId: it.custom ? it.baseId : it.Id, model: r.model, w: c.width, h: c.height, data });
   ASSETS = await assets.list(); registerAssets(); setSkin({ ...cur.skin, [f]: 'Custom_' + a.id + '.Mine' }); await openAsset(a);
@@ -411,8 +413,10 @@ const newAsset = guard(async f => {
 async function openAsset(a) {
   if (ED) await closeAsset(true);
   const bmp = await createImageBitmap(a.data), c = el('canvas', { width: bmp.width, height: bmp.height, className: 'paint' }); c.getContext('2d', { willReadFrequently: true }).drawImage(bmp, 0, 0);
-  ED = { asset: a, canvas: c, n: ++edN, zoom: Math.max(2, Math.min(8, Math.floor(440 / bmp.width))) };
+  ED = { asset: a, canvas: c, n: ++edN, zoom: Math.max(2, Math.min(8, Math.floor(440 / bmp.width))), rects: [] };
+  try { ED.rects = fig.usedRects(await game.json(game.common(a.model))); } catch (e) { console.warn('no drawn area for', a.model, e); }
   ED.painter = createPainter(c, final => { fig.refreshCustom(a.id); if (final) queueAssetSave(); }, () => render());
+  if (ED.rects.length) { const m = new Uint8Array(c.width * c.height); for (const r of ED.rects) for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1; ED.painter.mask = m; }
   ED.palette = ED.painter.palette(); bindPaint(c, e => { const r = c.getBoundingClientRect(); return { x: Math.min(c.width - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * c.width))), y: Math.min(c.height - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * c.height))) }; }, 1e9);
   registerAssets(); st.anim.set(null); st.paintMode(true); tab = 'creator'; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === 'creator'); render(); rebuild();
 }
@@ -420,7 +424,7 @@ function queueAssetSave() { clearTimeout(queueAssetSave.t); queueAssetSave.t = s
 async function flushAsset() { clearTimeout(queueAssetSave.t); if (!ED) return; const e = ED, data = await new Promise(ok => e.canvas.toBlob(ok, 'image/png'));
   e.asset = await assets.save({ ...e.asset, data }); ASSETS = await assets.list(); syncFolder(); }
 async function closeAsset(quiet) {
-  if (!ED) return; await flushAsset().catch(e => say(e.message, true)); ED = null; registerAssets(); st.paintMode(false); pics.clear(); lastPic.clear();
+  if (!ED) return; await checkReplica(); await flushAsset().catch(e => say(e.message, true)); ED = null; registerAssets(); st.paintMode(false); pics.clear(); lastPic.clear();
   if (!quiet) { playAnim('Default', 'Idle', 0.5); rebuild(); render(); }
 }
 // painting: the same strokes whether the pointer is on the flat texture or on the 3D model
@@ -437,21 +441,78 @@ const urls = new Map();
 function assetPicture(a) { const k = a.id + '@' + a.updated; if (!urls.has(k)) { for (const [o, u] of urls) if (o.startsWith(a.id + '@')) { URL.revokeObjectURL(u); urls.delete(o); } urls.set(k, URL.createObjectURL(a.data)); } return el('img', { alt: '', src: urls.get(k), draggable: false }); }
 function downloadBlob(name, blob) { const a = el('a', { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
 const lockedBase = a => { const it = CAT.items[a.field].find(e => e.Id === a.baseId); return it ? tierOf(it) : 0; };
-const modReady = a => lockedBase(a) === 0;
+const modReady = a => lockedBase(a) === 0 && !a.flag;
+// ---- paid items stay paid: no repaints of edition or reward items, and no repaints that copy one
+// A custom asset keeps its base item's 3D shape, so it can only pass for a paid item that uses the same model. Its texture is
+// compared, on the drawn area only, with every paid texture for that model: pixel colours (a straight copy) and the light and
+// dark pattern around the average (a recolour). It is flagged when it matches a paid item closely and matches that item clearly
+// better than its own free base.
+const imgCache = new Map();
+async function imageData(path, w, h) {
+  const key = path + '|' + w + 'x' + h; if (imgCache.has(key)) return imgCache.get(key);
+  let out = null;
+  try { const b = await game.bitmap(game.common(path)); if (b.width === w && b.height === h) { const c = el('canvas', { width: w, height: h }), x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(b, 0, 0); out = x.getImageData(0, 0, w, h).data; } } catch { /* not readable */ }
+  imgCache.set(key, out); return out;
+}
+function texturesFor(item, model) {   // [path, coloured?] for every look of an item on this model
+  const out = [], take = s => { if (!s || s.Model !== model) return; if (s.Textures) for (const t of Object.values(s.Textures)) if (t.Texture) out.push([t.Texture, true]); if (s.GreyscaleTexture) out.push([s.GreyscaleTexture, false]); };
+  take(item); for (const v of Object.values(item.Variants || {})) take({ ...item, ...v, Model: v.Model || item.Model });
+  return out;
+}
+function likeness(mine, other, mask, coloured) {
+  let n = 0, sa = 0, sb = 0;
+  for (let k = 0; k < mask.length; k++) { const i = k * 4; if (!mask[k] || !mine[i + 3] || !other[i + 3]) continue; n++; sa += mine[i] + mine[i + 1] + mine[i + 2]; sb += other[i] + other[i + 1] + other[i + 2]; }
+  if (n < 24) return 0; const ma = sa / n / 3, mb = sb / n / 3; let same = 0, shape = 0;
+  for (let k = 0; k < mask.length; k++) { const i = k * 4; if (!mask[k] || !mine[i + 3] || !other[i + 3]) continue;
+    if (coloured && Math.abs(mine[i] - other[i]) + Math.abs(mine[i + 1] - other[i + 1]) + Math.abs(mine[i + 2] - other[i + 2]) <= 36) same++;
+    if (Math.abs((mine[i] + mine[i + 1] + mine[i + 2]) / 3 - ma - ((other[i] + other[i + 1] + other[i + 2]) / 3 - mb)) <= 10) shape++; }
+  return Math.max(same, shape) / n;
+}
+async function replicaOf(a, canvas, mask) {
+  const items = CAT.items[a.field].filter(e => !e.custom), paid = items.filter(e => tierOf(e) > 0 && texturesFor(e, a.model).length); if (!paid.length) return null;
+  const w = canvas.width, h = canvas.height, mine = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  const m = mask || new Uint8Array(w * h).fill(1), best = async e => { let s = 0; for (const [p, col] of texturesFor(e, a.model)) { const d = await imageData(p, w, h); if (d) s = Math.max(s, likeness(mine, d, m, col)); } return s; };
+  const base = items.find(e => e.Id === a.baseId), own = base ? await best(base) : 0;
+  let hit = null, top = 0; for (const e of paid) { const s = await best(e); if (s > top) { top = s; hit = e; } }
+  return top >= 0.85 && top >= own + 0.1 ? itemName(hit) : null;
+}
+async function checkReplica() {   // after an import, a recolour or leaving the editor
+  if (!ED) return; const e = ED, flag = await replicaOf(e.asset, e.canvas, e.painter.mask).catch(() => null);
+  if ((flag || undefined) === e.asset.flag) return;
+  e.asset = { ...e.asset, flag: flag || undefined }; queueAssetSave();
+  if (flag) say(`This looks too close to ${flag}, a paid item. It stays on this site: it won't show in game or export.`, true);
+  render();
+}
+
 function assetCard(a) {
   const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
   const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
   return el('div', { class: 'skin asset' + (worn ? ' on' : ''), tabIndex: 0, title: 'Open in the creator', onclick: guard(() => openAsset(a)) },
-    el('div', { class: 'pic tex' }, assetPicture(a)), el('b', { text: a.name }), el('small', { text: LABEL[a.field] }),
+    el('div', { class: 'pic tex' }, assetPicture(a)), el('b', { text: a.name }), el('small', { text: modReady(a) ? LABEL[a.field] : a.flag ? 'Too close to ' + a.flag : 'Paid item: site only' }),
     el('div', { class: 'acts' }, act(worn ? 'Wearing' : 'Wear', () => setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' })),
-      act('Export', () => downloadBlob(a.name.replace(/[^\w -]/g, '') + '.png', a.data)),
+      modReady(a) ? act('Export', () => downloadBlob(a.name.replace(/[^\w -]/g, '') + '.png', a.data)) : null,
       act('Delete', guard(async () => { if (!await confirmBox('Delete custom asset', `Delete "${a.name}"? Skins wearing it lose that part. This cannot be undone.`, 'Delete', true)) return;
         await assets.remove(a.id); ASSETS = await assets.list(); syncFolder(); registerAssets(); cur.skin = R.fit(cur.skin); pics.clear(); rebuild(); render(); }), 'danger')));
 }
 const disclosure = () => el('div', { class: 'disclose' }, el('b', { text: 'Site only' }), el('span', { text: 'With the Skin Editor mod installed and Show in game on, your character in your own worlds wears what you have on here, custom assets included. Repaints of edition and reward items stay on this site.' }));
+// the drawn area over the flat texture: everything outside it is dimmed and each drawn face is outlined
+function limits(c) {
+  const z = ED.zoom, o = el('canvas', { className: 'limits', width: c.width * z, height: c.height * z }), x = o.getContext('2d');
+  o.style.width = c.width * z + 'px';
+  if (!ED.rects.length) return o;
+  x.fillStyle = 'rgba(8, 14, 24, 0.72)'; x.fillRect(0, 0, o.width, o.height);
+  for (const r of ED.rects) x.clearRect(r.x * z, r.y * z, r.w * z, r.h * z);
+  x.strokeStyle = 'rgba(244, 196, 82, 0.9)'; x.lineWidth = 1;
+  for (const r of ED.rects) x.strokeRect(r.x * z + 0.5, r.y * z + 0.5, r.w * z - 1, r.h * z - 1);
+  if (z >= 4) { x.fillStyle = 'rgba(244, 196, 82, 0.95)'; x.font = '700 10px Lexend, sans-serif';
+    for (const r of ED.rects) if (r.w * z > 34 && r.h * z > 14) x.fillText(r.face, r.x * z + 3, r.y * z + 11); }
+  return o;
+}
 function panelCreator() {
   if (!ED) { const worn = game.FIELDS.filter(f => R.resolve(f, cur.skin));
-    const sel = el('select', {}, worn.map(f => el('option', { value: f, text: `${LABEL[f]}: ${itemName(R.find(f, cur.skin[f]))}` })));
+    const paidIn = f => { const it = R.find(f, cur.skin[f]), b = it && it.custom ? CAT.items[f].find(e => e.Id === it.baseId) : it; return b && tierOf(b) > 0; };
+    const sel = el('select', {}, worn.map(f => el('option', { value: f, disabled: paidIn(f), text: `${LABEL[f]}: ${itemName(R.find(f, cur.skin[f]))}${paidIn(f) ? ' (paid item)' : ''}` })));
+    sel.value = worn.find(f => !paidIn(f)) || '';
     return [head('Asset Creator'), el('div', { class: 'pbody' }, disclosure(),
       el('h3', { text: 'Start from something you are wearing' }), el('div', { class: 'row' }, sel, el('button', { class: 'btn primary', text: 'Create', onclick: () => newAsset(sel.value) })),
       el('h3', { text: `My custom assets (${ASSETS.length} / ${assets.MAX})` }),
@@ -463,13 +524,14 @@ function panelCreator() {
   // recolour the whole item: three sliders that preview live and are kept or dropped together
   const adj = { h: 0, s: 0, l: 0 }, adjRow = (key, label, min, max) => { const lab = el('label', { text: `${label} 0` });
     return el('div', { class: 'grow' }, lab, el('input', { type: 'range', min, max, step: 1, value: 0, 'data-adj': key, oninput: e => { adj[key] = +e.target.value; lab.textContent = `${label} ${e.target.value}`; P.adjust(adj.h, adj.s / 100, adj.l / 100, false); } })); };
-  const endAdjust = keep => { if (!keep) adj.h = adj.s = adj.l = 0; P.adjust(adj.h, adj.s / 100, adj.l / 100, true); ED.palette = P.palette(); render(); };
+  const endAdjust = keep => { if (!keep) adj.h = adj.s = adj.l = 0; P.adjust(adj.h, adj.s / 100, adj.l / 100, true); ED.palette = P.palette(); render(); if (keep) checkReplica(); };
   const file = el('input', { type: 'file', accept: 'image/png', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (f.size > 2_000_000) throw new Error('That image is too large.');
-    const bmp = await createImageBitmap(f); if (bmp.width !== c.width || bmp.height !== c.height) throw new Error(`The image must be ${c.width} by ${c.height} pixels, the size of this texture.`); P.replace(bmp); ED.palette = P.palette(); render(); }) });
+    const bmp = await createImageBitmap(f); if (bmp.width !== c.width || bmp.height !== c.height) throw new Error(`The image must be ${c.width} by ${c.height} pixels, the size of this texture.`); P.replace(bmp); ED.palette = P.palette(); render(); await checkReplica(); }) });
   return [head('Asset Creator'), el('div', { class: 'pbody' }, disclosure(),
     el('div', { class: 'row' }, el('input', { type: 'text', value: a.name, maxLength: 40, onchange: e => { ED.asset = { ...ED.asset, name: cleanName(e.target.value) || a.name }; queueAssetSave(); } }), btn('Done', () => closeAsset(), 'primary')),
     el('div', { class: 'options' }, tool('brush', 'Brush'), tool('erase', 'Eraser'), tool('fill', 'Fill'), tool('replace', 'Replace colour'), tool('pick', 'Pick colour'), tool('light', 'Lighten'), tool('dark', 'Darken'), tool('noise', 'Noise'),
       tool('line', 'Line'), tool('box', 'Box'), tool('boxfill', 'Filled box'),
+      ED.rects.length ? el('button', { class: 'chip' + (P.inside ? ' on' : ''), text: 'Inside only: ' + (P.inside ? 'on' : 'off'), title: 'Only paint the parts of the texture the model shows', onclick: () => { P.inside = !P.inside; render(); } }) : null,
       el('button', { class: 'chip' + (ED.mirror ? ' on' : ''), text: 'Mirror: ' + (ED.mirror ? 'on' : 'off'), title: 'When painting on the model, paint the matching spot on the other side too', onclick: () => { ED.mirror = !ED.mirror; render(); } })),
     el('div', { class: 'row tools' }, el('input', { type: 'color', value: P.color, title: 'Colour', oninput: e => { P.color = e.target.value; }, onchange: () => { if (P.tool === 'pick' || P.tool === 'erase') P.tool = 'brush'; render(); } }),
       el('div', { class: 'grow' }, sizeLabel, el('input', { type: 'range', min: 1, max: 8, step: 1, value: P.size, oninput: e => { P.size = +e.target.value; sizeLabel.textContent = `Brush size ${P.size}`; } })),
@@ -479,7 +541,7 @@ function panelCreator() {
       el('label', { class: 'btn ghost' }, 'Import PNG', file), btn('Export PNG', () => c.toBlob(b => downloadBlob(a.name.replace(/[^\w -]/g, '') + '.png', b), 'image/png'))),
     el('h3', { text: 'Recolour the whole item' }), el('div', { class: 'row tools' }, adjRow('h', 'Hue', -180, 180), adjRow('s', 'Saturation', -100, 100), adjRow('l', 'Brightness', -100, 100)),
     el('div', { class: 'row' }, btn('Keep recolour', () => endAdjust(true), 'primary'), btn('Cancel recolour', () => endAdjust(false))),
-    el('div', { class: 'paintbox' }, c))];
+    el('div', { class: 'paintbox' }, el('div', { class: 'paintwrap' }, c, limits(c))))];
 }
 
 // ---------------------------------------------------------------- wiring
