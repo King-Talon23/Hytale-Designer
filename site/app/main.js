@@ -326,7 +326,7 @@ function accountRow() {
   if (!ACCOUNT) return el('div', { class: 'folder account' }, el('div', {}, el('b', { text: 'Hytale account' }),
     ),
     el('button', { class: 'btn primary', text: 'Connect Hytale account', onclick: guard(() => auth.start()) }));
-  return el('div', { class: 'folder account on' }, el('div', {}, el('b', { text: 'Signed in as ' + ACCOUNT.username }), PUB.supporter ? el('span', { class: 'tag supporter', text: 'Supporter' }) : null),
+  return el('div', { class: 'folder account on' }, el('div', {}, el('b', { text: 'Signed in as ' + ACCOUNT.username })),
     el('button', { class: 'btn ghost', text: 'Show my skin', onclick: () => { setTab('lookup'); lookup(ACCOUNT.username); } }),
     el('button', { class: 'btn ghost', text: 'Sign out', onclick: guard(async () => { await auth.signOut(); ACCOUNT = null; PUB = { on: PUB.on, signedIn: false }; render(); }) }),
     PUB.signedIn ? el('button', { class: 'btn ghost danger', text: 'Delete my published data', onclick: forgetMe }) : null);
@@ -483,7 +483,7 @@ async function loadPublished(name, id) {
   if (!/^[0-9a-f-]{32,36}$/i.test(id || '')) { shown = null; return; }
   const me = shown = { name, uuid: id, skins: null }; render();
   try { const r = await fetch('/api/players/' + encodeURIComponent(id) + '/skins', { credentials: 'omit', cache: 'no-store' }), j = r.ok ? await r.json() : null;
-    me.supporter = !!j?.supporter; me.skins = (Array.isArray(j?.skins) ? j.skins : []).map(k => ({ id: 'pub_' + String(k.id).slice(0, 24), name: cleanName(k.name) || 'Skin', skin: sanitize(k.skin) })).filter(k => k.skin).slice(0, 45);
+    me.skins = (Array.isArray(j?.skins) ? j.skins : []).map(k => ({ id: 'pub_' + String(k.id).slice(0, 24), name: cleanName(k.name) || 'Skin', skin: sanitize(k.skin) })).filter(k => k.skin).slice(0, 45);
   } catch { me.skins = []; me.failed = true; }
   if (shown === me) render();
 }
@@ -502,7 +502,7 @@ function panelLookup() {
   const file = el('input', { type: 'file', accept: '.json,.skin,application/json', multiple: true, hidden: true, onchange: e => { importSkinFiles(e.target.files); e.target.value = ''; } });
   return [head('Players'), el('div', { class: 'pbody' },
     el('h3', { text: 'Find a player' }), form, el('p', { class: 'err', text: lookupMsg }),
-    shown ? [el('h3', {}, 'Published by ' + shown.name, shown.supporter ? el('span', { class: 'tag supporter', title: 'Supports the site on Ko-fi', text: 'Supporter' }) : null), shown.skins === null ? el('p', { class: 'need', text: 'Looking…' })
+    shown ? [el('h3', {}, 'Published by ' + shown.name, null), shown.skins === null ? el('p', { class: 'need', text: 'Looking…' })
       : shown.skins.length ? el('div', { class: 'cards' }, shown.skins.map(r => card(r, 'pub'))) : el('p', { class: 'need', text: shown.failed ? 'Published skins could not be loaded.' : `${shown.name} has not published any skins here yet.` })] : null,
     el('h3', { text: 'Open skin files' }),
     el('button', { class: 'btn ghost', text: 'Choose skin files', onclick: () => pickSkinFiles(file) }), file,
@@ -512,13 +512,19 @@ function panelLookup() {
 function panelHelp() {
   const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
   const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const r = await store.importAll(await readJsonFile(f, 40_000_000)); await reloadAssets(); await refreshWard(); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}${r.skipped ? `, ${r.skipped} did not fit` : ''}`); }) });
+  const steps = [['Wardrobe', 'pick a slot like Haircut or Capes, then click items to try them on. Changes save themselves.'], ['Locker', 'all your skins. Load one, rename it, put it in an in-game slot, or publish it once you sign in.'],
+    ['Animations', "play the game's own moves on your skin. Click the tab again to stop."], ['Creator', 'make your own pieces. Start from any game item, paint it, and it shows up under Custom in the Wardrobe.'],
+    ['Players', "look up someone by username to see what they're wearing and what they've published."]];
   return [head('Help'), el('div', { class: 'pbody prose' },
+    sec('How it works', el('ul', { class: 'howto' }, steps.map(([t, d]) => el('li', {}, el('b', { text: t + ' ' }), d))),
+      'Drag the character to turn it, scroll to zoom. Front puts the camera back.'),
     sec('Game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: showConnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
     MOD_URL ? sec('Skin Editor Sync', 'Wear what you design in your own worlds: install the mod, pick a skins folder in the Locker, then turn on In game.', el('div', { class: 'row' }, modLink('primary'))) : null,
     sec('Backup', 'Keep a backup file if you have not picked a skins folder in the Locker.',
-      el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Download backup', onclick: guard(async () => download('skin-editor-backup.json', await store.exportAll())) }), el('label', { class: 'btn ghost' }, 'Restore backup', backupFile))))];
+      el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Download backup', onclick: guard(async () => download('skin-editor-backup.json', await store.exportAll())) }), el('label', { class: 'btn ghost' }, 'Restore backup', backupFile))),
+    el('p', {}, el('a', { href: '/privacy', text: 'Privacy: what the site keeps and how to delete it' })))];
 }
 
 
@@ -647,6 +653,10 @@ function bindPaint(target, toPixel, reach, onModel) { let down = false, last = n
   target.addEventListener('pointerup', up); target.addEventListener('pointercancel', up);
 }
 const urls = new Map();
+function assetThumb(a) {   // the piece as it looks worn, on the bare character (falls back to the flat texture)
+  const it = R?.ITEMS[a.field]?.find(e => e.Id === 'Custom_' + a.id); if (!it) return assetPicture(a);
+  const s = bareSkin(a.field, R.partStr(it)), frame = FACE_FRAME[a.field] || (HEADF.has(a.field) ? 'head' : LEGF.has(a.field) ? 'legs' : a.field === 'bodyCharacteristic' || a.field === 'skinFeature' ? 'body' : 'torso');
+  return lazyImg('a|' + a.id + '@' + a.updated, async () => fig.snapshot(await fig.build(s, R), frame, a.field === 'cape'), 'a|' + a.id); }
 function assetPicture(a) { const k = a.id + '@' + a.updated; if (!urls.has(k)) { for (const [o, u] of urls) if (o.startsWith(a.id + '@')) { URL.revokeObjectURL(u); urls.delete(o); } urls.set(k, URL.createObjectURL(a.data)); } return el('img', { alt: '', src: urls.get(k), draggable: false }); }
 function downloadBlob(name, blob) { const a = el('a', { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
 // Paid (edition and reward) items: open to edit only for an account that owns them. Hytale's sign-in tells us what an account
@@ -789,7 +799,7 @@ function assetCard(a) {
   const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
   const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
   return el('div', { class: 'skin asset' + (worn ? ' on' : ''), tabIndex: 0, title: a.name + ': open in the creator', onclick: guard(() => openAsset(a)) },
-    el('div', { class: 'pic tex' }, assetPicture(a)), el('b', { text: a.name }), el('small', { text: modReady(a) ? LABEL[a.field] : a.flag ? 'Site only: looks like ' + a.flag : 'Paid item: site only', title: a.flag ? FLAG_WHY(a.flag) : '' }),
+    el('div', { class: 'pic' }, assetThumb(a)), el('b', { text: a.name }), el('small', { text: modReady(a) ? LABEL[a.field] : a.flag ? 'Site only: looks like ' + a.flag : 'Paid item: site only', title: a.flag ? FLAG_WHY(a.flag) : '' }),
     el('div', { class: 'acts' }, act('Edit', guard(() => openAsset(a)), 'primary'), act('Copy', guard(() => copyAsset(a))), worn ? el('span', { class: 'worn', text: 'Worn ✓', title: 'Your character has this on' }) : act('Wear', () => setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' })),
 
       act('Delete', guard(async () => { if (!await confirmBox('Delete custom asset', `Delete "${a.name}"? Skins wearing it lose that part. This cannot be undone.`, 'Delete', true)) return;
