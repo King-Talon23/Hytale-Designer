@@ -21,7 +21,7 @@ button { cursor: pointer; }
 
 /* top bar */
 .topbar { display: flex; align-items: center; gap: 22px; padding: 0 22px; height: 62px; background: linear-gradient(#16283fee, #101d2fee); border-bottom: 1px solid var(--line); box-shadow: 0 2px 14px #0008; position: relative; z-index: 2; }
-.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); cursor: default; user-select: none; -webkit-user-select: none; pointer-events: none; }   /* the logo is just a logo: not a link, nothing happens on hover or click */
 .brand svg { height: 36px; width: auto; filter: drop-shadow(0 2px 0 #0008); }
 .brand span { font: 800 21px/1 var(--h); text-transform: uppercase; letter-spacing: .07em; white-space: nowrap; }
 .brand small { display: block; margin-top: 3px; font: 700 11px/1.3 var(--h); letter-spacing: .08em; color: var(--dim); text-transform: uppercase; }
@@ -371,3 +371,8 @@ input.hex { width: 84px; font: 600 12px ui-monospace, Consolas, monospace; backg
 @media (min-width: 981px) { @container stage (max-width: 440px) { #app:not(.ws) .stagebtns .stbtn b { display: none; } #app:not(.ws) .stagebtns .stbtn { padding: 0 9px; } #app:not(.ws) .stage:not(.clean) .nameplate { max-width: calc(100% - 92px); } } }   /* narrow view: icons only, beside the name tag and clear of the head */
 /* the animation groups and the slot picker's header stay at the top while the list scrolls */
 .pbody > .cattiles, .pbody > .pickhead { position: sticky; top: -14px; z-index: 4; margin-top: -14px; padding-top: 14px; padding-bottom: 8px; background: #101c2c; box-shadow: 0 6px 8px -6px #0008; }
+/* the background list under its button */
+.stagebtns .caret { font-size: 10px; opacity: .7; margin-left: -2px; }
+.bdmenu { position: absolute; top: 38px; left: 0; display: flex; flex-direction: column; gap: 2px; min-width: 150px; padding: 4px; background: #0d1826f4; border: 1px solid var(--line2); border-radius: 4px; box-shadow: 0 8px 20px #0009; z-index: 6; }
+.bdopt { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 0; border-radius: 3px; background: none; color: var(--text); font: 600 12px var(--b); text-align: left; cursor: pointer; }
+.bdopt:hover, .bdopt:focus-visible { background: #ffffff14; color: #fff; } .bdopt.on { color: var(--gold); }
