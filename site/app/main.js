@@ -30,6 +30,7 @@ const say = (t, bad) => { const s = $('status'); s.textContent = t || ''; s.clas
 function ask(title, body, buttons) {
   const d = $('dlg'); $('dlgtitle').textContent = title; $('dlgbody').replaceChildren(...[].concat(body));
   $('dlgbtns').replaceChildren(...buttons.map(b => el('button', { class: 'btn ' + (b.primary ? 'primary' : b.danger ? 'danger' : 'ghost'), value: b.value, text: b.label })));
+  const main = buttons.find(b => b.primary) || buttons.find(b => b.danger); d.onkeydown = e => { if (e.key === 'Enter' && main && e.target.matches?.('input:not([type=checkbox]):not([type=radio])')) { e.preventDefault(); d.close(main.value); } };   // Enter in a text box presses the main button, not Cancel
   return new Promise(ok => { d.onclose = () => ok(d.returnValue || ''); d.returnValue = ''; d.showModal(); });
 }
 const confirmBox = (title, text, yes, danger) => ask(title, el('p', { text }), [{ label: 'Cancel', value: '' }, { label: yes, value: 'yes', primary: !danger, danger }]).then(v => v === 'yes');
@@ -197,7 +198,7 @@ function itemThumb(f, it, color, variant, bare) {   // the current character, we
 // an animation's picture: the current skin caught part-way through the move
 function animThumb(g, n) { const s = R.fit(cur.skin);
   return lazyImg('a|' + g + '|' + n + '|' + JSON.stringify(s), async () => { const [root, a] = await Promise.all([fig.build(s, R), fig.loadAnim(g, n)]);
-    const an = new fig.Animator(); an.setFigure(root); an.set(a, 1, true); an.t = an.duration * 0.45; an.apply(); return fig.snapshot(root, 'full'); }); }
+    const an = new fig.Animator(); an.setFigure(root); an.set(a, 1, true); an.t = an.duration * 0.45; an.apply(); return fig.snapshot(root, 'full'); }, 'anim|' + g + '|' + n); }
 const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.stringify(s), async () => fig.snapshot(await fig.build(s, R), 'full')); };
 
 // ---------------------------------------------------------------- panels
@@ -259,7 +260,7 @@ function lookCard(r, kind) { return el('button', { class: 'look ' + kind + (cur.
 function panelEditor() { return picking ? panelPicker() : panelLocker(); }
 function panelLocker() {
   const tile = f => { const it = R.find(f, cur.skin[f]), { color, variant } = parse(cur.skin[f]);
-    return el('button', { class: 'slot ' + (it ? tierClass(it) : 'none'), title: LABEL[f], onclick: () => { slotScroll = document.querySelector('.panel .pbody')?.scrollTop || 0; slot = f; picking = true; seenSlot = f; filter = ''; lockFilter = 'all'; render(); for (const p of document.querySelectorAll('.pbody')) p.scrollTop = 0; } },
+    return el('button', { class: 'slot ' + (it ? tierClass(it) : 'none'), title: LABEL[f], onclick: () => { scrolledAt = performance.now(); slotScroll = document.querySelector('.panel .pbody')?.scrollTop || 0; slot = f; picking = true; seenSlot = f; filter = ''; lockFilter = 'all'; render(); for (const p of document.querySelectorAll('.pbody')) p.scrollTop = 0; } },
       it ? itemThumb(f, it, color, variant) : el('span', { class: 'nothing', text: '—' }),
       el('i', {}, icon(SLOT_ICON[f]), el('span', { text: LABEL[f] })), el('b', { text: it ? itemName(it) : 'None' })); };
   const looks = [...WARD.game.filter(Boolean).map(r => lookCard(r, 'game')), ...WARD.custom.map(r => lookCard(r, 'custom'))];
@@ -399,8 +400,8 @@ function card(rec, kind, i) {
     el('div', { class: 'pic' }, portrait(rec.skin)), el('b', { text: rec.name }), kind === 'game' ? el('small', { text: 'Slot ' + (rec.slot + 1) }) : null, el('div', { class: 'acts' }, acts));
 }
 // Features that need a Hytale account. Sign in with Hytale is not available to this site yet, so they are shown greyed out.
-const NEED = f => ACCOUNT ? `Hytale does not offer ${f} to other apps yet` : `Must connect Hytale account to enable ${f}`;
-const locked = (label, feature, cls = 'btn ghost') => el('button', { class: cls + ' locked', disabled: true, title: NEED(feature), text: label });
+const NEED = f => ACCOUNT ? `Hytale does not offer ${f} to other apps yet` : !auth.enabled ? `Coming soon: ${f} needs Sign in with Hytale, which is waiting on Hytale's approval` : `Connect your Hytale account to enable ${f}`;
+const locked = (label, feature, cls = 'btn ghost') => el('button', { class: cls + ' locked', 'aria-disabled': 'true', title: NEED(feature), text: label, onclick: e => { e.stopPropagation(); say(NEED(feature)); } });   // not disabled: a click says why it can't be used yet
 const need = feature => el('p', { class: 'need', text: NEED(feature) + '.' });
 function accountRow() {
   if (!auth.enabled) return el('div', { class: 'folder account' }, el('div', {}, el('b', {}, 'Hytale account ', el('span', { class: 'tag none', text: 'WIP' })),
@@ -534,7 +535,7 @@ async function setProps(g, n) { const want = heldBy(g, n);
   const built = await Promise.all(want.map(async ([k, bone, shift]) => { try { const [model, tex] = game.PROPS[k]; return { root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone, shift }; } catch (e) { console.warn(k, e.message); return null; } }));
   st.props(built.filter(Boolean)); if (built.some(b => !b)) say('Your saved copy of the game files is from before held items were added. Refresh it once in the Locker to see them (your skins are kept).', true); }
 // st.lift: tall moves aim the view higher, moves near the floor aim lower so they clear the buttons under the view
-async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); const faceUp = g === 'Expressions' || g === 'Flavor' && /^(Blink|Eye)/.test(n); st.lift(faceUp ? 98 : g === 'Glide' ? 140 : g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 106 : g === 'Climb' ? 86 : g === 'Taunt' && /Staff_Helicopter/.test(n) ? 100 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' ? (/^Mantle_Up/.test(n) ? 150 : 110) : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : faceUp ? -200 : 360, g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); let a = await fig.loadAnim(g, n); { const m = g === 'Flavor' && /^(Crouch(?:_Walk)?|Fly)_Look_Around/.exec(n); if (m) { const base = await (m[1] === 'Fly' ? fig.loadAnim('Fly', 'Fly_Idle') : fig.loadAnim('Default', m[1])).catch(() => null); if (base) a = { ...a, nodeAnimations: { ...base.nodeAnimations, ...a.nodeAnimations } }; } } st.hover(g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 44 : g === 'Glide' ? 60 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
+async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); const faceUp = g === 'Expressions' || g === 'Flavor' && /^(Blink|Eye)/.test(n); st.lift(faceUp ? 98 : g === 'Glide' ? 210 : g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 106 : g === 'Climb' ? 86 : g === 'Taunt' && /Staff_Helicopter/.test(n) ? 100 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' ? (/^Mantle_Up/.test(n) ? 150 : 110) : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : faceUp ? -200 : 360, g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); let a = await fig.loadAnim(g, n); { const m = g === 'Flavor' && /^(Crouch(?:_Walk)?|Fly)_Look_Around/.exec(n); if (m) { const base = await (m[1] === 'Fly' ? fig.loadAnim('Fly', 'Fly_Idle') : fig.loadAnim('Default', m[1])).catch(() => null); if (base) a = { ...a, nodeAnimations: { ...base.nodeAnimations, ...a.nodeAnimations } }; } } st.hover(g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 44 : g === 'Glide' ? 150 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
     if (once) { const still = fig.motionOf(g, n) && st.anim.still, ms = still ? 1700 : (Math.max(1, a.duration || 60) / 60 / speed) * 1000 + (a.holdLastKeyframe ? 700 : 0) + 250;
       onceT = setTimeout(() => { if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); }, ms); } st.anim.setMove(fig.motionOf(g, n)); st.anim.playing = true; drawEmotes(); } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
 let animGroup = 'Emote';
@@ -618,6 +619,11 @@ function panelHelp() {
   return [head('Help'), el('div', { class: 'pbody prose' },
     sec('How it works', el('ul', { class: 'howto' }, steps.map(([t, d]) => el('li', {}, el('b', { text: t + ' ' }), d))),
       'Drag the character to turn it, scroll to zoom. Front turns it back to face you. The button at the top left of the view changes the background (Studio or one of the game’s places, built from your game files); Clean view hides the buttons, Esc brings them back.'),
+    sec('Good to know', el('ul', { class: 'howto' }, [
+      ['Saving', 'every change saves itself; a new look becomes "My skin N". Save as gives it a name or puts it in an in-game slot. Randomize starts a new look and never changes a saved one.'],
+      ['Stars', 'the ☆ keeps an item in Favourites. On a move it adds it to the round quick buttons beside the character.'],
+      ['Creator', 'Paint colours the item, Shape changes its boxes. Done saves and closes; Equip saves and puts it on.'],
+      ['Limits', `up to ${store.CUSTOM_MAX} skins in My skins, ${store.GAME_SLOTS} in-game slots and ${assets.MAX} custom items.`]].map(([t, d]) => el('li', {}, el('b', { text: t + ' ' }), d)))),
     sec('Game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: showConnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
@@ -894,12 +900,12 @@ function anyItem() {   // or start from any free item in the game, worn or not
   menu.onclick = ev => { const o = ev.target.closest('[role=option]'); if (o) { choose(+o.dataset.i); item.focus(); } };
   const fill = () => { const q = find_.value.trim().toLowerCase(), from = q ? slots : [slot.value];   // a search looks in every slot
     const rank = r => { if (!q || !r[2]) return 0; const nm = itemName(r[2]).toLowerCase(), w = nm.split(/\s+/); return nm === q ? 0 : nm.startsWith(q) ? 1 : w[0] === q || w.includes(q) && w.indexOf(q) === 0 ? 1 : nm.split(/\s+/).some(x => x === q) ? 2 : 3; };
-    list = from.flatMap(f => oneEach(CAT.items[f]).filter(e => ok(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e])).sort((a, b) => rank(a) - rank(b) || a[0].localeCompare(b[0]));   // a search puts exact names first, then names that start with it
-    if (!q) list.unshift(['None', slot.value, null]);   // None: the picture shows the slot empty; wearing nothing there starts on a random item
+    list = from.flatMap(f => oneEach(CAT.items[f]).filter(e => ok(e) && !isTmp(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e])).sort((a, b) => rank(a) - rank(b) || a[0].localeCompare(b[0]));   // a search puts exact names first, then names that start with it
+      // None: the picture shows the slot empty; wearing nothing there starts on a random item
     menu.replaceChildren(...list.map(([n], i) => el('div', { role: 'option', class: 'anyopt', text: n, data: { i } })));
     const worn = !q && parse(cur.skin[slot.value]).id, kept = (anyItem.picks ||= {})[slot.value], at0 = id => list.findIndex(r => r[2] && r[2].Id === id); at = q ? (list.length ? 0 : -1) : kept ? at0(kept) : -1; if (!q && at < 0) at = at0(worn);   // the item shown last time stays, so the picker doesn't jump around between visits
     if (!q && at < 0 && (anyItem.rand ||= {})[slot.value]) at = at0(anyItem.rand[slot.value]);
-    if (!q && at < 0 && list.length > 1) { at = 1 + Math.floor(Math.random() * (list.length - 1)); anyItem.rand[slot.value] = list[at][2].Id; } act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
+    if (!q && at < 0 && list.length) { at = Math.floor(Math.random() * list.length); anyItem.rand[slot.value] = list[at][2].Id; } act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
   slot.value = slots.includes(anyItem.slot) ? anyItem.slot : slots.includes('overtop') ? 'overtop' : slots[0]; fill(); slot.onchange = () => { anyItem.slot = slot.value; keepAny(); find_.value = ''; fill(); }; find_.oninput = fill;
   find_.onkeydown = ev => { if (ev.key === 'ArrowDown' && list.length) { ev.preventDefault(); item.focus(); item.onkeydown(ev); } };
   return [el('h3', { text: 'Or start from any item' }), el('div', { class: 'row anyitem' }, pic, el('div', { class: 'anycol' }, el('div', { class: 'row' }, slot, find_), el('div', { class: 'anywrap' }, item, menu)), edit)];
@@ -979,7 +985,7 @@ function recordShape(before) { ED.hist.push({ k: 's', other: before }); ED.fut =
 function undoEntry(e, redo) {
   if (e.k === 'p') { ED.replaying = true; redo ? ED.painter.redo() : ED.painter.undo(); ED.replaying = false; return e; }
   if (e.k === 'g') return { k: 'g', parts: e.parts.slice().reverse().map(x => undoEntry(x, redo)) };
-  const now = JSON.stringify(ED.model); ED.model = JSON.parse(e.other); ED.box = Math.min(ED.box || 0, boxesOf(ED.model).length - 1); ED.reshaped = true; return { k: 's', other: now };
+  const now = JSON.stringify(ED.model), keep = boxesOf(ED.model)[ED.box || 0]?.node.name; ED.model = JSON.parse(e.other); { const bs = boxesOf(ED.model), i = bs.findIndex(x => x.node.name === keep); ED.box = i >= 0 ? i : Math.min(ED.box || 0, bs.length - 1); } ED.reshaped = true; return { k: 's', other: now };
 }
 function wsUndo(redo) {
   if (!ED) return; ED.float = null; const from = redo ? ED.fut : ED.hist, to = redo ? ED.hist : ED.fut, e = from.pop(); if (!e) return;
@@ -990,7 +996,7 @@ function shapeEdit(fn) {   // with Symmetry on, the box's twin on the other side
   const before = JSON.stringify(ED.model), b0 = curBox(), tw = symTwin(); fn();
   if (tw && b0 && b0.node !== tw && boxesOf(ED.model).some(x => x.node === b0.node) && boxesOf(ED.model).some(x => x.node === tw)) mirrorNode(b0.node, tw);
   finishShape(before); }
-async function setMode(m) { if (ED.float) placeFloat(); if (m === 'shape') { await editModel(); ED.box ||= 0; ED.stool ||= 'select'; st.cursor(null); ED.hover = ED.hoverM = null; } ED.mode = m; ED.shapeOpen = m === 'shape'; render(); placeGizmo(); }
+async function setMode(m) { if (ED.float) placeFloat(); say(''); if (m === 'shape') { await editModel(); ED.box ||= 0; ED.stool ||= 'select'; st.cursor(null); ED.hover = ED.hoverM = null; } ED.mode = m; ED.shapeOpen = m === 'shape'; render(); placeGizmo(); }
 function pickTool(id) { if (ED.mode === 'shape') ED.stool = id; else { if (id !== 'select' && ED.float) placeFloat(); ED.painter.tool = id; } render(); placeGizmo(); }
 function curBox() { return ED.model ? boxesOf(ED.model)[ED.box || 0] : null; }
 function placeGizmo() {
@@ -1137,7 +1143,7 @@ function useColour(h) { const P = ED.painter; P.color = h; if (!ED.altFrom && P.
 const swatchRow = list => el('div', { class: 'swatches' }, list.map(h => { const b = el('button', { title: h, class: h === ED.painter.color ? 'on' : '', onclick: () => useColour(h) }); b.style.background = h; return b; }));
 // ---- the finish: after Done, say what happens next
 async function finishAsset(equip = false) {
-  const a = ED.asset; await closeAsset(false, equip); if (!equip) return say(`Saved ${a.name}. It is under Custom in the Wardrobe; Equip on its card puts it on.`); const linked = FOLDER.state === 'on';
+  const a = ED.asset; await closeAsset(false, equip); if (!equip) return say((cur.skin[a.field] || '').startsWith('Custom_' + a.id) ? `Saved ${a.name}.` : `Saved ${a.name}. It is under Custom in the Wardrobe; Equip on its card puts it on.`); const linked = FOLDER.state === 'on';
   const text = linked ? (SHOWGAME ? 'It is on your character in your own worlds too, through the Skin Editor Sync mod.' : 'Turn on In game to wear it in your own Hytale worlds (needs the Skin Editor Sync mod).')
     : 'To wear it in Hytale, install the Skin Editor Sync mod and pick a skins folder in the Locker.';
   const upd = cur.id && cur.name ? ` "${cur.name}" now wears it too.` : '';
