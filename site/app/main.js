@@ -59,12 +59,23 @@ async function connectHandle(h, ask) {
   doConnect(async () => { const f = await h.getFile(); await game.connect(f, progress); await game.rememberZip(h); });
 }
 // on every visit: if the remembered Assets.zip changed (a game update) and the browser still allows reading it, refresh quietly
-async function checkGameUpdate() {
+async function checkGameUpdate(force) {
   const h = await game.zipHandle().catch(() => null); if (!h || !META) return;
   try { if ((await h.queryPermission({ mode: 'read' })) !== 'granted') return; const f = await h.getFile();
-    if (f.size === META.size && f.lastModified === META.modified && (META.v || 1) >= game.FILES_V) return;   // same file, and read with today's list of files
-    say((META.v || 1) < game.FILES_V && f.size === META.size ? 'Reading a few more of your game files…' : 'Hytale updated, reading the new game files…'); BD_MADE.clear(); bdShown = null; await game.connect(f, () => {}); fig.clearCache(); pics.clear(); META = await game.status(); CAT = await game.catalog(); R = rules(CAT); registerAssets(); setConn(META); rebuild(); render(); say('Game files updated.');
+    if (!force && f.size === META.size && f.lastModified === META.modified && (META.v || 1) >= game.FILES_V) return;   // same file, and read with today's list of files
+    say(force ? 'Reading your game files again…' : (META.v || 1) < game.FILES_V && f.size === META.size ? 'Reading a few more of your game files…' : 'Hytale updated, reading the new game files…'); BD_MADE.clear(); bdShown = null; await game.connect(f, () => {}); fig.clearCache(); pics.clear(); META = await game.status(); CAT = await game.catalog(); R = rules(CAT); registerAssets(); setConn(META); rebuild(); render(); say('Game files updated.');
   } catch (e) { console.warn('game update check', e); say('Hytale seems to have updated, but the new game files could not be read. Use Connect again in Help.', true); } }
+// the browser forgets the read permission between visits: the first click of a visit asks for it once (Chrome then offers "Allow on every
+// visit"), so a game update is picked up without the player connecting again
+async function askZipOnce() { askZipOnce.done = true; const h = await game.zipHandle().catch(() => null); if (!h || !META) return;
+  try { if ((await h.queryPermission({ mode: 'read' })) === 'prompt' && (await h.requestPermission({ mode: 'read' })) === 'granted') checkGameUpdate(); } catch { /* not allowed now */ } }
+addEventListener('pointerdown', () => { if (!askZipOnce.done) askZipOnce(); }, { capture: true });
+// Connect again: the remembered Assets.zip is read straight away (one click); only without one does the file picker come up
+async function reconnect() { const h = await game.zipHandle().catch(() => null);
+  if (!h) return showConnect();
+  try { if ((await h.queryPermission({ mode: 'read' })) !== 'granted' && (await h.requestPermission({ mode: 'read' })) !== 'granted') return showConnect(); await h.getFile(); }
+  catch { return showConnect(); }
+  checkGameUpdate(true); }
 function progress(p) { const b = $('progress'); b.hidden = false; b.firstElementChild.style.width = Math.round(p * 100) + '%'; b.lastElementChild.textContent = p < 1 ? `Reading your game files… ${Math.round(p * 100)}%` : 'Done'; }
 let connecting = false;
 async function doConnect(run) {
@@ -426,7 +437,7 @@ function folderRow() {
   const btn = (t, fn, c = 'ghost') => el('button', { class: 'btn ' + c, text: t, onclick: guard(fn) });
   const [title, text] = FOLDER.state === 'on' ? ['Saving to folder: ' + FOLDER.name, 'Every skin and custom asset is a small file in this folder and updates as you edit.']
     : FOLDER.state === 'ask' ? ['Folder paused: ' + FOLDER.name, 'Your browser needs your OK again before it can write to the folder. Until then, changes are kept in the browser.']
-    : ['Save skins to a folder', 'Pick a folder on your computer, for example a "Hytale Skins" folder in Documents. Each skin becomes a small file there and updates as you edit.'];
+    : ['Save skins to a folder', 'Pick your Documents folder and the site makes a "Hytale Skins" folder in it, the one the mod reads. Each skin becomes a small file there.'];
   return el('div', { class: 'folder ' + FOLDER.state }, el('div', {}, el('b', { text: title })), modLink('ghost'),
     FOLDER.state === 'none' ? btn('Choose folder', async () => after(await store.chooseFolder()), 'primary')
       : [FOLDER.state === 'ask' ? btn('Reconnect', async () => after(await store.resumeFolder(true)), 'primary') : btn('Change', async () => after(await store.chooseFolder())),
@@ -437,7 +448,7 @@ function gameSteps() {   // the path to wearing your skins in Hytale, in order
   const row = (n, done, title, text, action) => el('li', { class: done ? 'done' : '' }, el('span', { class: 'num', text: done ? '✓' : n }), el('div', {}, el('b', { text: title }), el('small', { text })), done ? null : action);
   return el('details', { class: 'gamesteps', open: !all }, el('summary', { text: all ? 'Wearing your skins in Hytale: all set' : 'Wear your skins in Hytale: 3 steps' }), el('ol', {},
     row(1, !!FOLDER.mod, 'Get the Skin Editor Sync mod', FOLDER.mod ? `Installed: it last ran on ${FOLDER.mod.seen}.` : 'Install it once from CurseForge. It dresses you in game.', modLink('ghost')),
-    row(2, linked, 'Choose a skins folder', 'Pick a "Hytale Skins" folder in Documents. The mod reads it.', linked ? null : el('button', { class: 'btn primary', text: FOLDER.state === 'ask' ? 'Reconnect folder' : 'Choose folder', onclick: guard(async () => { FOLDER.state === 'ask' ? await store.resumeFolder(true) : await store.chooseFolder(); FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); pushWearing(); }) })),
+    row(2, linked, 'Choose a skins folder', 'Pick your Documents folder; the site makes "Hytale Skins" in it for the mod.', linked ? null : el('button', { class: 'btn primary', text: FOLDER.state === 'ask' ? 'Reconnect folder' : 'Choose folder', onclick: guard(async () => { FOLDER.state === 'ask' ? await store.resumeFolder(true) : await store.chooseFolder(); FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); pushWearing(); }) })),
     row(3, linked && SHOWGAME, 'Switch on "In game"', linked ? 'The switch under the preview. What you wear here, you wear in your worlds.' : 'The switch appears under the preview once a folder is chosen.', el('button', { class: 'btn ghost', text: 'Turn on', disabled: !linked, onclick: () => { if (!SHOWGAME) $('ingame').onclick(); } }))));
 }
 function panelWardrobe() {
@@ -523,7 +534,7 @@ const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -61], turn: 0, stretch: 
 const BENCH = [{ block: game.SET_PIECES.bench, at: [-32, 0, 84], turn: 180 }];   // something to work at, centred in front of the hands (it is two blocks wide: x -64..64)
 const LADDERS = cols => [{ ladder: [cols, 7], at: [0, 0, -8] }];   // climbing faces +z: the rungs just in front of the hands, planks behind them
 const DEEP = 192;   // how far above the lake bed a swimmer floats (3 blocks)
-const WATER = (y, under) => [{ plane: [3600, 3600], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.55, flow: true }, ...(under ? [{ box: [3600, y, 3600], at: [0, y / 2, 0], color: 0x1d5ca8, opacity: 0.62, volume: true }] : [])];   // a lake to the hills, drifting with the land while swimming
+const WATER = (y, under) => [{ plane: [6400, 6400], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.55, flow: true }, ...(under ? [{ box: [6400, y, 6400], at: [0, y / 2, 0], color: 0x1d5ca8, opacity: 0.62, volume: true }] : [])];   // a lake to the hills, drifting with the land while swimming
 function sceneryFor(g, n) {
   if (g === 'Flavor' && /^Sit2?$/.test(n)) return [CHAIR, 32];   // the village chair's seat top
   if (g === 'Flavor' && /^Sleep/.test(n)) return [BED, 50];   // on the mattress, under the blanket's top
@@ -536,7 +547,8 @@ function sceneryFor(g, n) {
   return [null, 0]; }
 // moves done facing something (a ladder, a workbench) are watched from behind, as in the game
 const facesAway = (g, n) => g === 'Climb' || g === 'Mantle' || (g === 'Default' && n === 'Interact');
-async function setProps(g, n) { const want = heldBy(g, n);
+let propsKey = '';   // the props in the hands now: a move that uses the same ones keeps them (the glider never blinks out between glide moves)
+async function setProps(g, n) { const want = heldBy(g, n), key = JSON.stringify(want); if (key === propsKey) return; propsKey = key;
   const built = await Promise.all(want.map(async ([k, bone, shift]) => { try { const [model, tex] = game.PROPS[k]; return { root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone, shift }; } catch (e) { console.warn(k, e.message); return null; } }));
   st.props(built.filter(Boolean)); if (built.some(b => !b)) say('Your saved copy of the game files is from before held items were added. Refresh it once in the Locker to see them (your skins are kept).', true); }
 // st.lift: tall moves aim the view higher, moves near the floor aim lower so they clear the buttons under the view
@@ -618,26 +630,20 @@ function panelLookup() {
 }
 
 function panelHelp() {
-  const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
+  const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.filter(p => p !== '').map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
   const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const r = await store.importAll(await readJsonFile(f, 40_000_000)); await reloadAssets(); await refreshWard(); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}${r.skipped ? `, ${r.skipped} did not fit` : ''}`); }) });
-  const steps = [['Wardrobe', 'pick a slot like Haircut or Capes, then click items to try them on. Changes save themselves.'], ['Locker', 'all your skins. Load one, rename it, copy it or put it in an in-game slot. Publishing comes once Sign in with Hytale is switched on.'],
-    ['Animations', "play the game's own moves on your skin. Click the tab again to stop."], ['Creator', 'make your own pieces. Start from any game item, paint it, and it shows up under Custom in the Wardrobe.'],
-    ['Players', "look up someone by username to see what they're wearing and what they've published."]];
+  const steps = [['Wardrobe', 'pick a slot, click items to try them on.'], ['Locker', 'your saved skins.'], ['Animations', "the game's moves on your skin."],
+    ['Creator', 'make your own pieces from any item.'], ['Players', 'look someone up by username.']];
   return [head('Help'), el('div', { class: 'pbody prose' },
     sec('How it works', el('ul', { class: 'howto' }, steps.map(([t, d]) => el('li', {}, el('b', { text: t + ' ' }), d))),
-      'Drag the character to turn it, scroll to zoom. Front turns it back to face you. The button at the top left of the view changes the background (Studio or one of the game’s places, built from your game files); Clean view hides the buttons, Esc brings them back.'),
-    sec('Good to know', el('ul', { class: 'howto' }, [
-      ['Saving', 'every change saves itself; a new look becomes "My skin N". Save as gives it a name or puts it in an in-game slot. Randomize starts a new look and never changes a saved one.'],
-      ['Stars', 'the ☆ keeps an item in Favourites. On a move it adds it to the round quick buttons beside the character.'],
-      ['Creator', 'Paint colours the item, Shape changes its boxes. Done saves and closes; Equip saves and puts it on.'],
-      ['Limits', `up to ${store.CUSTOM_MAX} skins in My skins, ${store.GAME_SLOTS} in-game slots and ${assets.MAX} custom items.`]].map(([t, d]) => el('li', {}, el('b', { text: t + ' ' }), d)))),
+      'Drag to turn, scroll to zoom. Changes save themselves.'),
     sec('Game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
-      el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: showConnect }),
+      el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: reconnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
-    MOD_URL ? sec('Skin Editor Sync', 'Wear what you design in your own worlds: install the mod, pick a skins folder in the Locker, then turn on In game. Everyone who joins a world running on your PC sees you dressed. Other servers can’t read your folder, so there you keep your usual look.', el('div', { class: 'row' }, modLink('primary'))) : null,
-    sec('Backup', 'Keep a backup file if you have not picked a skins folder in the Locker.',
+    MOD_URL ? sec('Skin Editor Sync', 'Wear your skins in your own worlds: install the mod, pick a skins folder in the Locker, turn on In game.', el('div', { class: 'row' }, modLink('primary'))) : null,
+    sec('Backup', '',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Download backup', onclick: guard(async () => download('skin-editor-backup.json', await store.exportAll())) }), el('label', { class: 'btn ghost' }, 'Restore backup', backupFile))),
-    el('p', {}, el('a', { href: '/privacy', text: 'Privacy: what the site keeps and how to delete it' })))];
+    )];
 }
 
 

@@ -216,12 +216,14 @@ async function buildWorld(sc, tint) {
   // place's hills and trees as a fixed ring of distant scenery standing on it, from RIN blocks out into the haze. Nothing that slides is
   // solid and nothing solid moves, so nothing can ever reach the character or the camera, and no move ever needs a correction.
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const P = 128, RIN = 17, R = 60, TAU = Math.PI * 2, sym = v => { const w = ((v % P) + P) % P; return w >= P / 2 ? w - P : w; };
+  const P = 128, RIN = 44, R = 80, FIX = 45, TAU = Math.PI * 2, sym = v => { const w = ((v % P) + P) % P; return w >= P / 2 ? w - P : w; };
   const raw = (x, z) => { const n = Math.sin(TAU * 2 * x / P + 1.3) * Math.cos(TAU * 3 * z / P - 0.7) + 0.7 * Math.sin(TAU * (x + z) / P + 2.1) + 0.4 * Math.cos(TAU * 4 * (x - z) / P);
     return Math.max(0, (n + 0.5) * sc.hills * 0.55); };
-  const h = (x, z) => { const d = Math.hypot(x, z); if (d < RIN) return 0; const a = Math.atan2(z, x), far = Math.max(0, (d - RIN - 9) / (R - RIN - 9));   // rolling hills from the ring's inner edge, growing into a ring of mountains on the horizon
+  // everything nearer than RIN slides with the move; from RIN out stands a ring of hills rising into mountains, far enough that standing still is what
+  // far land looks like while you move (no near border between moving and fixed ground). Every cell of the ring is at least a block high, so its foot hides the plain's edge.
+  const h = (x, z) => { const d = Math.hypot(x, z); if (d < RIN) return 0; const a = Math.atan2(z, x), t = Math.min(1, (d - RIN) / (R - RIN));
     const peaks = 0.55 + 0.25 * Math.sin(a * 3 + 1.1) + 0.2 * Math.cos(a * 7 - 0.4) + 0.12 * Math.sin(a * 13 + x * 0.21 - z * 0.17);
-    return Math.round(raw(x, z) * Math.min(1, (d - RIN) / 12) * 0.8 + Math.pow(far, 1.8) * (2 + 7.5 * peaks)); };   // low enough that the sky shows over them from eye height
+    return Math.max(1, Math.round(1 + raw(x, z) * 0.6 + Math.pow(t, 1.3) * (4 + 12 * peaks))); };
   const items = new Map(), put = (key, x, y, z, q, plant, slide) => { const k = key + (slide ? '|s' : '|f'); (items.get(k) || items.set(k, { plant, slide, name: key, list: [] }).get(k)).list.push([x, y, z, q]); };
   const nTops = (await blockParts(sc.ground, tint)).length;
   // plant sizes (third value): 1 low, 2 knee-high, none tall
@@ -237,7 +239,10 @@ async function buildWorld(sc, tint) {
     for (const b0 of tb) { if (!BLOCKS[b0.name]) continue; const x = cx + b0.x, z = cz + b0.z, y = base + b0.y + lift;
       put(b0.name + '|0', x, y, z, b0.rotation ? turnOf(b0.rotation) : null, false, false); if (b0.y + lift === 0) taken.add(x + ',' + z); } }
   // the ring's hills: columns standing on the plain (the plain's own ground is under them), plants on their tops
-  for (let x = -R; x <= R; x++) for (let z = -R; z <= R; z++) { const top = h(x, z); if (!top) continue; const low = Math.min(top, h(x + 1, z), h(x - 1, z), h(x, z + 1), h(x, z - 1));
+  for (let x = -R; x <= R; x++) for (let z = -R; z <= R; z++) { const top = h(x, z), dc = Math.hypot(x, z);
+    if (dc >= FIX - 0.5 && dc <= R + 1) put(sc.ground + '|' + Math.floor(rnd() * nTops), x, -0.996, z, null, false, false);   // from FIX blocks out the land is fixed, ground and all (a hair above the sliding ground it covers)
+    if (!top) { if (dc >= FIX && dc <= R && !taken.has(x + ',' + z) && rnd() < sc.density) { const r = rnd(), name = pick(r < 0.45 ? 1 : r < 0.8 ? 2 : 0); if (name) put(name + '|0', x + (rnd() - 0.5) * 0.5, 0, z + (rnd() - 0.5) * 0.5, rnd() * TAU, true, false); } continue; }
+    const low = Math.min(top, h(x + 1, z), h(x - 1, z), h(x, z + 1), h(x, z - 1));
     for (let y = Math.max(1, low); y <= top; y++) put(y === top ? sc.ground + '|' + Math.floor(rnd() * nTops) : sc.under + '|0', x, y - 1, z, null, false, false);
     if (!taken.has(x + ',' + z) && rnd() < sc.density) { const name = pick(0); if (name) put(name + '|0', x + (rnd() - 0.5) * 0.5, top, z + (rnd() - 0.5) * 0.5, rnd() * TAU, true, false); } }
   // the plain: one ground block per cell and its plants, repeating every P blocks, sliding with the move
@@ -250,12 +255,10 @@ async function buildWorld(sc, tint) {
   const avoid = () => root.userData.avoid || [];   // set pieces' ground rectangles [x0, z0, x1, z1] in blocks: no plant inside them
   const layout = (plantsOnly) => { const ox = ax / BLOCK, oz = az / BLOCK, c = root.userData.cam, clear = root.userData.clear || 1, rects = avoid();
     for (const st of sets) { if (plantsOnly && !st.plant) continue; if (!st.slide && st.laid && plantsOnly) continue; let n = 0;
-      for (const [x0, y, z0, q] of st.list) { const x = st.slide ? sym(x0 + ox) : x0, z = st.slide ? sym(z0 + oz) : z0; if (x * x + z * z > R * R) continue;
-        let k = 1; if (st.plant && st.slide) { if (h(Math.round(x), Math.round(z)) > 0) continue;   // never inside a hill of the ring
-          const d = Math.hypot(x, z);   // a plant shrinks away near the character, the camera's lens and any set piece
-          k = Math.min(1, Math.max(0, (d - clear) / 0.7), c ? Math.max(0, (Math.hypot(x * BLOCK - c.x, z * BLOCK - c.z) / BLOCK - 2.2) / 1.2) : 1);
-          if (c && k > 0) { const cx = c.x / BLOCK, cz = c.z / BLOCK, L = cx * cx + cz * cz, t = L ? Math.max(0, Math.min(1, (x * cx + z * cz) / L)) : 0;   // and along the line from the lens to the character, so no clump fills the foreground
-            k = Math.min(k, Math.max(0, (Math.hypot(x - t * cx, z - t * cz) - 0.9) / 0.8)); }
+      for (const [x0, y, z0, q] of st.list) { const x = st.slide ? sym(x0 + ox) : x0, z = st.slide ? sym(z0 + oz) : z0; if (x * x + z * z > (st.slide ? (FIX + 1.5) * (FIX + 1.5) : R * R)) continue;   // what slides stays inside the fixed land
+        let k = 1; if (st.plant && st.slide) {           const d = Math.hypot(x, z);   // a plant shrinks away near the character, the camera's lens and any set piece
+          const e = v => v <= 0 ? 0 : v >= 1 ? 1 : v * v * (3 - 2 * v);   // long, eased fades, so a plant sliding past never visibly pops in or out
+          k = Math.min(e((d - clear) / 1.8), e((38 - d) / 8), c ? e((Math.hypot(x * BLOCK - c.x, z * BLOCK - c.z) / BLOCK - 1.2) / 2.2) : 1);
           for (const r of rects) if (x > r[0] - 0.6 && x < r[2] + 0.6 && z > r[1] - 0.6 && z < r[3] + 0.6) k = 0;
           if (k < 0.02) continue; }
         st.im.setMatrixAt(n++, M.compose(V.set(x * BLOCK, y * BLOCK, z * BLOCK), st.plant ? Q.setFromAxisAngle(Y, q) : q || Q.identity(), st.plant ? SC.setScalar(k) : ONE)); }
@@ -278,7 +281,12 @@ export function stage(canvas, Controls) {
   const ctl = new Controls(cam, canvas); ctl.target.set(0, 62, 0); ctl.enablePan = false; ctl.zoomToCursor = false;   // zoom stays on the figure's centre, lined up with the buttons under it
   ctl.minDistance = 40; ctl.maxDistance = 900; ctl.rotateSpeed = 0.55; ctl.maxPolarAngle = Math.PI * 0.55; ctl.update();
   const disc = new THREE.Mesh(new THREE.CircleGeometry(58, 48), new THREE.MeshBasicMaterial({ color: 0x0b1626, transparent: true, opacity: 0.55, fog: false })); disc.rotation.x = -Math.PI / 2; disc.position.y = -0.2; scene.add(disc);
-  const CELL = 32, grid = new THREE.GridHelper(CELL * 40, 40, 0x4a76ad, 0x33557f); grid.material.transparent = true; grid.material.opacity = 0; grid.material.depthWrite = false; scene.add(grid);
+  const CELL = 32, grid = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ transparent: true, depthWrite: false,
+    // the Studio floor: grid lines on an endless plane, fading into the dark with distance so no edge is ever seen
+    uniforms: { opacity: { value: 0 }, color: { value: new THREE.Color(0x5a8cc8) }, cell: { value: CELL } },
+    vertexShader: 'varying vec3 vL; varying vec3 vW; void main() { vL = position; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    fragmentShader: 'uniform float opacity; uniform vec3 color; uniform float cell; varying vec3 vL; varying vec3 vW; void main() { vec2 g = abs(fract(vL.xz / cell - 0.5) - 0.5) / fwidth(vL.xz / cell); float line = 1.0 - smoothstep(0.0, 1.3, min(g.x, g.y)); float d = length(vW.xz); float fade = 1.0 - smoothstep(300.0, 3200.0, d); gl_FragColor = vec4(color, line * fade * opacity); if (gl_FragColor.a < 0.003) discard; }' }));
+  Object.defineProperty(grid.material, 'opacity', { get() { return this.uniforms.opacity.value; }, set(v) { this.uniforms.opacity.value = v; } }); scene.add(grid);
   let sky = null, world = null, scrollers = [], flowing = [], mist = null; const FOG = [950, 1750];   // mist: the short fade that hides the land going back to the crossing   // the in-game background (setBackdrop below); set pieces that slide while climbing
   // the climbing wall: the same grid stood up in front of the figure, sliding the other way as it climbs
   const wallG = new THREE.GridHelper(CELL * 16, 16, 0x4a76ad, 0x33557f); wallG.rotation.x = Math.PI / 2; wallG.material.transparent = true; wallG.material.opacity = 0; wallG.material.depthWrite = false; wallG.visible = false; scene.add(wallG);
