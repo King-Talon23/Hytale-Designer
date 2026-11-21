@@ -244,7 +244,7 @@ function tierOf(e) {   // from how the game unlocks the item (its entitlements),
   if (t.some(x => !String(x).startsWith('game.'))) return 4; if (t.includes('game.base')) return 1; if (t.includes('game.deluxe')) return 2; return 3;
 }
 const tierClass = e => e && e.custom ? 'mine' : 't' + tierOf(e);
-let LOCK = { favs: new Set(), seen: null, recent: {} }, picking = false, seenSlot = null, lockFilter = 'all', lockSort = 'up';
+let LOCK = { favs: new Set(), seen: null, recent: {} }, picking = false, slotScroll = 0, seenSlot = null, lockFilter = 'all', lockSort = 'up';
 const favKey = (f, e) => f + '|' + e.Id, isNew = (f, e) => !e.custom && LOCK.seen && !LOCK.seen.has(favKey(f, e));
 const saveLock = () => db.put('meta', 'locker', { favs: [...LOCK.favs], seen: [...LOCK.seen], recent: LOCK.recent }).catch(() => {});
 // the last items worn in each slot, newest first, for the picker's Recent filter
@@ -259,7 +259,7 @@ function lookCard(r, kind) { return el('button', { class: 'look ' + kind + (cur.
 function panelEditor() { return picking ? panelPicker() : panelLocker(); }
 function panelLocker() {
   const tile = f => { const it = R.find(f, cur.skin[f]), { color, variant } = parse(cur.skin[f]);
-    return el('button', { class: 'slot ' + (it ? tierClass(it) : 'none'), title: LABEL[f], onclick: () => { slot = f; picking = true; seenSlot = f; filter = ''; lockFilter = 'all'; render(); for (const p of document.querySelectorAll('.pbody')) p.scrollTop = 0; } },
+    return el('button', { class: 'slot ' + (it ? tierClass(it) : 'none'), title: LABEL[f], onclick: () => { slotScroll = document.querySelector('.panel .pbody')?.scrollTop || 0; slot = f; picking = true; seenSlot = f; filter = ''; lockFilter = 'all'; render(); for (const p of document.querySelectorAll('.pbody')) p.scrollTop = 0; } },
       it ? itemThumb(f, it, color, variant) : el('span', { class: 'nothing', text: '—' }),
       el('i', {}, icon(SLOT_ICON[f]), el('span', { text: LABEL[f] })), el('b', { text: it ? itemName(it) : 'None' })); };
   const looks = [...WARD.game.filter(Boolean).map(r => lookCard(r, 'game')), ...WARD.custom.map(r => lookCard(r, 'custom'))];
@@ -311,7 +311,7 @@ function panelPicker() {
     const ok = (Array.isArray(base) ? base : [base]).filter(c => HEX.test(c)); b.style.background = ok.length > 1 ? `linear-gradient(135deg, ${ok.join(',')})` : ok[0] || '#888'; return b; }));
   const options = el('div', { class: 'options' }, vs.map(v => el('button', { class: 'chip' + (v === (variant || vs[0]) ? ' on' : ''), text: variantName(it, v), onclick: () => change(it, color, v), ...hover(R.partStr(it, color, v)) })));
   return [head('Wardrobe'), el('div', { class: 'pbody' },
-    el('div', { class: 'pickhead' }, el('button', { class: 'btn ghost', text: '‹ Wardrobe', onclick: () => { leavePicker(); render(); } }), icon(SLOT_ICON[f]), el('b', { text: LABEL[f] })),
+    el('div', { class: 'pickhead' }, el('button', { class: 'btn ghost', text: '‹ Wardrobe', onclick: () => { leavePicker(); render(); const pb = document.querySelector('.panel .pbody'); if (pb) pb.scrollTop = slotScroll; } }), icon(SLOT_ICON[f]), el('b', { text: LABEL[f] })),
     el('div', { class: 'row' }, search, locked('Owned only', 'the owned cosmetics filter', 'chip')), bar, cardsBox, el('div', { class: 'pickfoot' }, detail,
     it?.custom ? [el('h3', { text: 'Colour' }), el('p', { class: 'dim' }, 'This is your own piece, painted in the Creator. ', (() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id);
       return a ? el('button', { class: 'btn ghost small', text: 'Recolour in the Creator', onclick: guard(() => openAsset(a)) }) : null; })())]
@@ -336,9 +336,11 @@ let bdShown = null;
 async function showBackdrop(key) {
   if (!st || key === bdShown) return; bdShown = key;
   if (key === 'dark') return st.setBackdrop(null);
+  const stg = $('view').parentElement, slow = setTimeout(() => stg.classList.add('loading'), 250);   // a place that takes a moment to build says so
   try { const spec = await backdropSpec(key); if (bdShown === key) await st.setBackdrop(spec.sky, spec.sc, spec.tint); }
   catch (e) { console.warn('backdrop', e); bdShown = 'dark'; st.setBackdrop(null); store_.set('se_backdrop', 'dark'); drawStageBtns();
-    say('This background needs a few more of your game files. Connect your Assets.zip again in Help and it will show.', true); } }
+    say('This background needs a few more of your game files. Connect your Assets.zip again in Help and it will show.', true); }
+  finally { clearTimeout(slow); stg.classList.remove('loading'); } }
 function drawStageBtns() {
   const box = $('stagebtns'), stg = $('view').parentElement; if (!box) return;
   if (!box._ro) { box._ro = new ResizeObserver(() => { const vb = $('viewbtns'); if (vb) vb.style.paddingLeft = box.offsetWidth ? box.offsetWidth + 10 + 'px' : ''; }); box._ro.observe(box); }   // the Creator's view buttons keep clear of the background button
@@ -489,7 +491,7 @@ const MOUNT_PATH = 'NPC/Livestock/', BLOCK = 64;   // model units per block
 const MOUNTS = {
   Horse: { model: MOUNT_PATH + 'Horse/Models/Model.blockymodel', tex: MOUNT_PATH + 'Horse/Models/Texture.png', seat: [0, 1.6, 0], anims: MOUNT_PATH + 'Horse/Animations/Default/',
     atts: [{ model: MOUNT_PATH + 'Horse/Models/Attachments/Mane.blockymodel', tex: MOUNT_PATH + 'Horse/Models/Attachments/Mane_Black.png' }] },   // the ridden (Tamed_Horse) role uses the plain horse: no saddle; mane and tail black or grey at random
-  Camel: { model: MOUNT_PATH + 'Camel/Models/Model.blockymodel', tex: MOUNT_PATH + 'Camel/Models/Texture.png', seat: [0, 2.25, 0.2], anims: MOUNT_PATH + 'Camel/Animations/Default/',
+  Camel: { model: MOUNT_PATH + 'Camel/Models/Model.blockymodel', tex: MOUNT_PATH + 'Camel/Models/Texture.png', seat: [0, 2.25, -0.13], anims: MOUNT_PATH + 'Camel/Animations/Default/',
     atts: [{ model: MOUNT_PATH + 'Camel/Models/Attachments/Shell.blockymodel', tex: MOUNT_PATH + 'Camel/Models/Attachments/Shell_Textures/Green.png' }] },
   Ram: { model: MOUNT_PATH + 'Ram/Models/Model.blockymodel', tex: MOUNT_PATH + 'Ram/Models/Texture.png', seat: [0, 1.3, 0], anims: MOUNT_PATH + 'Ram/Animations/Default/', atts: [] } };
 const MOUNT_MOVE = { Mount_Idle: ['Idle', 1], Mount_Walk: ['Walk', 1], Mount_Walk_Backward: ['Walk_Backward', 1], Mount_Run: ['Run', 1], Mount_Run_Backward: ['Walk_Backward', 1.6], Mount_Sprint: ['Run', 1.3] };
@@ -515,24 +517,24 @@ const CHAIR = [{ block: game.SET_PIECES.chair, at: [0, 0, 0], turn: 0 }];   // s
 const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -61], turn: 0, stretch: 1.12 }];   // lengthwise along z, pillow end at -z; 12% longer so the sleeper (z -71..58) fits between headboard (-75) and footboard (60)   // lying moves drop the pelvis about 42, head towards -z
 const BENCH = [{ block: game.SET_PIECES.bench, at: [-32, 0, 84], turn: 180 }];   // something to work at, centred in front of the hands (it is two blocks wide: x -64..64)
 const LADDERS = cols => [{ ladder: [cols, 7], at: [0, 0, -8] }];   // climbing faces +z: the rungs just in front of the hands, planks behind them
-const WATER = y => [{ plane: [3600, 3600], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.45, flow: true }];   // a lake to the hills, drifting with the land while swimming
+const WATER = (y, under) => [{ plane: [3600, 3600], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.45, flow: true }, ...(under ? [{ box: [3600, y, 3600], at: [0, y / 2, 0], color: 0x2f74b8, opacity: 0.32, volume: true }] : [])];   // a lake to the hills, drifting with the land while swimming
 function sceneryFor(g, n) {
   if (g === 'Flavor' && /^Sit2?$/.test(n)) return [CHAIR, 32];   // the village chair's seat top
   if (g === 'Flavor' && /^Sleep/.test(n)) return [BED, 50];   // on the mattress, under the blanket's top
   if (g === 'Climb') return [LADDERS(/_(Left|Right)$/.test(n) ? 3 : 1), 0];   // one ladder up and down, a few side by side to climb across
   if (g === 'Default' && n === 'Interact') return [BENCH, 0];
-  if (g === 'Swim') return [WATER(/Dive|Sink/.test(n) ? 150 : 92), 0];
+  if (g === 'Swim') return [WATER(/Dive|Sink/.test(n) ? 150 : 92, /Dive|Sink/.test(n)), 0];
   // pulling up: the move starts about two blocks below and ends on top, so the figure stands that much higher on a stone block it climbs onto
   if (g === 'Mantle' && /^Mantle_Up/.test(n)) return [[{ box: [160, 126, 128], at: [0, 63, 26], tex: W.stone, repeat: [2.5, 2] }], 126];
   if (g === 'Mantle') return [[{ box: [160, 84, 64], at: [0, 42, 50], tex: W.stone, repeat: [2.5, 1.2] }], 0];   // hands resting on a chest-high ledge in front
   return [null, 0]; }
 // moves done facing something (a ladder, a workbench) are watched from behind, as in the game
-const facesAway = (g, n) => g === 'Climb' || (g === 'Default' && n === 'Interact');
+const facesAway = (g, n) => g === 'Climb' || g === 'Mantle' || (g === 'Default' && n === 'Interact');
 async function setProps(g, n) { const want = heldBy(g, n);
   const built = await Promise.all(want.map(async ([k, bone, shift]) => { try { const [model, tex] = game.PROPS[k]; return { root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone, shift }; } catch (e) { console.warn(k, e.message); return null; } }));
   st.props(built.filter(Boolean)); if (built.some(b => !b)) say('Your saved copy of the game files is from before held items were added. Refresh it once in the Locker to see them (your skins are kept).', true); }
 // st.lift: tall moves aim the view higher, moves near the floor aim lower so they clear the buttons under the view
-async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); st.lift(g === 'Expressions' ? 104 : g === 'Glide' ? 140 : g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 106 : g === 'Climb' ? 86 : g === 'Taunt' && /Staff_Helicopter/.test(n) ? 100 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' && /^Mantle_Up/.test(n) ? 150 : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : g === 'Expressions' ? -200 : 360, g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); let a = await fig.loadAnim(g, n); { const m = g === 'Flavor' && /^(Crouch(?:_Walk)?|Fly)_Look_Around/.exec(n); if (m) { const base = await (m[1] === 'Fly' ? fig.loadAnim('Fly', 'Fly_Idle') : fig.loadAnim('Default', m[1])).catch(() => null); if (base) a = { ...a, nodeAnimations: { ...base.nodeAnimations, ...a.nodeAnimations } }; } } st.hover(g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 44 : g === 'Glide' ? 60 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
+async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); const faceUp = g === 'Expressions' || g === 'Flavor' && /^(Blink|Eye)/.test(n); st.lift(faceUp ? 98 : g === 'Glide' ? 140 : g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 106 : g === 'Climb' ? 86 : g === 'Taunt' && /Staff_Helicopter/.test(n) ? 100 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' ? (/^Mantle_Up/.test(n) ? 150 : 110) : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : faceUp ? -200 : 360, g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); let a = await fig.loadAnim(g, n); { const m = g === 'Flavor' && /^(Crouch(?:_Walk)?|Fly)_Look_Around/.exec(n); if (m) { const base = await (m[1] === 'Fly' ? fig.loadAnim('Fly', 'Fly_Idle') : fig.loadAnim('Default', m[1])).catch(() => null); if (base) a = { ...a, nodeAnimations: { ...base.nodeAnimations, ...a.nodeAnimations } }; } } st.hover(g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 44 : g === 'Glide' ? 60 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
     if (once) { const still = fig.motionOf(g, n) && st.anim.still, ms = still ? 1700 : (Math.max(1, a.duration || 60) / 60 / speed) * 1000 + (a.holdLastKeyframe ? 700 : 0) + 250;
       onceT = setTimeout(() => { if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); }, ms); } st.anim.setMove(fig.motionOf(g, n)); st.anim.playing = true; drawEmotes(); } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
 let animGroup = 'Emote';
@@ -907,7 +909,7 @@ function assetCard(a) {
   const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
   return el('div', { class: 'skin asset' + (worn ? ' on' : ''), tabIndex: 0, title: a.name + ': open in the creator', onclick: guard(() => openAsset(a)) },
     el('div', { class: 'pic' }, assetThumb(a)), el('b', { text: a.name }), el('small', { text: modReady(a) ? LABEL[a.field] : a.flag ? 'Site only: looks like ' + a.flag : 'Paid item: site only', title: a.flag ? FLAG_WHY(a.flag) : '' }),
-    el('div', { class: 'acts' }, act('Edit', guard(() => openAsset(a)), 'primary'), act('Copy', guard(() => copyAsset(a))), worn ? el('span', { class: 'worn', text: 'Worn ✓', title: 'Your character has this on' }) : act('Wear', () => setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' })),
+    el('div', { class: 'acts' }, act('Edit', guard(() => openAsset(a)), 'primary'), act('Copy', guard(() => copyAsset(a))), worn ? el('span', { class: 'worn', text: 'Worn ✓', title: 'Your character has this on' }) : act('Equip', () => setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' })),
 
       act('Delete', guard(async () => { if (!await confirmBox('Delete custom asset', `Delete "${a.name}"? Skins wearing it lose that part. This cannot be undone.`, 'Delete', true)) return;
         pressing = false; await deleteAsset(a); }), 'danger')));
@@ -1135,7 +1137,7 @@ function useColour(h) { const P = ED.painter; P.color = h; if (!ED.altFrom && P.
 const swatchRow = list => el('div', { class: 'swatches' }, list.map(h => { const b = el('button', { title: h, class: h === ED.painter.color ? 'on' : '', onclick: () => useColour(h) }); b.style.background = h; return b; }));
 // ---- the finish: after Done, say what happens next
 async function finishAsset(equip = false) {
-  const a = ED.asset; await closeAsset(false, equip); if (!equip) return say(`Saved ${a.name}. It is under Custom in the Wardrobe; Wear on its card puts it on.`); const linked = FOLDER.state === 'on';
+  const a = ED.asset; await closeAsset(false, equip); if (!equip) return say(`Saved ${a.name}. It is under Custom in the Wardrobe; Equip on its card puts it on.`); const linked = FOLDER.state === 'on';
   const text = linked ? (SHOWGAME ? 'It is on your character in your own worlds too, through the Skin Editor Sync mod.' : 'Turn on In game to wear it in your own Hytale worlds (needs the Skin Editor Sync mod).')
     : 'To wear it in Hytale, install the Skin Editor Sync mod and pick a skins folder in the Locker.';
   const upd = cur.id && cur.name ? ` "${cur.name}" now wears it too.` : '';

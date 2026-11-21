@@ -402,7 +402,7 @@ export function stage(canvas, Controls) {
       if (it.tex) { try { const T = await texture(it.tex); map = T.mat.map.clone(); map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.set(...(it.repeat || [1, 1])); map.needsUpdate = true; } catch (e) { console.warn(it.tex, e.message); } }
       const mat = new THREE.MeshLambertMaterial({ map, color: it.color ?? 0xffffff, transparent: it.opacity != null, opacity: it.opacity ?? 1, depthWrite: it.opacity == null, side: THREE.DoubleSide });
       const geo = it.plane ? new THREE.PlaneGeometry(...it.plane) : new THREE.BoxGeometry(...it.box), m = new THREE.Mesh(geo, mat);
-      if (it.plane) m.rotation.x = -Math.PI / 2; m.position.set(...it.at); if (it.flow) m.userData.flow = it.plane[0] / (it.repeat || [1])[0]; return m; }));
+      if (it.plane) m.rotation.x = -Math.PI / 2; if (it.volume) { m.userData.volume = true; m.renderOrder = 2; } m.position.set(...it.at); if (it.flow) m.userData.flow = it.plane[0] / (it.repeat || [1])[0]; return m; }));
     const drop = m => m.traverse(o => { if (o.isMesh && !o.userData.shared) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });   // game blocks are shared, kept
     const lost = made.some(m => !m); made.splice(0, made.length, ...made.filter(Boolean)); if (lost) api.onMissing?.();   // older copies of the game files lack the furniture
     if (my !== scenery.n) return made.forEach(drop);
@@ -410,11 +410,11 @@ export function stage(canvas, Controls) {
     for (const m of made) setPiece.add(m); scrollers = made.filter(m => m.userData.scroll); flowing = made.filter(m => m.userData.flow); perchY = perch; seatAt(); groundRects(); }
   // the ground each set piece stands on, in blocks, so no plant grows through a chair, a bed or a ladder wall
   function groundRects() { const box = new THREE.Box3(), rs = []; setPiece.updateMatrixWorld(true);
-    for (const m of setPiece.children) { if (m.userData.flow) continue; box.setFromObject(m); if (box.isEmpty() || box.min.y > 40) continue; rs.push([box.min.x / BLOCK, box.min.z / BLOCK, box.max.x / BLOCK, box.max.z / BLOCK]); }
+    for (const m of setPiece.children) { if (m.userData.flow || m.userData.volume) continue; box.setFromObject(m); if (box.isEmpty() || box.min.y > 40) continue; rs.push([box.min.x / BLOCK, box.min.z / BLOCK, box.max.x / BLOCK, box.max.z / BLOCK]); }
     if (world) { world.userData.avoid = rs; world.userData.relayout(); } else pendingRects = rs; }
   let pendingRects = [];
   // flying moves: the figure rises off the ground and bobs gently, easing up and down when the move changes
-  function float(dt, now) { if (figure && perchY) seatAt(); for (const h of held) { if (anim.blend > 0.8) h.shown = true; h.root.visible = !!h.shown; }   // a held thing shows once the hands have reached it, not swinging up from the feet
+  function float(dt, now) { if (figure && perchY) seatAt(); for (const h of held) { if (anim.blend > 0.8 || now - (h.at || 0) > 600) h.shown = true; h.root.visible = !!h.shown; }   // a held thing shows once the hands have reached it, not swinging up from the feet
     if (!figure || (!hoverTo && !hoverAt)) return; hoverAt += (hoverTo - hoverAt) * (1 - Math.exp(-dt * 4)); if (Math.abs(hoverTo - hoverAt) < 0.05) hoverAt = hoverTo;
     seatAt(); if (hoverAt > 1 && hoverTo) figure.position.y += Math.sin(now / 1000 * 2.2) * 2.5 * Math.min(1, hoverAt / hoverTo); }
   // things held in the hands (a glider, a sword ...): each hangs on a bone of the figure and moves with it; re-hung when the figure is rebuilt
@@ -433,7 +433,7 @@ export function stage(canvas, Controls) {
     const fp = figure.userData.parts; h.on = figure; h.added = [];
     h.root.userData.parts?.forEach((gs, k) => { if (fp.has(k) && !h.added.some(a => a[0] === k)) return; for (const g of gs) { (fp.get(k) || fp.set(k, []).get(k)).push(g); h.added.push([k, g]); } }); }
     anim.setFigure(figure); };
-  function props(list) { unhang(); for (const h of held) dispose(h.root); held = list || []; if (figure) hang(); }
+  function props(list) { unhang(); for (const h of held) dispose(h.root); held = list || []; for (const h of held) h.at = performance.now(); if (figure) hang(); }
   // a tall move (gliding, arms and glider high overhead): aim higher and back off so it all fits; lift(0) puts the view back
   let lifted = null;
   function lift(y, phi = 0, len = 360, z = 0) { const off = cam.position.clone().sub(ctl.target);   // phi: look down from at least this high (polar angle), to see into a bed
@@ -446,7 +446,7 @@ export function stage(canvas, Controls) {
     mountRoot = root || null; seat = root ? at : null; if (root) { scene.add(root); mountAnim.setFigure(root); } else { mountAnim.anim = null; mountAnim.figure = null; }
     seatAt();
     if (root) { const top = at[1] + 135, [b, , , h] = insets(), len = Math.min(700, (top + 40) * h / (2 * Math.tan(16 * Math.PI / 180) * (h - b)));   // rider and animal both in view: the rider's head is the seat plus a body
-      ctl.maxDistance = Math.max(480, len); const off = cam.position.clone().sub(ctl.target).setLength(len); ctl.target.set(0, top / 2 + 4, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
+      ctl.maxDistance = Math.max(480, len); const off = cam.position.clone().sub(ctl.target).setLength(len), sp = new THREE.Spherical().setFromVector3(off); sp.theta = 0.9; sp.phi = Math.min(sp.phi, 1.3); off.setFromSpherical(sp); ctl.target.set(0, top / 2 + 4, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
     else if (was) { ctl.maxDistance = 480; const off = cam.position.clone().sub(ctl.target).setLength(fitLen()); ctl.target.set(0, 62, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
   }
   const fitLen = () => { const [b, r, w, h] = insets(), t = Math.tan(16 * Math.PI / 180), tall = 2 * Math.max(62, figTop - 62) + 26;   // far enough that the whole character (helmet and all) fits in the free part of the view
