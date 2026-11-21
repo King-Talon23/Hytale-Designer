@@ -334,6 +334,7 @@ async function showBackdrop(key) {
     say('This background needs a few more of your game files. Connect your Assets.zip again in Help and it will show.', true); } }
 function drawStageBtns() {
   const box = $('stagebtns'), stg = $('view').parentElement; if (!box) return;
+  if (!box._ro) { box._ro = new ResizeObserver(() => { const vb = $('viewbtns'); if (vb) vb.style.paddingLeft = box.offsetWidth ? box.offsetWidth + 10 + 'px' : ''; }); box._ro.observe(box); }   // the Creator's view buttons keep clear of the background button
   let bd = store_.get('se_backdrop'); if (!BACKDROPS.some(b => b[0] === bd)) bd = 'dark'; showBackdrop(bd);
   const name = BACKDROPS.find(b => b[0] === bd)[1], clean = stg.classList.contains('clean');
   box.replaceChildren(...[
@@ -504,8 +505,8 @@ const heldBy = (g, n) => HELD[g]?.[n] || HELD[g]?.['*'] || [];
 const W = game.SCENERY_TEX;
 // the game's own furniture (its village set and workbench, see scene-data.js), placed where the moves use them
 const CHAIR = [{ block: game.SET_PIECES.chair, at: [0, 0, 0], turn: 0 }];   // sit moves drop the pelvis 45 and hang the lower legs
-const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -8], turn: 90 }];   // the headboard and pillow end towards -z   // lying moves drop the pelvis about 42, head towards -z
-const BENCH = [{ block: game.SET_PIECES.bench, at: [0, 0, 84], turn: 180 }];   // something to work at, in front of the hands
+const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -60], turn: 0 }];   // lengthwise along z, the pillow end towards -z (measured: bed z -85..61, figure z -70..57)   // lying moves drop the pelvis about 42, head towards -z
+const BENCH = [{ block: game.SET_PIECES.bench, at: [-32, 0, 84], turn: 180 }];   // something to work at, centred in front of the hands (it is two blocks wide: x -64..64)
 const LADDERS = cols => [{ ladder: [cols, 7], at: [0, 0, -8] }];   // climbing faces +z: the rungs just in front of the hands, planks behind them
 const WATER = y => [{ plane: [3600, 3600], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.45, flow: true }];   // a lake to the hills, drifting with the land while swimming
 function sceneryFor(g, n) {
@@ -524,7 +525,7 @@ async function setProps(g, n) { const want = heldBy(g, n);
   const built = await Promise.all(want.map(async ([k, bone, shift]) => { try { const [model, tex] = game.PROPS[k]; return { root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone, shift }; } catch (e) { console.warn(k, e.message); return null; } }));
   st.props(built.filter(Boolean)); if (built.some(b => !b)) say('Your saved copy of the game files is from before held items were added. Refresh it once in the Locker to see them (your skins are kept).', true); }
 // st.lift: tall moves aim the view higher, moves near the floor aim lower so they clear the buttons under the view
-async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); st.lift(g === 'Glide' ? 165 : g === 'Mantle' && /^Mantle_Up/.test(n) ? 150 : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0); st.scenery(...sceneryFor(g, n)); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); const a = await fig.loadAnim(g, n); st.hover(g === 'Fly' ? 44 : g === 'Glide' ? 60 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
+async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); st.lift(g === 'Glide' ? 165 : g === 'Fly' ? 106 : g === 'Climb' ? 86 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' && /^Mantle_Up/.test(n) ? 150 : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0); st.scenery(...sceneryFor(g, n)); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); const a = await fig.loadAnim(g, n); st.hover(g === 'Fly' ? 44 : g === 'Glide' ? 60 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
     if (once) { const still = fig.motionOf(g, n) && st.anim.still, ms = still ? 1700 : (Math.max(1, a.duration || 60) / 60 / speed) * 1000 + (a.holdLastKeyframe ? 700 : 0) + 250;
       onceT = setTimeout(() => { if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); }, ms); } st.anim.setMove(fig.motionOf(g, n)); st.anim.playing = true; drawEmotes(); } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
 let animGroup = 'Emote';
@@ -607,7 +608,7 @@ function panelHelp() {
     ['Players', "look up someone by username to see what they're wearing and what they've published."]];
   return [head('Help'), el('div', { class: 'pbody prose' },
     sec('How it works', el('ul', { class: 'howto' }, steps.map(([t, d]) => el('li', {}, el('b', { text: t + ' ' }), d))),
-      'Drag the character to turn it, scroll to zoom. Front turns it back to face you.'),
+      'Drag the character to turn it, scroll to zoom. Front turns it back to face you. The button at the top left of the view changes the background (Studio or one of the game’s places, built from your game files); Clean view hides the buttons, Esc brings them back.'),
     sec('Game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: showConnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
