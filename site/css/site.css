@@ -463,3 +463,4 @@ dialog.wide { width: min(760px, 94vw); }
 .skin > b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .combinetypes button { flex: none; }
 #app.ws #wstools { flex-wrap: wrap; justify-content: center; row-gap: 6px; }   /* a narrow view wraps the toolbar instead of cutting it */
+#wsright > *, #wsright .wshead, #wsright .swlabel { flex-shrink: 0; }   /* headings keep their height when the panel scrolls */

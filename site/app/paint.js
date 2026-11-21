@@ -62,10 +62,11 @@ export function createPainter(canvas, onChange, onPick) {
       if (t === 'fill' || t === 'replace') { if (first) { (t === 'replace' ? replaceAll : P.fillMode === 'side' ? fillSide : P.fillMode === 'every' ? fillEvery : flood)(b.x, b.y); show(); } return; }
       if (SHAPES.has(t)) { img.data.set(base.data); touched.clear(); if (t === 'line') line(start, b); else box(start, b, t === 'boxfill'); show(); return; }   // the shape is redrawn from where the drag began
       line(a, b); show(); },
-    end() { if (!img) return; if (dirty) { redo.length = 0; if (undo.length > 120) undo.shift(); onChange(true); } else undo.pop();   /* the oldest step goes only when a real one is added */ img = null; base = null; touched = null; },
+    end() { if (!img) return; if (dirty && base) { const a = img.data, b = base.data; let same = true; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { same = false; break; } if (same) dirty = false; }   /* a stroke that changed nothing is not a step */
+      if (dirty) { redo.length = 0; if (undo.length > 120) undo.shift(); onChange(true); } else undo.pop();   /* the oldest step goes only when a real one is added */ img = null; base = null; touched = null; },
     undo() { swap(undo, redo); }, redo() { swap(redo, undo); },
     keepSteps() { return { undo: undo.slice(), redo: redo.slice(), W, H }; },   // the undo steps, kept while the item is closed
-    takeSteps(k) { if (!k || k.W !== W || k.H !== H) return false; undo.splice(0, undo.length, ...k.undo); redo.splice(0, redo.length, ...k.redo); return true; },
+    takeSteps(k) { if (!k) return false; if (k.W >= W && k.H >= H && (k.W !== W || k.H !== H)) this.grow(k.H, k.W); if (k.W !== W || k.H !== H) return false;   /* the saved copy was trimmed: grow back so the kept steps fit */ undo.splice(0, undo.length, ...k.undo); redo.splice(0, redo.length, ...k.redo); return true; },
     // the texture gets taller: the picture and every undo step keep their pixels where they were, the new rows are empty
     grow(h2, w2 = W) { const old = copy(); canvas.width = w2; canvas.height = h2; W = w2; H = h2; ctx.putImageData(old, 0, 0);   // taller and/or wider, keeping every pixel where it was
       const pad = im => { const n = new ImageData(w2, h2); for (let y = 0; y < im.height; y++) n.data.set(im.data.subarray(y * im.width * 4, (y + 1) * im.width * 4), y * w2 * 4); return n; }; for (const a of [undo, redo]) a.forEach((im, i) => { a[i] = pad(im); }); if (adjFrom) adjFrom = pad(adjFrom); },
@@ -86,7 +87,7 @@ export function createPainter(canvas, onChange, onPick) {
       onChange(!!commit && !!(h || s || l)); },
     palette(n = 14) {   // the texture's own most used colours, to paint with
       const d = ctx.getImageData(0, 0, W, H).data, count = new Map();
-      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) { const k = hex(d[i], d[i + 1], d[i + 2]); count.set(k, (count.get(k) || 0) + 1); }
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200 && !(P.mask && P.mask.length === W * H && !P.mask[i / 4])) { const k = hex(d[i], d[i + 1], d[i + 2]);   /* only colours that show on the model */ count.set(k, (count.get(k) || 0) + 1); }
       const out = [], rgb = k => [1, 3, 5].map(i => parseInt(k.slice(i, i + 2), 16));   // most used first, skipping shades too close to one already picked
       for (const [k] of [...count].sort((a, b) => b[1] - a[1])) { const c = rgb(k); if (out.every(o => Math.abs(o[1][0] - c[0]) + Math.abs(o[1][1] - c[1]) + Math.abs(o[1][2] - c[2]) > 24)) out.push([k, c]); if (out.length >= n) break; }
       return out.map(o => o[0]); } };
