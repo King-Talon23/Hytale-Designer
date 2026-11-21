@@ -362,7 +362,7 @@ export function stage(canvas, Controls) {
     ray.near = near; ray.far = far; return hit; }
   // while painting, the left button paints and the right button turns the view
   let painting = false, plantClear = 0;   // plants keep further away while an item is edited, or when a move sits or lies on the ground
-  function paintMode(on) { painting = !!on; ctl.maxPolarAngle = on ? Math.PI * 0.97 : Math.PI * 0.55; ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE; ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE; ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE; canvas.style.cursor = on ? 'crosshair' : ''; }
+  function paintMode(on) { painting = !!on; ctl.zoomToCursor = !!on;   /* while editing, the wheel zooms toward the pointer (small parts stay in view); unclose() re-centres after */ ctl.maxPolarAngle = on ? Math.PI * 0.97 : Math.PI * 0.55; ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE; ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE; ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE; canvas.style.cursor = on ? 'crosshair' : ''; }
   // the box under a screen point (first hit that passes the filter), and outlines around the boxes a filter picks
   // the picked box glows (its own copy of the material, lit gold) as well as getting an outline
   let lit = []; const glow = new Map();

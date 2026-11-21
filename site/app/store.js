@@ -37,7 +37,7 @@ export async function swap(customId, slot) {
 export async function exportAll() { const { game, custom } = await list();
   const mine = []; for (const a of await assets.list()) mine.push(await packAsset(a));
   return { format: 'skin-editor-backup', version: 2, game: game.map(r => r && { name: r.name, skin: r.skin }), custom: custom.map(r => ({ name: r.name, skin: r.skin })), assets: mine }; }
-export async function packAsset(a) { return { id: a.id, name: a.name, field: a.field, baseId: a.baseId, model: a.model, w: a.w, h: a.h, shape: a.shape, labels: a.labels, split: !!a.split, png: await toBase64(a.data) }; }   // one item with its texture, shape and part names
+export async function packAsset(a) { return { id: a.id, name: a.name, field: a.field, baseId: a.baseId, model: a.model, w: a.w, h: a.h, shape: a.shape, labels: a.labels, split: !!a.split, tone: a.tone, png: await toBase64(a.data) }; }   // one item with its texture, shape and part names
 export async function unpackAssets(list, check = () => true) { const have = new Set((await assets.list()).map(a => a.id)); let n = 0; for (const m of Array.isArray(list) ? list.slice(0, 200) : []) { try { if (m && typeof m.png === 'string' && m.png.length < 3_000_000 && check(m) && await takeAsset(m, Uint8Array.from(atob(m.png), c => c.charCodeAt(0)), have)) n++; } catch { /* not a usable item */ } } return n; }
 async function toBase64(blob) { const b = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); }
 const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -45,7 +45,7 @@ const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 async function takeAsset(meta, bytes, have) {
   if (!meta || typeof meta.id !== 'string' || have.has(meta.id) || have.size >= assets.MAX || bytes.length > 2_000_000 || !PNG.every((v, i) => bytes[i] === v)) return false;
   const data = new Blob([bytes], { type: 'image/png' }), bmp = await createImageBitmap(data); if (bmp.width !== meta.w || bmp.height !== meta.h) return false;
-  await assets.save({ id: meta.id, name: meta.name, field: meta.field, baseId: meta.baseId, model: meta.model, w: bmp.width, h: bmp.height, data, shape: typeof meta.shape === 'string' && meta.shape.length < 1_000_000 ? meta.shape : undefined, labels: meta.labels, split: !!meta.split }); have.add(meta.id); return true;
+  await assets.save({ id: meta.id, name: meta.name, field: meta.field, baseId: meta.baseId, model: meta.model, w: bmp.width, h: bmp.height, data, shape: typeof meta.shape === 'string' && meta.shape.length < 1_000_000 ? meta.shape : undefined, labels: meta.labels, split: !!meta.split, tone: meta.tone }); have.add(meta.id); return true;
 }
 export async function importAll(data) {   // adds to what is there; never overwrites a filled in-game slot
   if (!data || data.format !== 'skin-editor-backup' || !Array.isArray(data.custom)) throw new Error('That file is not a Skin Editor backup.');

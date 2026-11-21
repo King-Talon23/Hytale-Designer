@@ -7,6 +7,7 @@ import * as auth from './auth.js';
 import * as assets from './assets.js';
 import { createPainter, SHAPES, ONCE } from './paint.js';
 import { icon as catIcon } from './icons.js';
+import { toolIcon } from './toolicons.js';
 import { SUPPORT_URL, MOD_URL } from './config.js';
 const modLink = cls => /^https:\/\/(www\.)?curseforge\.com\/hytale\/[a-z-]+\/[a-z0-9-]{2,80}$/.test(MOD_URL) ? el('a', { class: 'btn ' + cls, href: MOD_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Get the mod' }) : null;
 // the footer's support link: only a Ko-fi page, and only when one is set
@@ -94,7 +95,7 @@ addEventListener('drop', e => { e.preventDefault(); $('drop').hidden = true; con
   const zi = [...e.dataTransfer.items].findIndex(i => i.kind === 'file' && /\.zip$/i.test(i.getAsFile()?.name || '')), hp = zi >= 0 && e.dataTransfer.items[zi].getAsFileSystemHandle ? e.dataTransfer.items[zi].getAsFileSystemHandle() : null;
   const zip = fs.find(f => /\.zip$/i.test(f.name)); if (zip) return doConnect(async () => { await game.connect(zip, progress); const h = await hp?.catch(() => null); if (h && h.kind === 'file') await game.rememberZip(h); });
   if (R) importSkinFiles(fs); });
-function setConn(meta) { const c = $('conn'); c.classList.toggle('ok', !!meta); c.lastElementChild.textContent = meta ? 'Game files connected' : 'Not connected'; c.onclick = () => meta ? setTab('help') : showConnect(); }
+function setConn(meta) { const c = $('conn'); c.classList.toggle('ok', !!meta); c.lastElementChild.textContent = meta ? 'Game files connected' : 'Not connected'; c.onclick = () => { if (meta) return setTab('help'); showConnect(); const b = document.querySelector('#connect .btn.primary'); if (b) { b.focus(); b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash'); } };   /* already on the steps: point at the button */ }
 
 // ---------------------------------------------------------------- app state
 let CAT, R, st, META, tab = 'editor', group = 'Head', slot = 'haircut', filter = '';
@@ -413,12 +414,11 @@ function card(rec, kind, i) {
   const acts = kind === 'game' ? [act('Set in game', () => checklist(rec)), act('Rename', () => renameSkin(rec)), act('Move out', () => moveOut(rec)), pubButton(rec), locked('Send to game', 'sending this skin to your in-game preset', 'mini')]
     : kind === 'custom' ? [act('To in-game', () => toGame(rec)), act('Rename', () => renameSkin(rec)), act('Copy', () => duplicate(rec)), pubButton(rec), act('Export', guard(() => exportSkin(rec))), act('Delete', () => removeSkin(rec), 'danger')]
     : [act('Save', () => { open(rec, true); saveAs(); })];
-  const menuBtn = acts.filter(Boolean).length > 1 ? el('button', { class: 'cardmenu', text: '⋯', title: 'More', 'aria-label': 'More', onclick: e => { e.stopPropagation(); const m = e.currentTarget.nextElementSibling; const open_ = m.hidden; document.querySelectorAll('.cardacts').forEach(x => x.hidden = true); m.hidden = !open_;
-      if (open_) { const close = ev => { if (!m.contains(ev.target) && ev.target !== e.target) { m.hidden = true; removeEventListener('pointerdown', close, true); } }; addEventListener('pointerdown', close, true); } } }) : null;   /* card actions live in a ⋯ menu, as in file browsers */
+  const menu = acts.filter(Boolean).length > 1 ? cardMenu(acts.filter(Boolean)) : null;   /* card actions live in a ⋯ menu, as in file browsers */
   return el('div', { class: 'skin ' + kind + (cur.id && cur.id === rec.id ? ' on' : ''), tabIndex: 0, onclick: () => { if (kind === 'pub') { open(rec, true, true); return render(); } open(rec, kind === 'found'); setTab('editor'); },
-    onkeydown: e => { if (e.key === 'Enter') e.currentTarget.click(); } },
+    onkeydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) e.currentTarget.click(); } },
     el('div', { class: 'pic' }, portrait(rec.skin)), el('b', { text: rec.name }), kind === 'game' ? el('small', { text: 'Slot ' + (rec.slot + 1) }) : null,
-    menuBtn ? [menuBtn, el('div', { class: 'cardacts', hidden: true }, acts)] : el('div', { class: 'acts' }, acts));
+    menu || el('div', { class: 'acts' }, acts));
 }
 // Features that need a Hytale account. Sign in with Hytale is not available to this site yet, so they are shown greyed out.
 const NEED = f => ACCOUNT ? `Hytale does not offer ${f} to other apps yet` : !auth.enabled ? `Coming soon: ${f} needs Sign in with Hytale, which is waiting on Hytale's approval` : `Connect your Hytale account to enable ${f}`;
@@ -621,7 +621,7 @@ async function exportSkin(rec) {   // the skin plus the items of yours it wears,
   download((rec.name.replace(/[\\/:*?"<>|]/g, '').trim() || 'skin') + '.skin.json', mine.length ? { name: rec.name, skin: rec.skin, assets: mine } : { name: rec.name, skin: rec.skin }); }
 async function importSkinFiles(files) { let n = 0, items = 0, offered = 0;
   for (const f of [...files].slice(0, 200)) { try { const j = await readJsonFile(f, 8_000_000); if (Array.isArray(j?.assets)) offered += j.assets.filter(m => m && !ASSETS.some(a => a.id === m.id)).length; if (Array.isArray(j?.assets)) items += await store.unpackAssets(j.assets, m => !!CAT.items[m.field]?.some(e => !e.custom && e.Id === m.baseId)); const s = sanitize(j?.skin || j); if (s) { found.unshift({ name: cleanName(j?.name || f.name.replace(/(_portrait\.png)?\.(skin|json)+$/gi, '')).slice(0, 40) || 'Imported', skin: s }); n++; } } catch { /* not a skin file */ } }
-  if (items) await reloadAssets(); found = found.slice(0, 200); say(n ? `Imported ${n} skin${n > 1 ? 's' : ''}` + (items ? ` and ${items} item${items > 1 ? 's' : ''}` : '') + (offered > items ? `; ${offered - items} item${offered - items > 1 ? 's' : ''} skipped` : '') : 'No skins in those files', !n || offered > items); tab = 'lookup'; setTab('lookup'); }
+  if (items) { await reloadAssets(); const d = await db.get('meta', 'draft').catch(() => null), ds = sanitize(d?.skin); if (ds && JSON.stringify(R.fit(ds)) !== JSON.stringify(cur.skin) && (d.id || null) === (cur.id || null)) { cur.skin = R.fit(ds); rebuild(); render(); } }   /* items that just arrived go back on the outfit that wore them */ found = found.slice(0, 200); say(n ? `Imported ${n} skin${n > 1 ? 's' : ''}` + (items ? ` and ${items} item${items > 1 ? 's' : ''}` : '') + (offered > items ? `; ${offered - items} item${offered - items > 1 ? 's' : ''} skipped` : '') : 'No skins in those files', !n || offered > items); tab = 'lookup'; setTab('lookup'); }
 // opens in your skins folder when one is connected, else in Documents (no picker id: a remembered id folder would beat Documents); browsers without the picker fall back to the plain file box
 async function pickSkinFiles(fallback) {
   if (typeof self.showOpenFilePicker !== 'function') return fallback.click();
@@ -635,7 +635,7 @@ function panelLookup() {
   return [head('Players'), el('div', { class: 'pbody' },
     el('h3', { text: 'Find a player' }), form, el('p', { class: 'err', text: lookupMsg }),
     shown ? [el('h3', {}, 'Published by ' + shown.name, null), shown.skins === null ? el('p', { class: 'need', text: 'Looking…' })
-      : shown.skins.length ? el('div', { class: 'cards' }, shown.skins.map(r => card(r, 'pub'))) : el('p', { class: 'need', text: shown.failed ? 'Published skins could not be loaded.' : `${shown.name} has not published any skins here yet.` })] : null,
+      : shown.skins.length ? el('div', { class: 'cards' }, shown.skins.map(r => card(r, 'pub'))) : el('p', { class: 'need', text: shown.failed ? 'Could not load skins' : 'No skins' })] : null,
     el('h3', { text: 'Open skin files' }),
     el('button', { class: 'btn ghost', text: 'Choose skin files', onclick: () => pickSkinFiles(file) }), file,
     found.length ? [el('h3', { text: 'Found this session' }), el('div', { class: 'cards' }, found.map(r => card(r, 'found')))] : null)];
@@ -648,7 +648,7 @@ function panelHelp() {
     ['Creator', 'make your own items from any item.'], ['Players', 'look someone up by username.']];
   return [head('Help'), el('div', { class: 'pbody prose' },
 
-    sec('Game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
+    sec('Game files', META ? `${META.name} · ${META.files} files · ${new Date(META.at).toLocaleDateString()}` : 'Not connected yet.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: reconnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
     MOD_URL ? sec('Skin Editor Sync', 'Wear your skins in your own worlds: install the mod, pick a skins folder in the Locker, turn on In game.', el('div', { class: 'row' }, modLink('primary'))) : null,
@@ -673,7 +673,7 @@ const syncFolder = () => store.sync().catch(e => say(e.message, true));
 function registerAssets() {   // custom assets join the catalogue as extra items in their slot, so the editor treats them like any other
   for (const f of game.FIELDS) { const arr = CAT.items[f]; for (let i = arr.length - 1; i >= 0; i--) if (arr[i].custom) arr.splice(i, 1); }
   for (const a of ASSETS) { const base = CAT.items[a.field].find(e => e.Id === a.baseId) || {};
-    CAT.items[a.field].push({ ...base, Id: 'Custom_' + a.id, custom: true, baseId: a.baseId, Name: a.name,
+    CAT.items[a.field].push({ ...base, Id: 'Custom_' + a.id, custom: true, baseId: a.baseId, Name: a.name, Tone: a.tone,
       Model: (ED && ED.asset.id === a.id ? ED.model : a.shape) ? `shape:${a.id}@${ED && ED.asset.id === a.id ? 'e' + ED.n + '.' + (ED.shapeN || 0) : a.updated}` : a.model, Variants: undefined, GradientSet: undefined, GreyscaleTexture: undefined, IsDefaultAsset: false,
       Textures: { Mine: { Texture: `custom:${a.id}@${ED && ED.asset.id === a.id ? 'live' + ED.n : a.updated}`, BaseColor: ['#f4c452'] } } }); }
 }
@@ -698,7 +698,7 @@ async function makeAsset1(f, val) {
   let a;
   if (src) a = await assets.save({ ...src, id: assets.newId(), name: copyName(src.name), flag: undefined });
   else { const c = await fig.bakedCanvas(r.tex, r.tint).catch(() => { throw new Error(`${itemName(it)} is not in your game files, so it can't be edited here.`); }), data = await new Promise(ok => c.toBlob(ok, 'image/png'));
-    a = await assets.save({ id: assets.newId(), name: itemName(it) + ' (mine)', field: f, baseId: it.Id, model: r.model, w: c.width, h: c.height, data }); }
+    a = await assets.save({ id: assets.newId(), name: itemName(it) + ' (mine)', field: f, baseId: it.Id, model: r.model, w: c.width, h: c.height, data, tone: f === 'bodyCharacteristic' ? parse(skin[f]).color || undefined : undefined }); }
   ASSETS = await assets.list(); registerAssets(); beforeEdit = cur.skin; setSkin({ ...cur.skin, [f]: 'Custom_' + a.id + '.Mine' }); await openAsset(a);
   
 }
@@ -756,7 +756,7 @@ let CLIP = null;   // copied texture area, kept across items
 let beforeEdit = null;   // the outfit before an item went on for editing: Done puts it back, Equip keeps the item on
 const STEPS = new Map();   // undo history per custom item, kept for this visit so reopening an item can still undo
 async function closeAsset(quiet, keep = false) {
-  if (!ED) return; const before = ED.before, fld = ED.asset.field, edited = ED.asset.id; keepBrush(); if (ED.float) placeFloat(); STEPS.set(ED.asset.id, { hist: ED.hist, fut: ED.fut, paint: ED.painter.keepSteps(), mode: ED.mode }); tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); await flushAsset().catch(e => say(e.message, true)); ED = null; if ($('viewhint')) $('viewhint').hidden = true; registerAssets(); if (before) { const fs = [...(keep ? [] : [fld]), ...(HIDE[fld] || [])], s = restoreFrom(cur.skin, before, fs); if (JSON.stringify(s) !== JSON.stringify(cur.skin)) setSkin(s); else if (keep) { dirty = true; autosave(); keepDraft(); } } st.highlight(null); st.isolate(null); st.paintMode(false); st.gizmo(null); setTimeout(() => { viewInset(); st.unclose(); }, 60); for (const k of [...pics.keys()]) if (k.includes(edited)) pics.delete(k);
+  if (!ED) return; const before = ED.before, fld = ED.asset.field, edited = ED.asset.id; keepBrush(); if (ED.float) placeFloat(); STEPS.set(ED.asset.id, { hist: ED.hist, fut: ED.fut, paint: ED.painter.keepSteps(), mode: ED.mode }); tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); if (queueAssetSave.pending || ED.saved === false) await flushAsset().catch(e => say(e.message, true)); else clearTimeout(queueAssetSave.t); ED = null;   /* nothing changed: nothing is re-saved */ if ($('viewhint')) $('viewhint').hidden = true; registerAssets(); if (before) { const fs = [...(keep ? [] : [fld]), ...(HIDE[fld] || [])], s = restoreFrom(cur.skin, before, fs); if (JSON.stringify(s) !== JSON.stringify(cur.skin)) setSkin(s); else if (keep) { dirty = true; autosave(); keepDraft(); } } st.highlight(null); st.isolate(null); st.paintMode(false); st.gizmo(null); setTimeout(() => { viewInset(); st.unclose(); }, 60); for (const k of [...pics.keys()]) if (k.includes(edited)) pics.delete(k);
   if (!quiet) { playAnim('Default', 'Idle', 0.5); rebuild(); render(); }
 }
 // painting: the same strokes whether the pointer is on the flat texture or on the 3D model
@@ -907,7 +907,7 @@ async function checkReplica() {   // after an import, a recolour, a shape change
   render();
 }
 
-const FLAG_WHY = n => `This looks too much like ${n}, a paid item, so it stays on this site and won't show in game. Change its colours or pattern more and the check clears by itself.`;
+const FLAG_WHY = n => `Too close to ${n} (paid): site only until it differs more`;
 function copyName(n) { const base = n.replace(/ \(mine\)$/, '').replace(/ copy( \d+)?$/, '') + ' copy', used = new Set(ASSETS.map(x => x.name)); let k = 1, out = base; while (used.has(out)) out = base + ' ' + ++k; return out; }
 let MAKING = 0;   // copies being written: quick repeat clicks can't pass the item limit
 async function copyAsset(a) { if (ASSETS.length + MAKING >= assets.MAX) throw new Error(`My items is full (${assets.MAX})`);
@@ -975,7 +975,7 @@ function assetCard(a) {
   const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
   const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
   return el('div', { class: 'skin asset' + (worn ? ' on' : ''), tabIndex: 0, onclick: guard(() => openAsset(a)), onkeydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) e.currentTarget.click(); } },
-    el('div', { class: 'pic' }, assetThumb(a)), el('b', { text: a.name }), el('small', { text: modReady(a) ? LABEL[a.field] : a.flag ? 'Site only: looks like ' + a.flag : 'Paid item: site only', title: a.flag ? FLAG_WHY(a.flag) : '' }),
+    el('div', { class: 'pic' }, assetThumb(a)), el('b', { text: a.name }), el('small', { text: modReady(a) ? LABEL[a.field] : a.flag ? 'Site only' : 'Paid item: site only', title: a.flag ? FLAG_WHY(a.flag) : '' }),
     worn ? el('span', { class: 'worntick', text: '✓', title: 'Worn' }) : null,
     cardMenu([act('Edit', guard(() => openAsset(a))), act('Copy', guard(() => copyAsset(a))), worn ? null : act('Wear', () => { const v = 'Custom_' + a.id + '.Mine'; if (cur.skin[a.field] !== v) setSkin({ ...cur.skin, [a.field]: v }); }),
 
@@ -988,7 +988,7 @@ function cardMenu(acts) {   // a card's actions in a ⋯ menu, as in file browse
     if (open_) { const close = ev => { if (!m.contains(ev.target) && ev.target !== b) { m.hidden = true; removeEventListener('pointerdown', close, true); } }; addEventListener('pointerdown', close, true); } } });
   return [b, m]; }
 async function deleteAsset(a) {   // skins wearing it go back to the game item it was copied from (or the slot's usual item)
-  const mine = v => typeof v === 'string' && v.startsWith('Custom_' + a.id), base = R.ITEMS[a.field]?.find(e => e.Id === a.baseId && !e.custom), back = base ? R.partStr(base) : null;
+  const mine = v => typeof v === 'string' && v.startsWith('Custom_' + a.id), base = R.ITEMS[a.field]?.find(e => e.Id === a.baseId && !e.custom), back = base ? (a.tone ? base.Id + '.' + a.tone : R.partStr(base)) : null;   /* a copied body hands back its own tone */
   const swap = sk => (mine(sk[a.field]) ? { ...sk, [a.field]: back } : sk), worn = mine(cur.skin[a.field]);
   const full = (await assets.list()).find(x => x.id === a.id) || a, was = cur.skin, wasCur = cur, hit = [...WARD.custom, ...WARD.game].filter(r => r && mine(r.skin?.[a.field]));
   const put = (rec, sk) => (rec.kind === 'game' ? store.saveGame(rec.slot, rec.name, sk) : store.saveCustom(rec.name, sk, rec.id)).catch(e => console.warn(e));
@@ -996,7 +996,7 @@ async function deleteAsset(a) {   // skins wearing it go back to the game item i
     await (rec.kind === 'game' ? store.saveGame(rec.slot, rec.name, swap(rec.skin)) : store.saveCustom(rec.name, swap(rec.skin), rec.id)).catch(e => console.warn(e));
   await assets.remove(a.id); ASSETS = await assets.list(); syncFolder(); registerAssets(); WARD = await store.list();
   if (worn) setSkin(R.fit(swap(cur.skin))); else cur.skin = R.fit(cur.skin); pics.clear(); rebuild(); render();
-  const back1 = async () => { await assets.save(full); for (const rec of hit) await put(rec, rec.skin); if (worn && cur === wasCur) setSkin(R.fit(was)); },   /* the look on screen only changes back if it is still the same skin */
+  const back1 = async () => { await assets.save(full); ASSETS = await assets.list(); registerAssets(); for (const rec of hit) await put(rec, rec.skin); if (worn && cur === wasCur) setSkin(R.fit(was)); },   /* the item is known again before the outfit is put back */   /* the look on screen only changes back if it is still the same skin */
     prev = deleteAsset.undo && Date.now() - deleteAsset.at < 8000 ? deleteAsset.undo : null, all = async () => { await back1(); if (prev) await prev(); };
   deleteAsset.undo = all; deleteAsset.at = Date.now();
   deleteAsset.n = prev ? (deleteAsset.n || 1) + 1 : 1; sayUndo(prev ? `Deleted ${deleteAsset.n} items` : `Deleted "${a.name}"`, guard(async () => { deleteAsset.undo = null; await all(); ASSETS = await assets.list(); syncFolder(); registerAssets(); WARD = await store.list(); pics.clear(); rebuild(); render(); }));
@@ -1019,7 +1019,7 @@ function limits(c) {
     const spots = new Map(); for (const r of ED.rects) { const k = r.x + ',' + r.y; (spots.get(k) || spots.set(k, []).get(k)).push(r); }   // faces sharing one spot (left and right glasses painted alike) get one label
     for (const rs of spots.values()) { const r = rs[0]; if (!(r.w * z > 34 && r.h * z > 14)) continue; const uniq = a => [...new Set(a)];
       const parts = uniq(rs.map(q => partName(q.node))), faces = uniq(rs.map(q => q.face)).join('/');
-      const opts = parts.length > 1 ? [parts.join(' + ') + ' (shared paint)', parts.join(' + '), parts[0] + ' +' + (parts.length - 1) + ' (shared)', 'Shared paint'] : (ED.rects.filter(q => q.node === r.node).length === 1 ? [parts[0], faces] : [many ? parts[0] + ' · ' + faces : faces, faces]);   /* parts painted alike: name them once and say so, no repeated sides */
+      const opts = parts.length > 1 ? [parts.join(' + '), parts[0] + ' +' + (parts.length - 1)] : (ED.rects.filter(q => q.node === r.node).length === 1 ? [parts[0], faces] : [many ? parts[0] + ' · ' + faces : faces, faces]);   /* parts painted alike: name them once and say so, no repeated sides */
       const t = opts.find(v => x.measureText(v).width <= r.w * z - 6); if (t) x.fillText(t, r.x * z + 3, r.y * z + 11); } }
   return o;
 }
@@ -1057,7 +1057,7 @@ function toQuat(dx, dy, dz) { const [c1, c2, c3] = [dx, dy, dz].map(d => Math.co
 // ---------------------------------------------------------------- the creator workspace, laid out like Blockbench
 // top: name, Paint/Shape tabs, undo, redo, Done. Left edge: tools with their shortcut keys. Left panel: the texture. Middle: the
 // model with view buttons and, in Shape mode, a gizmo. Right: colours and brush (Paint), or the outliner and box fields (Shape).
-const PAINT_TOOLS = [['select', 'Select area', 'M', '⬚'], ['brush', 'Brush', 'B', '✎'], ['erase', 'Eraser', 'E', '⌫'], ['part', 'Fill part', 'P', '◩'], ['fill', 'Fill', 'F', '◧'], ['pick', 'Pick colour', 'I', '◉'], ['replace', 'Replace colour', 'H', '⇄'],
+const PAINT_TOOLS = [['select', 'Select area', 'M', '⬚'], ['brush', 'Brush', 'B', '✎'], ['erase', 'Eraser', 'E', '⌫'], ['part', 'Whole part', 'P', '◩'], ['fill', 'Fill', 'F', '◧'], ['pick', 'Pick colour', 'I', '◉'], ['replace', 'Replace colour', 'H', '⇄'],
   ['line', 'Line', 'L', '╱'], ['box', 'Rectangle', 'U', '▢'], ['boxfill', 'Filled rectangle', 'Q', '■'], ['light', 'Lighten', 'O', '☀'], ['dark', 'Darken', 'D', '☾'], ['noise', 'Noise', 'N', '░']];
 const SHORT = { part: 'Whole part', more: 'More', select: 'Select', pick: 'Pick', replace: 'Replace', boxfill: 'Filled', light: 'Lighten', dark: 'Darken', dup: 'Copy', del: 'Delete' };   // names under the tool icons
 const SHAPE_TOOLS = [['move', 'Move', 'G', '✥'], ['resize', 'Resize', 'S', '⤢'], ['rotate', 'Turn', 'R', '⟳']];   // click a part to pick it; these set what its handles do
@@ -1116,7 +1116,7 @@ function tintAll(hex, node) {   // node: only that box's texture area
   P.write((d, W, H) => { let sum = 0, n = 0; for (let p = 0; p < W * H; p++) if (d[p * 4 + 3] && (!m || m[p])) { sum += lum(d, p * 4); n++; } if (!n) return;
     const avg = Math.max(1, sum / n);
     for (let p = 0; p < W * H; p++) { const i = p * 4; if (!d[i + 3] || (m && !m[p])) continue; const k = Math.min(1.8, Math.max(0.35, lum(d, i) / avg)); d[i] = Math.min(255, r0 * k); d[i + 1] = Math.min(255, g0 * k); d[i + 2] = Math.min(255, b0 * k); } });
-  ED.palette = P.palette(); render(); checkReplica(); say(node ? `${partName(node)} is now this colour.` : 'The whole item is now this colour. Ctrl+Z undoes it.');
+  ED.palette = P.palette(); render(); checkReplica(); say('');
 }
 function paintSide() {
   const P = ED.painter, adj = (ED.adjVals ||= { h: 0, s: 0, l: 0 });   // kept on the editor: the panel redraws (switching Paint/Shape) must not zero what you set
@@ -1194,50 +1194,8 @@ function bindTexView(box) {
   });
 }
 
-// ---- first-time help: a short tour of the workspace, and a hint on the model until it has been turned once
-const TOUR = [['#view', 'Paint right on the model', 'Drag on the item to paint it. Drag anywhere else to turn the model; the wheel, a pinch or + and − zoom.'],
-  ['#wsright', 'Colours', 'Pick a colour, then press Colour whole item to turn the whole thing that colour. Brush and Fill paint parts of it.'],
-  ['#wsleft', 'The flat texture', 'The same item laid out flat. You can paint here too. Dimmed parts never show on the model.'],
-  ['.wsmodes', 'Paint and Shape', 'Shape changes the form: make sleeves longer, add boxes, mirror them to the other side.'],
-  ['#wsdone', 'Saved as you go', 'Every change saves by itself. Press Done when you are finished.']];
-let tourLit = null;
-function tour(i = 0) {
-  document.querySelector('.tour')?.remove(); tourLit?.classList.remove('tourlit'); tourLit = null;
-  if (i >= TOUR.length || !ED) { store_.set('se_tour', '1'); return; }
-  const [sel, title, text] = TOUR[i], tg = document.querySelector(sel); if (!tg) return tour(i + 1);
-  const last = i === TOUR.length - 1, box = el('div', { class: 'tour', role: 'dialog' }, el('b', { text: title }), el('p', { text }),
-    el('div', { class: 'row' }, el('span', { class: 'dim', text: `${i + 1} of ${TOUR.length}` }), el('span', { class: 'grow' }),
-      last ? null : el('button', { class: 'btn ghost', text: 'Skip', onclick: () => tour(99) }), el('button', { class: 'btn primary', text: last ? 'Got it' : 'Next', onclick: () => tour(i + 1) })));
-  document.body.appendChild(box); tg.classList.add('tourlit'); tourLit = tg;
-  const v = $('view').getBoundingClientRect(), bw = 290, bh = box.offsetHeight;   // always the bottom middle of the 3D view
-  const x = Math.min(innerWidth - bw - 12, Math.max(12, v.left + v.width / 2 - bw / 2)), y = Math.max(12, v.bottom - bh - 14);
-  box.style.left = x + 'px'; box.style.top = y + 'px';
-}
-// the tip on the model: what the picked tool does and how to use it
-const TOOL_TIPS = {
-  select: 'Select: drag over the texture to pick an area. Ctrl+C copies, Ctrl+V pastes, drag the piece and press Enter to place it.',
-  brush: 'Brush: drag on the item to paint. Size and Strength are on the right ([ and ] change the size, hold Alt to pick a colour). Drag off the item to turn the model.',
-  erase: 'Eraser: drag on the item to make it see-through there.',
-  part: 'Part: click a part of the item to colour all of it, keeping its shading.',
-  fill: 'Fill: click the item to fill. Pick Area, Whole side or Everywhere on the right.',
-  pick: 'Pick colour: click the item to take a colour from it.',
-  replace: 'Replace colour: click a colour on the item to swap it everywhere for your colour.',
-  line: 'Line: drag from one point to another to draw a straight line.',
-  box: 'Box: drag to draw a rectangle outline.', boxfill: 'Filled box: drag to draw a filled rectangle.',
-  light: 'Lighten: drag on the item to make it lighter.', dark: 'Darken: drag on the item to make it darker.',
-  noise: 'Noise: drag on the item to add a rough, worn look.',
-  's-select': 'Select: click a part on the model or its area on the texture. Add box, Mirror copy and the sizes are on the right.',
-  's-move': 'Click a part to pick it, then drag it or its arrows. Arrow keys nudge it.',
-  's-resize': 'Click a part, then drag its handles to make it bigger or smaller.',
-  's-rotate': 'Click a part, then drag a ring to turn it.' };
-function viewHint() {
-  let h = $('viewhint'); if (!h) { h = el('div', { id: 'viewhint', class: 'viewhint' }); $('view').parentElement.appendChild(h); }
-  const key = ED ? (ED.mode === 'shape' ? 's-' + (ED.stool || 'select') : ED.painter.tool) : '';
-  h.hidden = true; h.textContent = ''; void key;   /* no tool sentences on the view; the placing bar says Esc */
-  // the first time a tool is used, its tip lights up for a few seconds (help when it is needed, instead of a tour up front)
-  if (ED && key && !ED.placing) { let seen; try { seen = new Set(JSON.parse(store_.get('se_tips') || '[]')); } catch { seen = new Set(); }
-    if (!seen.has(key)) { seen.add(key); store_.set('se_tips', JSON.stringify([...seen])); h.classList.remove('fresh'); void h.offsetWidth; h.classList.add('fresh'); clearTimeout(h._t); h._t = setTimeout(() => h.classList.remove('fresh'), 9000); } }
-}
+function tour() { document.querySelector('.tour')?.remove(); }   // the old first-time tour is gone; this only clears a leftover
+function viewHint() { const h = $('viewhint'); if (h) { h.hidden = true; h.textContent = ''; } }   // no tool sentences on the view
 // ---- colours: a fixed set of basics, the item's own colours and the ones used lately
 const BASIC = ['#ffffff', '#c9c9c9', '#808080', '#3d3d3d', '#000000', '#e23b3b', '#ef8a35', '#f4d24a', '#7cc444', '#2e9a58', '#3db7c9', '#3b6fe0', '#7a4fd6', '#d65ab4', '#8a5a32', '#f2c9a1'];
 let RECENT = (() => { try { const r = JSON.parse(store_.get('se_recent') || '[]'); return Array.isArray(r) ? r.filter(h => /^#[0-9a-f]{6}$/i.test(h)).slice(0, 8) : []; } catch { return []; } })();
@@ -1335,7 +1293,7 @@ function delBox(k = ED.box || 0) { const boxes = boxesOf(ED.model), i = k, b = b
 }
 const resetShape = guard(async () => {   // the game's own shape and paint come back (one undo step)
   const e = ED, f = e.asset.field, base = CAT.items[f]?.find(x => x.Id === e.asset.baseId && !x.custom), orig = uniqNames(structuredClone(await game.json(game.common(e.asset.model))));
-  let img = null; if (base) { const worn = e.before?.[f], val = worn && parse(worn).id === base.Id ? worn : R.partStr(base), sk = { ...cur.skin, [f]: val }; for (const h of HIDE[f] || []) delete sk[h];
+  let img = null; if (base) { const worn = e.before?.[f], val = e.asset.tone ? base.Id + '.' + e.asset.tone : worn && parse(worn).id === base.Id ? worn : R.partStr(base), sk = { ...cur.skin, [f]: val }; for (const h of HIDE[f] || []) delete sk[h];
     const r = R.resolve(f, sk); if (r) img = await fig.bakedCanvas(r.tex, r.tint).catch(() => null); }
   if (ED !== e) return; const h0 = e.hist.length;
   if (img) { const c = e.canvas; if (img.width > c.width || img.height > c.height) { e.painter.grow(Math.max(c.height, img.height), Math.max(c.width, img.width)); e.asset = { ...e.asset, w: c.width, h: c.height }; }
@@ -1348,24 +1306,24 @@ function renderWorkspace() {
   $('wstop').replaceChildren(...[
     el('input', { type: 'text', class: 'wsname', value: a.name, maxLength: 40, title: 'Name', onkeydown: e => { if (e.key === 'Enter') e.target.blur(); else if (e.key === 'Escape') { e.target.value = ED.asset.name; e.target.blur(); } }, onchange: e => { const v = cleanName(e.target.value); if (v && gameNamed(v)) { e.target.value = ED.asset.name; return say('A game item has that name', true); } say(''); ED.asset = { ...ED.asset, name: v || a.name }; e.target.value = ED.asset.name; queueAssetSave(); } }),
     el('span', { id: 'wssaved', class: 'wssaved', text: ED.saved === false ? 'Saving…' : 'Saved' }),
-    el('span', { class: 'grow' }), a.flag ? el('button', { class: 'tag none', text: 'Site only: looks like ' + a.flag, title: FLAG_WHY(a.flag), onclick: () => say(FLAG_WHY(a.flag), true) }) : null,
+    el('span', { class: 'grow' }), a.flag ? el('button', { class: 'tag none', text: 'Site only', title: FLAG_WHY(a.flag), onclick: () => say(FLAG_WHY(a.flag), true) }) : null,
     el('button', { class: 'btn icon', text: '↶', title: 'Undo (Ctrl+Z)', disabled: !ED.hist.length, onclick: () => wsUndo(false) }),
     el('button', { class: 'btn icon', text: '↷', title: 'Redo (Ctrl+Y)', disabled: !ED.fut.length, onclick: () => wsUndo(true) }),
     
     el('button', { id: 'wsequip', class: 'btn', text: 'Wear', onclick: () => finishAsset(true) }), el('button', { id: 'wsdone', class: 'btn primary', text: 'Done', title: 'Save and close', onclick: () => finishAsset() })].filter(Boolean));
-  const tool = (id, label, key, ic, on, fn) => el('button', { class: 'wstool' + (on ? ' on' : ''), title: (SHORT[id] || label) + (key ? ` (${key})` : ''), onclick: fn }, el('span', { text: ic }), el('b', { text: SHORT[id] || label }), key && key.length === 1 ? el('i', { text: key }) : null);
+  const tool = (id, label, key, ic, on, fn) => el('button', { class: 'wstool' + (on ? ' on' : ''), title: (SHORT[id] || label) + (key ? ` (${key})` : ''), onclick: fn }, el('span', {}, toolIcon(id) || ic), el('b', { text: SHORT[id] || label }), key && key.length === 1 ? el('i', { text: key }) : null);
   const pickAny = (kind, id) => guard(async () => { if (ED.mode !== kind) await setMode(kind); pickTool(id); })();
   const paintIds = ['brush', 'erase', 'fill', 'pick'], extra = PAINT_TOOLS.filter(t => !paintIds.includes(t[0]));
   const NAMES = { brush: 'Paint', erase: 'Erase', fill: 'Fill', pick: 'Pick', move: 'Move', resize: 'Resize', rotate: 'Turn' };
   const btn = (kind, [id, label, key, ic]) => { const on = ED.mode === kind && (kind === 'paint' ? P.tool : ED.stool) === id;
-    return el('button', { class: 'wstool' + (on ? ' on' : ''), title: label + (key ? ` (${key})` : ''), onclick: () => pickAny(kind, id) }, el('span', { text: ic }), el('b', { text: NAMES[id] || SHORT[id] || label })); };
+    return el('button', { class: 'wstool' + (on ? ' on' : ''), title: label + (key ? ` (${key})` : ''), onclick: () => pickAny(kind, id) }, el('span', {}, toolIcon(id) || ic), el('b', { text: NAMES[id] || SHORT[id] || label })); };
   const stg = $('view').parentElement; if ($('wstools').parentElement !== stg) stg.appendChild($('wstools'));   // the toolbar floats in the view, under the character
   $('wstools').replaceChildren(
     el('div', { class: 'wsgroup2' }, ...PAINT_TOOLS.filter(t => paintIds.includes(t[0])).sort((a, b) => paintIds.indexOf(a[0]) - paintIds.indexOf(b[0])).map(t => btn('paint', t)),
       ED.moreTools ? el('div', { class: 'wsextra' }, ...extra.map(t => btn('paint', t))) : null,
-      el('button', { class: 'wstool', 'aria-label': ED.moreTools ? 'Fewer tools' : 'More tools', onclick: () => { ED.moreTools = !ED.moreTools; render(); } }, el('span', { text: ED.moreTools ? '‹' : '⋯' }), el('b', { text: ED.moreTools ? 'Less' : 'More' }))),
+      el('button', { class: 'wstool', 'aria-label': ED.moreTools ? 'Fewer tools' : 'More tools', onclick: () => { ED.moreTools = !ED.moreTools; render(); } }, el('span', {}, toolIcon(ED.moreTools ? 'less' : 'more')), el('b', { text: ED.moreTools ? 'Less' : 'More' }))),
     el('div', { class: 'wsgroup2' }, ...SHAPE_TOOLS.map(t => btn('shape', t)),
-      el('button', { class: 'wstool', title: 'Add part (A)', onclick: guard(async () => { if (ED.mode !== 'shape') await setMode('shape'); startPlacing(); }) }, el('span', { text: '+' }), el('b', { text: 'Add' }))));
+      el('button', { class: 'wstool', title: 'Add part (A)', onclick: guard(async () => { if (ED.mode !== 'shape') await setMode('shape'); startPlacing(); }) }, el('span', {}, toolIcon('add')), el('b', { text: 'Add' }))));
   c.style.width = c.width * ED.zoom + 'px';
   if (!ED.box_) { ED.box_ = el('div', { class: 'paintbox' }); bindTexView(ED.box_); }
   ED.box_.replaceChildren(el('div', { class: 'paintwrap' }, c, limits(c), sizeOvl()));
@@ -1373,7 +1331,7 @@ function renderWorkspace() {
   $('wsleft').replaceChildren(...[el('div', { class: 'wshead row' }, el('span', { text: 'Texture', class: 'grow' }),
       el('button', { class: 'chip' + (ED.wide ? ' on' : ''), text: ED.wide ? 'Smaller' : 'Bigger', onclick: e => { ED.wide = !ED.wide; e.currentTarget.textContent = ED.wide ? 'Smaller' : 'Bigger'; e.currentTarget.classList.toggle('on', ED.wide); $('app').classList.toggle('ws-wide', ED.wide); requestAnimationFrame(() => { fitTexture(); render(); }); } })),
     ED.box_,
-    el('div', { class: 'row' }, el('button', { class: 'btn icon', text: '−', title: 'Zoom out (mouse wheel)', onclick: () => { ED.zoom = Math.max(1, ED.zoom - 1); render(); } }), el('button', { class: 'btn icon', text: '+', title: 'Zoom in (mouse wheel)', onclick: () => { ED.zoom = Math.min(24, ED.zoom + 1); render(); } }),
+    el('div', { class: 'row' }, el('button', { class: 'btn icon', text: '−', title: 'Zoom out', disabled: ED.zoom <= 1, onclick: () => { ED.zoom = Math.max(1, ED.zoom - 1); render(); } }), el('button', { class: 'btn icon', text: '+', title: 'Zoom in', disabled: ED.zoom >= 24, onclick: () => { ED.zoom = Math.min(24, ED.zoom + 1); render(); } }),
       ED.rects.length ? el('button', { class: 'chip' + (P.inside ? '' : ' on'), text: 'Paint outside', 'aria-pressed': String(!P.inside), onclick: () => { P.inside = !P.inside; render(); } }) : null),
     ].filter(Boolean));
   $('wsright').replaceChildren(...(mode === 'paint' ? paintSide() : shapeSide()).flat(Infinity).filter(Boolean)); $('wsright').querySelector('.partrow.on')?.scrollIntoView({ block: 'nearest' });
@@ -1402,7 +1360,6 @@ addEventListener('keydown', e => {
   else if (ED.float && !ctrl && k.startsWith('arrow')) { const d = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }[k], m = e.shiftKey ? 8 : 1; keepFloatOn(ED.float.x + d[0] * m, ED.float.y + d[1] * m); render(); }   /* arrows move a paste that isn't placed yet */
   else if (ED.mode === 'shape' && !ctrl && k.startsWith('arrow') && curBox()) { const sh = curBox().node.shape, d = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, 1], arrowdown: [0, -1] }[k];
     shapeEdit(() => { const o = { x: 0, y: 0, z: 0, ...sh.offset }; if (e.shiftKey) o.z += d[1] || -d[0]; else { o.x += d[0]; o.y += d[1]; } sh.offset = o; }); }
-  else if (k === 'tab' && !ctrl && !e.shiftKey && !e.target?.closest?.('button, a, [tabindex], label')) setMode(ED.mode === 'shape' ? 'paint' : 'shape');
   else if (['1', '2', '3', '7', '5'].includes(k) && !ctrl) { st.setView({ 1: 'front', 2: 'back', 3: 'side', 7: 'top', 5: 'persp' }[k]); st.frameOn(ED.canvas); }
   else if (ED.mode !== 'shape' && !ctrl && (k === '[' || k === ']')) { const P = ED.painter; P.size = Math.max(1, Math.min(8, P.size + (k === ']' ? 1 : -1))); render(); }
   else if (ED.mode !== 'shape' && k === 'alt' && !e.repeat && ED.painter.tool !== 'pick') { ED.altFrom = ED.painter.tool; pickTool('pick'); }
@@ -1572,14 +1529,14 @@ async function combinePick() {   // types down the left (hovering one shows its 
     const okE = e => !isTmp(e) && !(!e.custom && paidLocked(e)) && !(ED && e.Id === 'Custom_' + ED.asset.id) && (!q || itemName(e).toLowerCase().includes(q));
     const list = (q ? slots : [f]).flatMap(g => oneEach(CAT.items[g]).filter(okE).map(e => [g, e])).slice(0, 300);   /* a search looks in every type */
     grid.replaceChildren(...list.map(([g, e]) => { const a = e.custom && ASSETS.find(x => 'Custom_' + x.id === e.Id);
-      const card = el('button', { type: 'button', class: 'skin' + (chosen && chosen.e === e ? ' on' : ''), title: itemName(e), onclick: () => { if (!q) { cur_ = g; types(); } chosen = { f: g, e }; const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.disabled = false; for (const c of grid.children) c.classList.toggle('on', c === card); }, ondblclick: () => { const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add && chosen) add.click(); }, onkeydown: ev => { if (ev.key === 'Enter' && chosen && chosen.e === e) { ev.preventDefault(); const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.click(); } } },
+      const card = el('button', { type: 'button', class: 'skin' + (chosen && chosen.e === e ? ' on' : ''), title: itemName(e), onclick: () => { cur_ = g; types(); chosen = { f: g, e }; const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.disabled = false; for (const c of grid.children) c.classList.toggle('on', c === card); }, ondblclick: () => { const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add && chosen) add.click(); }, onkeydown: ev => { if (ev.key === 'Enter' && chosen && chosen.e === e) { ev.preventDefault(); const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.click(); } } },
         el('div', { class: 'pic' }, a ? assetThumb(a) : itemThumb(g, e, null, null, true)), el('b', { text: itemName(e) }));
       return card; }));
     if (!list.length) grid.append(el('p', { class: 'blank', text: 'No results' })); grid.scrollTop = 0; };
   const typeList = el('div', { class: 'combinetypes', onpointerleave: () => { clearTimeout(hov); fill(cur_); } });
   const types = () => typeList.replaceChildren(...slots.map(f => el('button', { type: 'button', class: f === cur_ ? 'on' : '', text: LABEL[f],
     onpointerenter: () => { clearTimeout(hov); hov = setTimeout(() => fill(f), 60); }, onclick: () => { clearTimeout(hov); cur_ = f; types(); fill(f); } })));
-  find.oninput = () => fill(cur_, true); types(); fill(cur_);
+  find.oninput = () => fill(cur_, true); find.onkeydown = ev => { if (ev.key !== 'Enter') return; ev.preventDefault(); ev.stopPropagation(); const c = chosen ? null : grid.querySelector('.skin'); if (c) c.click(); else if (chosen) [...$('dlgbtns').children].find(b => b.value === 'yes')?.click(); };   /* Enter picks the first result, Enter again adds it */ types(); fill(cur_);
   $('dlg').classList.add('wide');
   const asked = ask('Add item', [find, el('div', { class: 'combinebody' }, typeList, grid)], [{ label: 'Cancel', value: '' }, { label: 'Add', value: 'yes', primary: true }]);
   { const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.disabled = true; }
@@ -1587,11 +1544,16 @@ async function combinePick() {   // types down the left (hovering one shows its 
   if (v !== 'yes' || !chosen) return; combinePick.last = chosen.f;
   document.body.classList.add('busy'); try { await combineWith(chosen.f, chosen.e); } finally { document.body.classList.remove('busy'); }
 }
-function addBox(kind = 'dup', at = null) {   // 'dup' a copy, 'mirror' a copy on the other side, 'add' a new 4-block box; each gets its own room on the texture
+function onCentre(n) { const m = st.findMesh(o => o.userData.nodeName === n.name); if (!m) return Math.abs((n.position?.x ?? 0) + (n.shape.offset?.x ?? 0)) < 0.25;
+  m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox, lo = bb.min.clone(), hi = bb.max.clone(); m.localToWorld(lo); m.localToWorld(hi);
+  let root = m; while (root.parent && root.parent.type !== 'Scene') root = root.parent; const r = m.position.clone(); root.getWorldPosition(r);
+  const cx = (lo.x + hi.x) / 2 - r.x, half = Math.abs(hi.x - lo.x) / 2; return Math.abs(cx) < Math.max(0.25, half); }
+function addBox(kind = 'dup', at = null) { say('');   // 'dup' a copy, 'mirror' a copy on the other side, 'add' a new 4-block box; each gets its own room on the texture
   const boxes = boxesOf(ED.model), b = boxes[ED.box || 0]; if (!b) return; if (boxes.length >= assets.MAX_BOXES) return say(`Limit is ${assets.MAX_BOXES} parts`, true);
   const n = b.node, sh = n.shape;
   const into = kind === 'mirror' ? twinParentOf(b.parent) : null;   // a box on the left arm gets its copy on the right arm
-  if (kind === 'mirror' && !into && Math.abs((n.position?.x ?? 0) + (sh.offset?.x ?? 0)) < Math.max(0.25, Math.abs(sh.settings?.size?.x ?? 0) / 2))   /* the copy would overlap the original */ return say('Part is on the centre line', true);
+  if (kind === 'mirror' && twinOf(b)) return say('Already mirrored', true);
+  if (kind === 'mirror' && !into && onCentre(n))   /* the copy would overlap the original (measured on the body, not in the part's own frame) */ return say('Part is on the centre line', true);
   let paint = null;
   shapeEdit(() => { const label = nextBoxName(), copy = structuredClone({ ...n, children: [] }), cs = copy.shape; copy.name = 'Box_' + Math.random().toString(36).slice(2, 7); cs.offset = { x: 0, y: 0, z: 0, ...cs.offset };
     if (kind === 'mirror') mirrorNode(n, copy); else if (kind === 'add' && at) { cs.type = 'box'; cs.settings = { ...cs.settings, normal: undefined, size: { x: 4, y: 4, z: 4 } };   // always a solid box, even when started from a flat part
@@ -1665,7 +1627,7 @@ addEventListener('keydown', e => { if (!R || e.target?.matches?.('input, textare
 let ASIDE = false; const TAB_ID = Math.random().toString(36).slice(2), TABS = 'BroadcastChannel' in self ? new BroadcastChannel('skin-editor-tabs') : null;
 let READY = false, HANDING = false; const BORN = Date.now();
 addEventListener('keydown', e => { if (ASIDE || HANDING) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);   /* a tab that stepped aside takes no shortcuts */
-const stepAside = () => { ASIDE = true; HANDING = false; if (document.querySelector('.elsewhere')) return;
+const stepAside = () => { ASIDE = true; HANDING = false; try { if ($('dlg').open) $('dlg').close(''); } catch { /* no dialog */ } if (document.querySelector('.elsewhere')) return;
   document.body.append(el('div', { class: 'elsewhere' }, el('div', { class: 'elsebox' }, el('b', { text: 'Open in another tab' }), el('button', { class: 'btn primary', text: 'Use here', onclick: () => location.reload() })))); };
 if (TABS) TABS.onmessage = async e => { const m = e.data || {}; if (!m.hi || m.hi === TAB_ID || ASIDE || HANDING) return;
   if (!READY) { if ((m.t || 0) > BORN) stepAside(); return; }   /* still starting: nothing loaded to save; the older starter wins */

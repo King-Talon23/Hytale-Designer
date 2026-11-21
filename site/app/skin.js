@@ -49,7 +49,7 @@ export function rules(CAT) {
     }
     const s = src(it, variant); if (!s.Model) return null;
     if (s.Textures) return { model: s.Model, tex: (s.Textures[color] || Object.values(s.Textures)[0]).Texture, tint: null };
-    const set = CAT.gradients[s.GradientSet] || {}, col = s.GradientSet === 'Skin' ? parse(skin.bodyCharacteristic).color : color;
+    const body = find('bodyCharacteristic', skin.bodyCharacteristic), set = CAT.gradients[s.GradientSet] || {}, col = s.GradientSet === 'Skin' ? (body?.custom ? body.Tone : parse(skin.bodyCharacteristic).color) : color;   // a copied body keeps the tone it was made in
     return { model: s.Model, tex: s.GreyscaleTexture, tint: (set[col] || Object.values(set)[0] || {}).Texture || null };
   }
   const empty = () => Object.fromEntries(FIELDS.map(f => [f, null]));

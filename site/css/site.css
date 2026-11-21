@@ -449,3 +449,8 @@ dialog.wide { width: min(760px, 94vw); }
 .btn:focus-visible, .wstool:focus-visible, .chip:focus-visible, .iconbtn:focus-visible, .partrow button:focus-visible, .skin:focus-visible { outline: 2px solid var(--accent, #f4c452); outline-offset: 1px; }
 .chip:hover:not(:disabled):not(.on) { background: rgba(255,255,255,.06); }
 .skin .worntick { position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: #2f6b3a; color: #dff5e2; font-size: 12px; font-weight: 700; pointer-events: none; }
+@keyframes btnflash { 0%, 100% { box-shadow: none; } 40% { box-shadow: 0 0 0 4px rgba(244,196,82,.55); } }
+.btn.flash { animation: btnflash .9s ease 2; }
+/* tool icons: thin line icons like real editors, not text glyphs */
+.wstool .ico { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.wstool .ico .solid { fill: currentColor; }
