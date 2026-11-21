@@ -405,3 +405,16 @@ dialog.wide { width: min(760px, 94vw); }
 .combinegrid { max-height: 46vh; overflow: auto; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); padding: 2px; }
 .combinegrid .skin { text-align: left; } .combinegrid .skin.on { border-color: var(--gold); }
 .combinegrid .skin b { font-size: 11.5px; line-height: 1.25; }
+/* Creator parts list: a delete cross on each row */
+.partrow { display: flex; align-items: stretch; gap: 2px; } .partrow > button:first-child { flex: 1; min-width: 0; text-align: left; }
+.partrow .partdel { width: 26px; flex: none; padding: 0; color: var(--dim); background: none; border: 1px solid transparent; border-radius: 3px; opacity: 0; }
+.partrow:hover .partdel, .partrow.on .partdel { opacity: 1; } .partrow .partdel:hover { color: #ff8a8a; border-color: #ff8a8a66; }
+/* no text blurbs: the worn-item line, the facing label and the Creator tool tips stay hidden (user 2026-11-21) */
+.detail, .facing, #app.ws .facing, .viewhint, #app.ws .viewhint { display: none !important; }
+.paintbox.resizing canvas { cursor: nwse-resize !important; }
+.outliner .partrow .partdel { display: grid; place-items: center; padding: 0; text-align: center; font-size: 13px; line-height: 1; }
+.combinebody { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; min-height: 0; }
+.combinetypes { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow: auto; }
+.combinetypes button { text-align: left; background: none; border: 1px solid transparent; border-radius: 3px; padding: 5px 8px; font-size: 13px; color: #c5d6e2; min-height: 0; }
+.combinetypes button:hover { background: #1b2e48; } .combinetypes button.on { border-color: var(--gold2); color: var(--gold); background: #22303f; }
+.combinetypes button { padding: 6px 9px !important; font-size: 13px !important; }
