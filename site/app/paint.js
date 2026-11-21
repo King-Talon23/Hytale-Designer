@@ -62,6 +62,7 @@ export function createPainter(canvas, onChange, onPick) {
       if (t === 'fill' || t === 'replace') { if (first) { (t === 'replace' ? replaceAll : P.fillMode === 'side' ? fillSide : P.fillMode === 'every' ? fillEvery : flood)(b.x, b.y); show(); } return; }
       if (SHAPES.has(t)) { img.data.set(base.data); touched.clear(); if (t === 'line') line(start, b); else box(start, b, t === 'boxfill'); show(); return; }   // the shape is redrawn from where the drag began
       line(a, b); show(); },
+    fillAlso(b) { if (!img || !b || P.tool !== 'fill' || P.fillMode === 'every') return; (P.fillMode === 'side' ? fillSide : flood)(b.x, b.y); show(); },   // Symmetry: the same fill at the mirrored spot, in the same step
     end() { if (!img) return; if (dirty && base) { const a = img.data, b = base.data; let same = true; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { same = false; break; } if (same) dirty = false; }   /* a stroke that changed nothing is not a step */
       if (dirty) { redo.length = 0; if (undo.length > 120) undo.shift(); onChange(true); } else undo.pop();   /* the oldest step goes only when a real one is added */ img = null; base = null; touched = null; },
     undo() { swap(undo, redo); }, redo() { swap(redo, undo); },

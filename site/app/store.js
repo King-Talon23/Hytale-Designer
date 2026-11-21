@@ -50,7 +50,7 @@ async function takeAsset(meta, bytes, have) {
 export async function importAll(data) {   // adds to what is there; never overwrites a filled in-game slot
   if (!data || data.format !== 'skin-editor-backup' || !Array.isArray(data.custom)) throw new Error('That file is not a Skin Editor backup.');
   const cur = await list(); let added = 0, skipped = 0, room = CUSTOM_MAX - cur.custom.length;
-  const offered = Array.isArray(data.assets) ? data.assets.length : 0, items = await unpackAssets(data.assets);   // items first, so restored skins that wear them find them
+  const had = new Set((await assets.list()).map(a => a.id)), offered = Array.isArray(data.assets) ? data.assets.filter(m => m && !had.has(m.id)).length : 0, items = await unpackAssets(data.assets);   /* items already here are not 'skipped' */   // items first, so restored skins that wear them find them
   const same = new Set(cur.custom.map(r => r.name + '|' + JSON.stringify(r.skin)));   // restoring the same backup twice does not double up
   for (const r of data.custom.slice(0, 500)) { const s = sanitize(r?.skin); if (!s) continue; const k = cleanName(r.name) + '|' + JSON.stringify(s); if (same.has(k)) continue; if (room <= 0) { skipped++; continue; } await saveCustom(r.name, s); same.add(k); room--; added++; }
   for (let i = 0; i < GAME_SLOTS; i++) { const r = data.game?.[i], s = sanitize(r?.skin); if (s && !cur.game[i]) { await saveGame(i, r.name, s); added++; } }

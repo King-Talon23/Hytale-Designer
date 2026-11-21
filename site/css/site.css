@@ -464,3 +464,4 @@ dialog.wide { width: min(760px, 94vw); }
 .combinetypes button { flex: none; }
 #app.ws #wstools { flex-wrap: wrap; justify-content: center; row-gap: 6px; }   /* a narrow view wraps the toolbar instead of cutting it */
 #wsright > *, #wsright .wshead, #wsright .swlabel { flex-shrink: 0; }   /* headings keep their height when the panel scrolls */
+table.keys { border-collapse: collapse; font-size: 13px; } table.keys td { padding: 3px 10px 3px 0; } table.keys kbd { font: 600 12px/1 Lexend, sans-serif; background: #0d1826; border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; white-space: nowrap; }
