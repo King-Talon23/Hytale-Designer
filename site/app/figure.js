@@ -252,6 +252,8 @@ async function buildWorld(sc, tint) {
       for (const [x0, y, z0, q] of st.list) { const x = sym(x0 + ox), z = sym(z0 + oz); if (x * x + z * z > R * R) continue;
         let k = 1; if (st.plant) { const d = Math.hypot(x, z);   // a plant shrinks away near the character, the camera's lens and any set piece
           k = Math.min(1, Math.max(0, (d - clear) / 0.7), c ? Math.max(0, (Math.hypot(x * BLOCK - c.x, z * BLOCK - c.z) / BLOCK - 2.2) / 1.2) : 1);
+          if (c && k > 0) { const cx = c.x / BLOCK, cz = c.z / BLOCK, L = cx * cx + cz * cz, t = L ? Math.max(0, Math.min(1, (x * cx + z * cz) / L)) : 0;   // and along the line from the lens to the character, so no clump fills the foreground
+            k = Math.min(k, Math.max(0, (Math.hypot(x - t * cx, z - t * cz) - 0.9) / 0.8)); }
           for (const r of rects) if (x > r[0] - 0.6 && x < r[2] + 0.6 && z > r[1] - 0.6 && z < r[3] + 0.6) k = 0;
           if (k < 0.02) continue; }
         st.im.setMatrixAt(n++, M.compose(V.set(x * BLOCK, y * BLOCK, z * BLOCK), st.plant ? Q.setFromAxisAngle(Y, q) : q || Q.identity(), st.plant ? SC.setScalar(k) : ONE)); }
@@ -287,7 +289,7 @@ export function stage(canvas, Controls) {
   const vel = new THREE.Vector2(), want = new THREE.Vector2();
   function travel(dt) { const v = anim.velocity; want.set(v ? v[0] : 0, v ? v[1] : 0); vel.lerp(want, 1 - Math.exp(-dt * 9));
     // the clearing's floor slides with the move (a horse needs more room round it than a person)
-    if (world) { world.userData.cam = cam.position; world.userData.clear = mountRoot ? 2.3 : 1;
+    if (world) { world.userData.cam = cam.position; world.userData.clear = Math.max(mountRoot ? 2.3 : 1, plantClear, painting ? 4 : 0);
       let mx = anim.move ? -vel.x * dt : 0, mz = anim.move ? -vel.y * dt : 0; const [ox, oz] = world.userData.offset(), span = world.userData.span;
       const along = Math.abs(want.x) > Math.abs(want.y) ? 'x' : Math.abs(want.y) > 0 ? 'z' : null;   // the lane the new move runs down
       if (along === 'x') mz = 0; else if (along === 'z') mx = 0;   // the land only ever slides down the current move's lane
@@ -339,7 +341,8 @@ export function stage(canvas, Controls) {
     const p = texel(image); if (!p || !mirror) return p;
     ray.ray.origin.x *= -1; ray.ray.direction.x *= -1; p.m = texel(image); return p; }   // the same ray flipped left to right lands on the matching spot of the other side
   // while painting, the left button paints and the right button turns the view
-  function paintMode(on) { ctl.maxPolarAngle = on ? Math.PI * 0.97 : Math.PI * 0.55; ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE; ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE; ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE; canvas.style.cursor = on ? 'crosshair' : ''; }
+  let painting = false, plantClear = 0;   // plants keep further away while an item is edited, or when a move sits or lies on the ground
+  function paintMode(on) { painting = !!on; ctl.maxPolarAngle = on ? Math.PI * 0.97 : Math.PI * 0.55; ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE; ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE; ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE; canvas.style.cursor = on ? 'crosshair' : ''; }
   // the box under a screen point (first hit that passes the filter), and outlines around the boxes a filter picks
   // the picked box glows (its own copy of the material, lit gold) as well as getting an outline
   let lit = []; const glow = new Map();
@@ -387,7 +390,7 @@ export function stage(canvas, Controls) {
   const setPiece = new THREE.Group(); scene.add(setPiece);
   async function scenery(list, perch = 0) { const my = (scenery.n = (scenery.n || 0) + 1);
     const made = await Promise.all((list || []).map(async it => { let map = null;
-      if (it.block) { const g = new THREE.Group(); try { g.add(await blockModel(it.block)); } catch (e) { console.warn(it.block, e.message); return null; } g.position.set(...it.at); g.rotation.y = (it.turn || 0) * Math.PI / 180; return g; }   // the game's own furniture
+      if (it.block) { const g = new THREE.Group(); try { g.add(await blockModel(it.block)); } catch (e) { console.warn(it.block, e.message); return null; } g.position.set(...it.at); g.rotation.y = (it.turn || 0) * Math.PI / 180; if (it.stretch) g.scale.z = it.stretch; return g; }   // the game's own furniture (stretch: a touch longer along its own z)
       if (it.ladder) { const [cols, rows] = it.ladder, g = new THREE.Group(); try { await blockModel(SET_PIECES.ladder); await blockModel(SET_PIECES.wall); } catch (e) { console.warn('ladder', e.message); return null; }   // a wall of the game's ladders on planks, one block more each way so it can slide
         for (let c = -3; c <= cols + 2; c++) for (let r = -1; r <= rows; r++) { const x = (c - (cols - 1) / 2) * BLOCK, w = await blockModel(SET_PIECES.wall); w.position.set(x, r * BLOCK, BLOCK); g.add(w);
           if (cols > 1 ? c >= -1 && c <= cols : c === 0) { const l = await blockModel(SET_PIECES.ladder); l.position.set(x, r * BLOCK, 0); l.rotation.y = Math.PI; g.add(l); } }   // the wall wider than the ladders
@@ -426,8 +429,8 @@ export function stage(canvas, Controls) {
   function props(list) { unhang(); for (const h of held) dispose(h.root); held = list || []; if (figure) hang(); }
   // a tall move (gliding, arms and glider high overhead): aim higher and back off so it all fits; lift(0) puts the view back
   let lifted = null;
-  function lift(y, phi = 0) { const off = cam.position.clone().sub(ctl.target);   // phi: look down from at least this high (polar angle), to see into a bed
-    if (y) { if (!lifted) lifted = { len: off.length(), phi: new THREE.Spherical().setFromVector3(off).phi }; off.setLength(Math.max(off.length(), 360)); ctl.target.set(0, y, 0);
+  function lift(y, phi = 0, len = 360) { const off = cam.position.clone().sub(ctl.target);   // phi: look down from at least this high (polar angle), to see into a bed
+    if (y) { if (!lifted) lifted = { len: off.length(), phi: new THREE.Spherical().setFromVector3(off).phi }; off.setLength(Math.max(off.length(), len)); ctl.target.set(0, y, 0);
       if (phi) { const sp = new THREE.Spherical().setFromVector3(off); sp.phi = Math.min(sp.phi, phi); off.setFromSpherical(sp); } }
     else if (lifted) { const sp = new THREE.Spherical().setFromVector3(off); sp.radius = lifted.len; sp.phi = Math.max(sp.phi, lifted.phi); off.setFromSpherical(sp); ctl.target.set(0, 62, 0); lifted = null; } else return;
     cam.position.copy(ctl.target).add(off); ctl.update(); }
@@ -438,7 +441,7 @@ export function stage(canvas, Controls) {
     if (was !== !!root) { const k = root ? 1.6 : 1 / 1.6, ty = root ? 62 + at[1] * 0.7 : 62, off = cam.position.clone().sub(ctl.target).multiplyScalar(k);
       ctl.target.set(0, ty, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
   }
-  const api = { isolate: img => { isoImage = img || null; applyIsolate(); drawHL(); }, anim, mountAnim, mount, props, lift, scenery, onFacing: cb => { faceCb = cb; faced = ''; }, wall: v => { wallOn = v || null; }, hover: h => { hoverTo = Math.max(0, h || 0); }, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
+  const api = { plantClear: r => { plantClear = r || 0; }, isolate: img => { isoImage = img || null; applyIsolate(); drawHL(); }, anim, mountAnim, mount, props, lift, scenery, onFacing: cb => { faceCb = cb; faced = ''; }, wall: v => { wallOn = v || null; }, hover: h => { hoverTo = Math.max(0, h || 0); }, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
     gizmoBusy: () => tc.dragging || tc.axis !== null,
     // where a click lands on a box: the point and the face's outward direction, in the box's own part (node) space
     pickHit(cx, cy, keep) { if (!figure) return null; aim(cx, cy); for (const h of ray.intersectObject(figure, true)) if (h.object.visible && keep(h.object)) {
@@ -462,7 +465,8 @@ export function stage(canvas, Controls) {
     setView(name) { const v = VIEWS[name] || VIEWS.persp; cam.position.set(...v); ctl.target.set(0, 62, 0); ctl.update(); },
     highlight(f) { hl = f; drawHL(); },
     show(root) { if (figure) { unhang(); scene.remove(figure); dispose(figure); } figure = root; scene.add(root); seatAt(); anim.setFigure(root); hang(); lit = []; applyIsolate(); drawHL(); if (api.afterShow) api.afterShow(); },
-    view(front) { lifted = null; cam.position.set(front ? 0 : -75, 95, front ? 265 : 255); ctl.target.set(0, 62, 0); ctl.update(); },
+    view(front) { const off = new THREE.Vector3(front ? 0 : -75, 33, front ? 265 : 255);   // during a tall move (gliding, flying, climbing) keep its raised aim and distance
+      if (lifted) off.setLength(Math.max(off.length(), 360)); else ctl.target.set(0, 62, 0); cam.position.copy(ctl.target).add(off); ctl.update(); },
     behind() { if (cam.position.z - ctl.target.z < 0) return; const off = cam.position.clone().sub(ctl.target); off.x = -off.x; off.z = -off.z; cam.position.copy(ctl.target).add(off); ctl.update(); } };   // a climb is watched from behind, as in the game
   // ---- in-game backgrounds: a sky dome from the zone's sky and fog colours, and a floor of its ground blocks fading into that fog
   const shadow = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);

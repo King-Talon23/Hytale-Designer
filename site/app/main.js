@@ -18,7 +18,7 @@ const $ = id => document.getElementById(id);
 function el(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) { if (v == null) continue;
-    if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v; else if (k === 'data') Object.assign(e.dataset, v); else e[k] = v; }
+    if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v; else if (k === 'data') Object.assign(e.dataset, v); else if (k.includes('-') || k === 'role') e.setAttribute(k, v); else e[k] = v; }   // aria-*, data-* and role are attributes, not properties
   e.append(...kids.flat(Infinity).filter(k => k != null && k !== false)); return e;
 }
 const VERSION = '0.1.0', REPO = 'https://github.com/King-Talon23/Hytale-Skin-Design-Website';
@@ -203,7 +203,7 @@ const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.str
 function setTab(t) { if (t !== 'editor' && picking) leavePicker();
   // opening or leaving the Animations tab stops whatever move is playing (and drops what it holds)
   if (t !== tab && (t === 'animations' || tab === 'animations') && R && !(playing.group === 'Default' && playing.name === 'Idle')) playAnim('Default', 'Idle', 0.5);
-  if (ED && t !== 'creator') closeAsset(true).then(() => { playAnim('Default', 'Idle', 0.5); rebuild(); });
+  if (ED && t !== 'creator') closeAsset(true).then(() => { playAnim('Default', 'Idle', 0.5); rebuild(); render(); });   // render again once the piece is closed, or the editor (and its tool tip) stays up under the new tab
   tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t);
   const on = $('tabs').querySelector('.on'), nav = on?.parentElement;   // on a phone the tab row scrolls sideways: keep the open tab in view
   if (nav && nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: nav.scrollLeft + on.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - on.offsetWidth) / 2, behavior: 'smooth' });
@@ -340,7 +340,7 @@ function drawStageBtns() {
   box.replaceChildren(...[
     el('button', { class: 'stbtn', title: 'Change the background behind your character (the game\u2019s own places)', 'aria-label': 'Background: ' + name, onclick: () => { const i = BACKDROPS.findIndex(b => b[0] === bd); store_.set('se_backdrop', BACKDROPS[(i + 1) % BACKDROPS.length][0]); drawStageBtns(); } },
       el('span', { class: 'bdchip bd-' + bd }), el('b', { text: name })),
-    ED ? null : el('button', { class: 'stbtn', title: clean ? 'Show the buttons again (Esc)' : 'Hide the buttons for a clean look at your character', onclick: () => { stg.classList.toggle('clean'); drawStageBtns(); } },
+    ED ? null : el('button', { class: 'stbtn', title: clean ? 'Show the buttons again (Esc)' : 'Hide the buttons for a clean look at your character', 'aria-label': clean ? 'Show buttons' : 'Clean view', onclick: () => { stg.classList.toggle('clean'); drawStageBtns(); } },
       el('span', { text: clean ? '\u25c9' : '\u25ce' }), el('b', { text: clean ? 'Show buttons' : 'Clean view' }))].filter(Boolean));
 }
 addEventListener('keydown', e => { if (e.key === 'Escape' && !ED) { const stg = $('view')?.parentElement; if (stg?.classList.contains('clean')) { stg.classList.remove('clean'); drawStageBtns(); } } });
@@ -505,7 +505,7 @@ const heldBy = (g, n) => HELD[g]?.[n] || HELD[g]?.['*'] || [];
 const W = game.SCENERY_TEX;
 // the game's own furniture (its village set and workbench, see scene-data.js), placed where the moves use them
 const CHAIR = [{ block: game.SET_PIECES.chair, at: [0, 0, 0], turn: 0 }];   // sit moves drop the pelvis 45 and hang the lower legs
-const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -60], turn: 0 }];   // lengthwise along z, the pillow end towards -z (measured: bed z -85..61, figure z -70..57)   // lying moves drop the pelvis about 42, head towards -z
+const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -61], turn: 0, stretch: 1.12 }];   // lengthwise along z, pillow end at -z; 12% longer so the sleeper (z -71..58) fits between headboard (-75) and footboard (60)   // lying moves drop the pelvis about 42, head towards -z
 const BENCH = [{ block: game.SET_PIECES.bench, at: [-32, 0, 84], turn: 180 }];   // something to work at, centred in front of the hands (it is two blocks wide: x -64..64)
 const LADDERS = cols => [{ ladder: [cols, 7], at: [0, 0, -8] }];   // climbing faces +z: the rungs just in front of the hands, planks behind them
 const WATER = y => [{ plane: [3600, 3600], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.45, flow: true }];   // a lake to the hills, drifting with the land while swimming
@@ -525,7 +525,7 @@ async function setProps(g, n) { const want = heldBy(g, n);
   const built = await Promise.all(want.map(async ([k, bone, shift]) => { try { const [model, tex] = game.PROPS[k]; return { root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone, shift }; } catch (e) { console.warn(k, e.message); return null; } }));
   st.props(built.filter(Boolean)); if (built.some(b => !b)) say('Your saved copy of the game files is from before held items were added. Refresh it once in the Locker to see them (your skins are kept).', true); }
 // st.lift: tall moves aim the view higher, moves near the floor aim lower so they clear the buttons under the view
-async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); st.lift(g === 'Glide' ? 165 : g === 'Fly' ? 106 : g === 'Climb' ? 86 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' && /^Mantle_Up/.test(n) ? 150 : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0); st.scenery(...sceneryFor(g, n)); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); const a = await fig.loadAnim(g, n); st.hover(g === 'Fly' ? 44 : g === 'Glide' ? 60 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
+async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); st.lift(g === 'Glide' ? 165 : g === 'Fly' ? 106 : g === 'Climb' ? 86 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' && /^Mantle_Up/.test(n) ? 150 : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : 360); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); const a = await fig.loadAnim(g, n); st.hover(g === 'Fly' ? 44 : g === 'Glide' ? 60 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
     if (once) { const still = fig.motionOf(g, n) && st.anim.still, ms = still ? 1700 : (Math.max(1, a.duration || 60) / 60 / speed) * 1000 + (a.holdLastKeyframe ? 700 : 0) + 250;
       onceT = setTimeout(() => { if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); }, ms); } st.anim.setMove(fig.motionOf(g, n)); st.anim.playing = true; drawEmotes(); } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
 let animGroup = 'Emote';
@@ -612,7 +612,7 @@ function panelHelp() {
     sec('Game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Connect again', onclick: showConnect }),
         el('button', { class: 'btn danger', text: 'Forget game files', onclick: guard(async () => { if (!await confirmBox('Forget game files', 'Removes the copy of your game files from this browser. Your saved skins stay.', 'Forget', true)) return; await game.forget(); R = null; pics.clear(); fig.clearCache(); showConnect(); }) }))),
-    MOD_URL ? sec('Skin Editor Sync', 'Wear what you design in your own worlds: install the mod, pick a skins folder in the Locker, then turn on In game.', el('div', { class: 'row' }, modLink('primary'))) : null,
+    MOD_URL ? sec('Skin Editor Sync', 'Wear what you design in your own worlds: install the mod, pick a skins folder in the Locker, then turn on In game. Everyone who joins a world running on your PC sees you dressed. Other servers can’t read your folder, so there you keep your usual look.', el('div', { class: 'row' }, modLink('primary'))) : null,
     sec('Backup', 'Keep a backup file if you have not picked a skins folder in the Locker.',
       el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: 'Download backup', onclick: guard(async () => download('skin-editor-backup.json', await store.exportAll())) }), el('label', { class: 'btn ghost' }, 'Restore backup', backupFile))),
     el('p', {}, el('a', { href: '/privacy', text: 'Privacy: what the site keeps and how to delete it' })))];
@@ -674,6 +674,7 @@ async function openAsset(a) {
   if (a.shape) ED.model = JSON.parse(a.shape);
   try { ED.rects = fig.usedRects(ED.model || await game.json(game.common(a.model))); } catch (e) { console.warn('no drawn area for', a.model, e); }
   ED.painter = makePainter(c, a); Object.assign(ED.painter, BRUSH);
+  { const k = STEPS.get(a.id); if (k && ED.painter.takeSteps(k.paint)) { ED.hist = k.hist; ED.fut = k.fut; } }
   ED.painter.faceAt = (x, y) => ED && ED.rects.find(r => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h);   // Fill > Whole side: which side was clicked
   if (ED.rects.length) { const m = new Uint8Array(c.width * c.height); for (const r of ED.rects) for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1; ED.painter.mask = m; }
   ED.palette = ED.painter.palette(); ED.ovl = el('canvas', { className: 'limits' }); requestAnimationFrame(() => { fitTexture(); render(); });
@@ -689,8 +690,9 @@ const markSaved = ok => { if (!ED) return; ED.saved = ok; const s = $('wssaved')
 function queueAssetSave() { markSaved(false); clearTimeout(queueAssetSave.t); queueAssetSave.t = setTimeout(() => flushAsset().catch(e => say(e.message, true)), 900); }
 async function flushAsset() { clearTimeout(queueAssetSave.t); if (!ED) return; const e = ED, data = await new Promise(ok => e.canvas.toBlob(ok, 'image/png'));
   try { e.asset = await assets.save({ ...e.asset, data, shape: e.model && e.shapeN ? JSON.stringify(e.model) : e.asset.shape }); ASSETS = await assets.list(); syncFolder(); } finally { if (ED === e) markSaved(true); } }
+const STEPS = new Map();   // undo history per custom item, kept for this visit so reopening an item can still undo
 async function closeAsset(quiet) {
-  if (!ED) return; keepBrush(); if (ED.float) placeFloat(); tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); await flushAsset().catch(e => say(e.message, true)); ED = null; registerAssets(); st.highlight(null); st.isolate(null); st.paintMode(false); st.gizmo(null); st.setView('persp'); pics.clear(); lastPic.clear();
+  if (!ED) return; keepBrush(); if (ED.float) placeFloat(); STEPS.set(ED.asset.id, { hist: ED.hist, fut: ED.fut, paint: ED.painter.keepSteps() }); tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); await flushAsset().catch(e => say(e.message, true)); ED = null; if ($('viewhint')) $('viewhint').hidden = true; registerAssets(); st.highlight(null); st.isolate(null); st.paintMode(false); st.gizmo(null); st.setView('persp'); pics.clear(); lastPic.clear();
   if (!quiet) { playAnim('Default', 'Idle', 0.5); rebuild(); render(); }
 }
 // painting: the same strokes whether the pointer is on the flat texture or on the 3D model
@@ -844,7 +846,9 @@ const FLAG_WHY = n => `This looks too much like ${n}, a paid item, so it stays o
 function copyName(n) { const base = n.replace(/ \(mine\)$/, '').replace(/ copy( \d+)?$/, '') + ' copy', used = new Set(ASSETS.map(x => x.name)); let k = 1, out = base; while (used.has(out)) out = base + ' ' + ++k; return out; }
 async function copyAsset(a) { if (ASSETS.length >= assets.MAX) throw new Error(`You have ${assets.MAX} custom assets, the most this site keeps. Delete one first.`);
   const c = await assets.save({ ...a, id: assets.newId(), name: copyName(a.name), flag: undefined }); ASSETS = await assets.list(); registerAssets(); syncFolder(); render(); say(`Made "${c.name}". Its Edit button opens it.`); }
+const keepAny = () => store_.set('se_anyitem', JSON.stringify({ picks: anyItem.picks || {}, slot: anyItem.slot }));   // the picker's slot and item, remembered between visits
 function anyItem() {   // or start from any free item in the game, worn or not
+  if (!anyItem.loaded) { anyItem.loaded = true; try { const k = JSON.parse(store_.get('se_anyitem') || '{}'); anyItem.picks = k.picks || {}; anyItem.slot = k.slot; } catch { /* fresh */ } }
   const slots = game.FIELDS.filter(f => CAT.items[f].some(e => !e.custom && !paidLocked(e))), slot = el('select', { title: 'Slot' }, slots.map(f => el('option', { value: f, text: LABEL[f] })));
   const ok = e => !e.custom && !paidLocked(e) && !/^\s*\[?tmp\]?/i.test(itemName(e)) && !/(^|_)tmp(_|$)/i.test(e.Id);
   // the item list is our own drop-down (a plain one can't tell us what the pointer is over): the picture shows the item under the pointer or arrow keys, and goes back to the chosen one
@@ -868,7 +872,7 @@ function anyItem() {   // or start from any free item in the game, worn or not
     Object.assign(menu.style, { left: r.left + 'px', width: r.width + 'px', maxHeight: h + 'px', top: up ? '' : r.bottom + 2 + 'px', bottom: up ? innerHeight - r.top + 2 + 'px' : '' }); };
   const open = () => { if (!list.length || !menu.hidden) return; document.querySelectorAll('body > .anymenu').forEach(x => x.remove()); document.body.append(menu); place(); menu.hidden = false; item.setAttribute('aria-expanded', 'true'); mark(at);
     document.addEventListener('pointerdown', away, true); addEventListener('scroll', drift, true); addEventListener('resize', close); };
-  const choose = i => { at = i; if (!find_.value.trim() && list[i] && list[i][2]) (anyItem.picks ||= {})[slot.value] = list[i][2].Id; label(); close(); clearTimeout(hov); draw(at); };
+  const choose = i => { at = i; if (!find_.value.trim() && list[i] && list[i][2]) (anyItem.picks ||= {})[slot.value] = list[i][2].Id; keepAny(); label(); close(); clearTimeout(hov); draw(at); };
   item.onclick = () => menu.hidden ? open() : close();
   item.onkeydown = ev => { const k = ev.key, n = list.length; if (!n) return;
     if (k === 'ArrowDown' || k === 'ArrowUp') { ev.preventDefault(); if (menu.hidden) open(); const i = Math.max(0, Math.min(n - 1, act + (k === 'ArrowDown' ? 1 : -1))); mark(i); peek(i); }
@@ -879,13 +883,14 @@ function anyItem() {   // or start from any free item in the game, worn or not
   menu.onpointerleave = () => peek(at);
   menu.onclick = ev => { const o = ev.target.closest('[role=option]'); if (o) { choose(+o.dataset.i); item.focus(); } };
   const fill = () => { const q = find_.value.trim().toLowerCase(), from = q ? slots : [slot.value];   // a search looks in every slot
-    list = from.flatMap(f => oneEach(CAT.items[f]).filter(e => ok(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e])).sort((a, b) => a[0].localeCompare(b[0]));
+    const rank = r => { if (!q || !r[2]) return 0; const nm = itemName(r[2]).toLowerCase(), w = nm.split(/\s+/); return nm === q ? 0 : nm.startsWith(q) ? 1 : w[0] === q || w.includes(q) && w.indexOf(q) === 0 ? 1 : nm.split(/\s+/).some(x => x === q) ? 2 : 3; };
+    list = from.flatMap(f => oneEach(CAT.items[f]).filter(e => ok(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e])).sort((a, b) => rank(a) - rank(b) || a[0].localeCompare(b[0]));   // a search puts exact names first, then names that start with it
     if (!q) list.unshift(['None', slot.value, null]);   // None: the picture shows the slot empty; wearing nothing there starts on a random item
     menu.replaceChildren(...list.map(([n], i) => el('div', { role: 'option', class: 'anyopt', text: n, data: { i } })));
     const worn = !q && parse(cur.skin[slot.value]).id; at = q ? (list.length ? 0 : -1) : list.findIndex(r => r[2] && r[2].Id === worn); const kept = (anyItem.picks ||= {})[slot.value];   // the item shown last time stays, so the picker doesn't jump around between visits
     if (!q && at < 0 && kept) at = list.findIndex(r => r[2] && r[2].Id === kept);
-    if (!q && at < 0 && list.length > 1) { at = 1 + Math.floor(Math.random() * (list.length - 1)); anyItem.picks[slot.value] = list[at][2].Id; } act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
-  slot.value = slots.includes(anyItem.slot) ? anyItem.slot : slots.includes('overtop') ? 'overtop' : slots[0]; fill(); slot.onchange = () => { anyItem.slot = slot.value; find_.value = ''; fill(); }; find_.oninput = fill;
+    if (!q && at < 0 && list.length > 1) { at = 1 + Math.floor(Math.random() * (list.length - 1)); anyItem.picks[slot.value] = list[at][2].Id; keepAny(); } act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
+  slot.value = slots.includes(anyItem.slot) ? anyItem.slot : slots.includes('overtop') ? 'overtop' : slots[0]; fill(); slot.onchange = () => { anyItem.slot = slot.value; keepAny(); find_.value = ''; fill(); }; find_.oninput = fill;
   find_.onkeydown = ev => { if (ev.key === 'ArrowDown' && list.length) { ev.preventDefault(); item.focus(); item.onkeydown(ev); } };
   return [el('h3', { text: 'Or start from any item' }), el('div', { class: 'row anyitem' }, pic, el('div', { class: 'anycol' }, el('div', { class: 'row' }, slot, find_), el('div', { class: 'anywrap' }, item, menu)), edit)];
 }
