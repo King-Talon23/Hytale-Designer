@@ -97,7 +97,7 @@ async function startApp() {
       ED.hover = p; ED.hoverM = p?.m || null; drawOvl(); });
     $('view').addEventListener('pointerleave', () => { if (!ED) return; st.cursor(null); ED.hover = ED.hoverM = null; drawOvl(); });
     st.afterShow = () => { outlineBox(); placeGizmo(); if (ED && ED.frame) { ED.frame = false; st.frameOn(ED.canvas); } };
-    $('view').addEventListener('pointerdown', e => { if (!ED || !ED.shapeOpen || e.button !== 0 || st.gizmoBusy()) return;
+    $('view').addEventListener('pointerdown', e => { if (!ED || !ED.shapeOpen || e.button !== 0 || st.gizmoBusy(e.clientX, e.clientY)) return;
       const mine = o => o.material?.map?.image === ED.canvas;
       if (ED.placing) { const h = st.pickHit(e.clientX, e.clientY, mine); if (!h) { say('That missed the item: click right on it (zoom in with the wheel for thin parts). Esc cancels.', true); return; } e.stopImmediatePropagation(); ED.placing = false;
         const k = boxesOf(ED.model).findIndex(b => b.node.name === h.mesh.userData.nodeName); if (k >= 0) { ED.box = k; addBox('add', h); } return; }
@@ -495,10 +495,10 @@ const MOUNT_PATH = 'NPC/Livestock/', BLOCK = 64;   // model units per block
 const MOUNTS = {
   Horse: { model: MOUNT_PATH + 'Horse/Models/Model.blockymodel', tex: MOUNT_PATH + 'Horse/Models/Texture.png', seat: [0, 1.6, 0], anims: MOUNT_PATH + 'Horse/Animations/Default/',
     atts: [{ model: MOUNT_PATH + 'Horse/Models/Attachments/Mane.blockymodel', tex: MOUNT_PATH + 'Horse/Models/Attachments/Mane_Black.png' }] },   // the ridden (Tamed_Horse) role uses the plain horse: no saddle; mane and tail black or grey at random
-  Camel: { model: MOUNT_PATH + 'Camel/Models/Model.blockymodel', tex: MOUNT_PATH + 'Camel/Models/Texture.png', seat: [0, 2.25, -0.13], anims: MOUNT_PATH + 'Camel/Animations/Default/',
+  Camel: { model: MOUNT_PATH + 'Camel/Models/Model.blockymodel', tex: MOUNT_PATH + 'Camel/Models/Texture.png', seat: [0, 2.25, 0.2], anims: MOUNT_PATH + 'Camel/Animations/Default/',
     atts: [{ model: MOUNT_PATH + 'Camel/Models/Attachments/Shell.blockymodel', tex: MOUNT_PATH + 'Camel/Models/Attachments/Shell_Textures/Green.png' }] },
   Ram: { model: MOUNT_PATH + 'Ram/Models/Model.blockymodel', tex: MOUNT_PATH + 'Ram/Models/Texture.png', seat: [0, 1.3, 0], anims: MOUNT_PATH + 'Ram/Animations/Default/', atts: [] } };
-const MOUNT_MOVE = { Mount_Idle: ['Idle', 1], Mount_Walk: ['Walk', 1], Mount_Walk_Backward: ['Walk_Backward', 1], Mount_Run: ['Run', 1], Mount_Run_Backward: ['Walk_Backward', 1.6], Mount_Sprint: ['Run', 1.3] };
+const MOUNT_MOVE = { Mount_Idle: ['Idle', 1], Mount_Walk: ['Walk', 1], Mount_Walk_Backward: ['Walk_Backward', 1], Mount_Run: ['Run', 1], Mount_Run_Backward: ['Walk_Backward', 1], Mount_Sprint: ['Run', 1] };   // the game's animals have only Idle/Walk/WalkBackward/Run, all at speed 1 (Server/Models/Livestock/*.json)
 let mountKind = 'Horse', mountOn = null, mountMsg = '';
 async function setMount(kind, move) {
   if (!st) return; if (!kind) { if (mountOn) { st.mount(null); mountOn = null; } return; }
@@ -521,13 +521,14 @@ const CHAIR = [{ block: game.SET_PIECES.chair, at: [0, 0, 0], turn: 0 }];   // s
 const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -61], turn: 0, stretch: 1.12 }];   // lengthwise along z, pillow end at -z; 12% longer so the sleeper (z -71..58) fits between headboard (-75) and footboard (60)   // lying moves drop the pelvis about 42, head towards -z
 const BENCH = [{ block: game.SET_PIECES.bench, at: [-32, 0, 84], turn: 180 }];   // something to work at, centred in front of the hands (it is two blocks wide: x -64..64)
 const LADDERS = cols => [{ ladder: [cols, 7], at: [0, 0, -8] }];   // climbing faces +z: the rungs just in front of the hands, planks behind them
+const DEEP = 192;   // how far above the lake bed a swimmer floats (3 blocks)
 const WATER = (y, under) => [{ plane: [3600, 3600], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.45, flow: true }, ...(under ? [{ box: [3600, y, 3600], at: [0, y / 2, 0], color: 0x2f74b8, opacity: 0.32, volume: true }] : [])];   // a lake to the hills, drifting with the land while swimming
 function sceneryFor(g, n) {
   if (g === 'Flavor' && /^Sit2?$/.test(n)) return [CHAIR, 32];   // the village chair's seat top
   if (g === 'Flavor' && /^Sleep/.test(n)) return [BED, 50];   // on the mattress, under the blanket's top
   if (g === 'Climb') return [LADDERS(/_(Left|Right)$/.test(n) ? 3 : 1), 0];   // one ladder up and down, a few side by side to climb across
   if (g === 'Default' && n === 'Interact') return [BENCH, 0];
-  if (g === 'Swim') return [WATER(/Dive|Sink/.test(n) ? 150 : 92, /Dive|Sink/.test(n)), 0];
+  if (g === 'Swim') return [WATER(DEEP + (/Dive|Sink/.test(n) ? 150 : 92), true), 0];   // deep water: the swimmer floats DEEP above the lake bed
   // pulling up: the move starts about two blocks below and ends on top, so the figure stands that much higher on a stone block it climbs onto
   if (g === 'Mantle' && /^Mantle_Up/.test(n)) return [[{ box: [160, 126, 128], at: [0, 63, 26], tex: W.stone, repeat: [2.5, 2] }], 126];
   if (g === 'Mantle') return [[{ box: [160, 84, 64], at: [0, 42, 50], tex: W.stone, repeat: [2.5, 1.2] }], 0];   // hands resting on a chest-high ledge in front
@@ -538,7 +539,7 @@ async function setProps(g, n) { const want = heldBy(g, n);
   const built = await Promise.all(want.map(async ([k, bone, shift]) => { try { const [model, tex] = game.PROPS[k]; return { root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone, shift }; } catch (e) { console.warn(k, e.message); return null; } }));
   st.props(built.filter(Boolean)); if (built.some(b => !b)) say('Your saved copy of the game files is from before held items were added. Refresh it once in the Locker to see them (your skins are kept).', true); }
 // st.lift: tall moves aim the view higher, moves near the floor aim lower so they clear the buttons under the view
-async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); const faceUp = g === 'Expressions' || g === 'Flavor' && /^(Blink|Eye)/.test(n); st.lift(faceUp ? 98 : g === 'Glide' ? 210 : g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 106 : g === 'Climb' ? 86 : g === 'Taunt' && /Staff_Helicopter/.test(n) ? 100 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' ? (/^Mantle_Up/.test(n) ? 150 : 110) : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : faceUp ? -200 : 360, g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); let a = await fig.loadAnim(g, n); { const m = g === 'Flavor' && /^(Crouch(?:_Walk)?|Fly)_Look_Around/.exec(n); if (m) { const base = await (m[1] === 'Fly' ? fig.loadAnim('Fly', 'Fly_Idle') : fig.loadAnim('Default', m[1])).catch(() => null); if (base) a = { ...a, nodeAnimations: { ...base.nodeAnimations, ...a.nodeAnimations } }; } } st.hover(g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 44 : g === 'Glide' ? 150 : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
+async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); const faceUp = g === 'Expressions' || g === 'Flavor' && /^(Blink|Eye)/.test(n); st.lift(faceUp ? 98 : g === 'Glide' ? 210 : g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 106 : g === 'Climb' ? 86 : g === 'Taunt' && /Staff_Helicopter/.test(n) ? 100 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' ? (/^Mantle_Up/.test(n) ? 150 : 110) : g === 'Swim' ? 62 + DEEP : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : faceUp ? -200 : 360, g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Swim' ? 99 : g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); let a = await fig.loadAnim(g, n); { const m = g === 'Flavor' && /^(Crouch(?:_Walk)?|Fly)_Look_Around/.exec(n); if (m) { const base = await (m[1] === 'Fly' ? fig.loadAnim('Fly', 'Fly_Idle') : fig.loadAnim('Default', m[1])).catch(() => null); if (base) a = { ...a, nodeAnimations: { ...base.nodeAnimations, ...a.nodeAnimations } }; } } st.hover(g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 44 : g === 'Glide' ? 150 : g === 'Swim' ? DEEP : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
     if (once) { const still = fig.motionOf(g, n) && st.anim.still, ms = still ? 1700 : (Math.max(1, a.duration || 60) / 60 / speed) * 1000 + (a.holdLastKeyframe ? 700 : 0) + 250;
       onceT = setTimeout(() => { if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); }, ms); } st.anim.setMove(fig.motionOf(g, n)); st.anim.playing = true; drawEmotes(); } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
 let animGroup = 'Emote';
@@ -560,7 +561,7 @@ function panelAnimations() {
     return el('button', { class: A.anim && playing.group === g && playing.name === n ? 'on' : '', title: nice(n), onclick: () => playAnim(g, n) }, animThumb(g, n), el('span', { text: nice(n) }),
       el('i', { class: 'star' + (pinned ? ' on' : ''), title: pinned ? 'Remove from quick slots' : 'Add to quick slots', text: pinned ? '★' : '☆', onclick: e => { e.stopPropagation(); toggleEmote(g, n); render(); } })); };
   return [head('Animations'), el('div', { class: 'pbody' },
-    el('div', { class: 'cattiles' }, cats.map(([k, list]) => el('button', { class: 'cattile' + (k === animGroup ? ' on' : ''), onclick: () => { animGroup = k; render(); } },
+    el('div', { class: 'cattiles' }, cats.map(([k, list]) => el('button', { class: 'cattile' + (k === animGroup ? ' on' : ''), onclick: () => { const changed = animGroup !== k; animGroup = k; render(); if (changed) { const pb = document.querySelector('.panel .pbody'); if (pb) pb.scrollTop = 0; } } },
       catIcon(k), el('b', { text: k }), el('small', { text: String(count(list)) })))),
     animGroup === 'Mount' ? el('div', { class: 'options' }, el('b', { class: 'dim', text: 'Ride:' }), Object.keys(MOUNTS).map(k => el('button', { class: 'chip' + (k === mountKind ? ' on' : ''), text: k,
       onclick: () => { mountKind = k; if (playing.group === 'Mount' && A.anim) playAnim('Mount', playing.name); else render(); } }))) : null,
@@ -710,7 +711,7 @@ async function flushAsset() { clearTimeout(queueAssetSave.t); if (!ED) return; c
 let beforeEdit = null;   // the outfit before an item went on for editing: Done puts it back, Equip keeps the item on
 const STEPS = new Map();   // undo history per custom item, kept for this visit so reopening an item can still undo
 async function closeAsset(quiet, keep = false) {
-  if (!ED) return; const before = ED.before, fld = ED.asset.field, edited = ED.asset.id; keepBrush(); if (ED.float) placeFloat(); STEPS.set(ED.asset.id, { hist: ED.hist, fut: ED.fut, paint: ED.painter.keepSteps(), mode: ED.mode }); tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); await flushAsset().catch(e => say(e.message, true)); ED = null; if ($('viewhint')) $('viewhint').hidden = true; registerAssets(); if (!keep && before && cur.skin[fld] !== before[fld]) { const s = { ...cur.skin }; if (before[fld] == null) delete s[fld]; else s[fld] = before[fld]; cur.skin = s; setSkin(s); } st.highlight(null); st.isolate(null); st.paintMode(false); st.gizmo(null); st.view(false); for (const k of [...pics.keys()]) if (k.includes(edited)) pics.delete(k);
+  if (!ED) return; const before = ED.before, fld = ED.asset.field, edited = ED.asset.id; keepBrush(); if (ED.float) placeFloat(); STEPS.set(ED.asset.id, { hist: ED.hist, fut: ED.fut, paint: ED.painter.keepSteps(), mode: ED.mode }); tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); await flushAsset().catch(e => say(e.message, true)); ED = null; if ($('viewhint')) $('viewhint').hidden = true; registerAssets(); if (!keep && before && cur.skin[fld] !== before[fld]) { const s = { ...cur.skin }; if (before[fld] == null) delete s[fld]; else s[fld] = before[fld]; cur.skin = s; setSkin(s); } st.highlight(null); st.isolate(null); st.paintMode(false); st.gizmo(null); setTimeout(() => { viewInset(); st.view(false); }, 60); for (const k of [...pics.keys()]) if (k.includes(edited)) pics.delete(k);
   if (!quiet) { playAnim('Default', 'Idle', 0.5); rebuild(); render(); }
 }
 // painting: the same strokes whether the pointer is on the flat texture or on the 3D model
@@ -752,7 +753,7 @@ function bindPaint(target, toPixel, reach, onModel) { let down = false, last = n
   target.addEventListener('pointerdown', e => { if (!ED || e.button !== 0 || (!onModel && (ED.painter.tool === 'select' || ED.mode === 'shape'))) return;
     if (ED.painter.tool === 'part' && ED.mode !== 'shape') { const node = partAt(e, onModel, toPixel); if (node) { e.preventDefault(); colourPart(node).catch(err => say(err.message, true)); return; } if (!onModel) return; }
     const p = onModel && (ED.painter.tool === 'select' || ED.painter.tool === 'part') ? null : toPixel(e);
-    if (!p) { if (onModel && !st.gizmoBusy() && !(ED.mode === 'shape' && st.pickMesh(e.clientX, e.clientY, o => o.material?.map?.image === ED.canvas))) turnDrag(e); return; } e.preventDefault(); try { target.setPointerCapture(e.pointerId); } catch { /* fine */ }
+    if (!p) { if (onModel && !st.gizmoBusy(e.clientX, e.clientY) && !(ED.mode === 'shape' && st.pickMesh(e.clientX, e.clientY, o => o.material?.map?.image === ED.canvas))) turnDrag(e); return; } e.preventDefault(); try { target.setPointerCapture(e.pointerId); } catch { /* fine */ }
     down = true; last = p; lastC = startC = { x: e.clientX, y: e.clientY }; ED.painter.begin();
     if (onModel && SHAPES.has(ED.painter.tool)) shapeOnModel(startC, false); else { ED.painter.stroke(p, p); twin(null, p); } });
   const paintTo = p => { if (!p) { last = null; return; } const from = last && Math.abs(last.x - p.x) + Math.abs(last.y - p.y) <= reach ? last : p; ED.painter.stroke(from, p); twin(from === last ? last : null, p); last = p; };
@@ -907,7 +908,8 @@ function anyItem() {   // or start from any free item in the game, worn or not
     menu.replaceChildren(...list.map(([n], i) => el('div', { role: 'option', class: 'anyopt', text: n, data: { i } })));
     const worn = !q && parse(cur.skin[slot.value]).id, kept = (anyItem.picks ||= {})[slot.value], at0 = id => list.findIndex(r => r[2] && r[2].Id === id); at = q ? (list.length ? 0 : -1) : kept ? at0(kept) : -1; if (!q && at < 0) at = at0(worn);   // the item shown last time stays, so the picker doesn't jump around between visits
     if (!q && at < 0 && (anyItem.rand ||= {})[slot.value]) at = at0(anyItem.rand[slot.value]);
-    if (!q && at < 0 && list.length) { at = Math.floor(Math.random() * list.length); anyItem.rand[slot.value] = list[at][2].Id; } act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
+    if (!q && at < 0 && list.length) { at = Math.floor(Math.random() * list.length); anyItem.rand[slot.value] = list[at][2].Id; } if (!q && at >= 0 && list[at][2]) anyItem.picks[slot.value] = list[at][2].Id;   // whatever is shown first stays shown (wearing something new doesn't swap it)
+    act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
   slot.value = slots.includes(anyItem.slot) ? anyItem.slot : slots.includes('overtop') ? 'overtop' : slots[0]; fill(); slot.onchange = () => { anyItem.slot = slot.value; keepAny(); find_.value = ''; fill(); }; find_.oninput = fill;
   find_.onkeydown = ev => { if (ev.key === 'ArrowDown' && list.length) { ev.preventDefault(); item.focus(); item.onkeydown(ev); } };
   return [el('h3', { text: 'Or start from any item' }), el('div', { class: 'row anyitem' }, pic, el('div', { class: 'anycol' }, el('div', { class: 'row' }, slot, find_), el('div', { class: 'anywrap' }, item, menu)), edit)];
@@ -999,7 +1001,7 @@ function shapeEdit(fn) {   // with Symmetry on, the box's twin on the other side
   if (tw && b0 && b0.node !== tw && boxesOf(ED.model).some(x => x.node === b0.node) && boxesOf(ED.model).some(x => x.node === tw)) mirrorNode(b0.node, tw);
   finishShape(before); }
 async function setMode(m) { if (ED.float) placeFloat(); say(''); if (m === 'shape') { await editModel(); ED.box ||= 0; ED.stool ||= 'select'; st.cursor(null); ED.hover = ED.hoverM = null; } ED.mode = m; ED.shapeOpen = m === 'shape'; render(); placeGizmo(); }
-function pickTool(id) { if (ED.mode === 'shape') ED.stool = id; else { if (id !== 'select' && ED.float) placeFloat(); ED.painter.tool = id; } render(); placeGizmo(); }
+function pickTool(id) { if (ED.mode === 'shape') { if (ED.stool !== id) say(''); ED.stool = id; } else { if (id !== 'select' && ED.float) placeFloat(); ED.painter.tool = id; } render(); placeGizmo(); }
 function curBox() { return ED.model ? boxesOf(ED.model)[ED.box || 0] : null; }
 function placeGizmo() {
   if (!st) return; wsAnim(); const b = ED && ED.mode === 'shape' && ['move', 'resize', 'rotate'].includes(ED.stool) ? curBox() : null;
@@ -1068,8 +1070,11 @@ function paintSide() {
 function boxLabel(node) {
   const own = ED.asset.labels && ED.asset.labels[node.name]; if (own) return own;
   if (/^Box_/.test(node.name)) { const all = boxesOf(ED.model).filter(b => /^Box_/.test(b.node.name)); return 'Box ' + (all.findIndex(b => b.node === node) + 1); }
-  const s = node.name.replace(/Costume$/, '').replace(/([A-Za-z])(\d+)$/, '$1 $2').replace(/^L-/, 'Left ').replace(/^R-/, 'Right ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ').trim().toLowerCase();
-  return s ? s[0].toUpperCase() + s.slice(1) : node.name;
+  const raw = n => { const m = /^(.*?)-+C(\d+)$/i.exec(n), base = (m ? m[1] : n).replace(/Costume$/, '').replace(/([A-Za-z])(\d+)$/, '$1 $2').replace(/^L-/, 'Left ').replace(/^R-/, 'Right ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ')
+      .replace(/\bbot\b/ig, 'bottom').replace(/\bacc\b/ig, 'accessory').replace(/\bc (\d+)\b/ig, 'part $1').replace(/\s+/g, ' ').trim().toLowerCase();
+    const t = base ? base[0].toUpperCase() + base.slice(1) : n; return m ? `${t}, piece ${+m[2] + 1}` : t; };   // "ChestPart--C1" -> "Chest part, piece 2"
+  const s = raw(node.name), same = boxesOf(ED.model).filter(b => !/^Box_/.test(b.node.name) && !(ED.asset.labels || {})[b.node.name] && raw(b.node.name) === s);
+  return same.length > 1 ? `${s} (${same.findIndex(b => b.node === node) + 1})` : s;   // two parts with one name get numbers
 }
 function renameBox(btn, node) {
   const inp = el('input', { type: 'text', value: boxLabel(node), maxLength: 30, class: 'rename' });
@@ -1370,11 +1375,12 @@ function twinOf(b) {   // the box on the other side: the part with the other sid
 }
 const symTwin = () => ED.sym && ED.mode === 'shape' ? twinOf(curBox()) : null;
 function standOut(hex) {   // the brush colour, unless it would hide the new box against the item's main colour
-  const main = (ED.palette || [])[0], d = (a, b) => { const [p, q] = [hexRgb(a), hexRgb(b)]; return Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]); };
-  if (!main || d(hex, main) > 120) return hex; return d('#f4c452', main) > 160 ? '#f4c452' : '#3db7c9';
+  const mains = (ED.palette || []).slice(0, 4), d = (a, b) => { const [p, q] = [hexRgb(a), hexRgb(b)]; return Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]); };
+  const far = c => Math.min(Infinity, ...mains.map(m => d(c, m)));   // how far a colour is from the nearest of the item's main colours
+  if (!mains.length || far(hex) > 160) return hex; return ['#f4c452', '#3db7c9', '#7cc444', '#ffffff', '#7a4fd6'].reduce((a, b) => far(b) > far(a) ? b : a);
 }
 function nextBoxName() { const used = new Set(boxesOf(ED.model).map(b => boxLabel(b.node))); let k = 1; while (used.has('Box ' + k)) k++; return 'Box ' + k; }
-function startPlacing() { ED.placing = true; say('Click on the item where the new box should go. Esc cancels.'); viewHint(); }
+function startPlacing() { ED.placing = true; say(''); viewHint(); }   // the hint under the view says what to do
 function dragBox(e, mesh) {   // the Move tool: drag the box itself
   const d = st.boxDrag(mesh, e.clientX, e.clientY); if (!d) return; e.stopImmediatePropagation(); let last = null; const v = $('view'); try { v.setPointerCapture(e.pointerId); } catch { /* fine */ }
   const move = ev => { last = d.move(ev.clientX, ev.clientY) || last; };
@@ -1391,7 +1397,9 @@ function addBox(kind = 'dup', at = null) {   // 'dup' a copy, 'mirror' a copy on
   shapeEdit(() => { const label = nextBoxName(), copy = structuredClone({ ...n, children: [] }), cs = copy.shape; copy.name = 'Box_' + Math.random().toString(36).slice(2, 7); cs.offset = { x: 0, y: 0, z: 0, ...cs.offset };
     if (kind === 'mirror') mirrorNode(n, copy); else if (kind === 'add' && at) { cs.type = 'box'; cs.settings = { ...cs.settings, normal: undefined, size: { x: 4, y: 4, z: 4 } };   // always a solid box, even when started from a flat part
       cs.stretch = { x: 1, y: 1, z: 1 }; const r = v => Math.round(v * 2) / 2;
-      cs.offset = { x: r(at.point.x + at.normal.x * 2), y: r(at.point.y + at.normal.y * 2), z: r(at.point.z + at.normal.z * 2) }; }
+      const o = { x: at.point.x + at.normal.x * 2, y: at.point.y + at.normal.y * 2, z: at.point.z + at.normal.z * 2 }, q = n.orientation || { x: 0, y: 0, z: 0, w: 1 }, p = n.position || { x: 0, y: 0, z: 0 };
+      const ix = q.w * o.x + q.y * o.z - q.z * o.y, iy = q.w * o.y + q.z * o.x - q.x * o.z, iz = q.w * o.z + q.x * o.y - q.y * o.x, iw = -q.x * o.x - q.y * o.y - q.z * o.z;
+      copy.position = { x: r(p.x + ix * q.w - iw * q.x - iy * q.z + iz * q.y), y: r(p.y + iy * q.w - iw * q.y - iz * q.x + ix * q.z), z: r(p.z + iz * q.w - iw * q.z - ix * q.y + iy * q.x) }; cs.offset = { x: 0, y: 0, z: 0 }; }
     else if (kind === 'add') { const front = (sh.offset?.z ?? 0) + Math.abs(sh.settings?.size?.z ?? 0) / 2 * (n.shape?.stretch?.z || 1); cs.type = 'box'; cs.settings = { ...cs.settings, normal: undefined, size: { x: 4, y: 4, z: 4 } }; cs.stretch = { x: 1, y: 1, z: 1 }; cs.offset.z = front + 2; } else cs.offset.x += 2;
     const lay = allocLayout(cs) || (growTexture() ? allocLayout(cs) : null); if (lay) { cs.textureLayout = lay; paint = paintFaces(cs, lay, sh.textureLayout, kind === 'mirror', kind === 'add' ? hexRgb(standOut(ED.painter.color)) : null); }
     if (into) (into.children ||= []).push(copy); else (b.parent ? b.parent.children : ED.model.nodes).push(copy); ED.box = boxesOf(ED.model).findIndex(x => x.node === copy);
@@ -1421,7 +1429,7 @@ function panelCreator() {
     const paidIn = f => { const it = R.find(f, cur.skin[f]), b = it && it.custom ? CAT.items[f].find(e => e.Id === it.baseId) : it; return b && paidLocked(b); };
     const tile = f => { const it = R.find(f, cur.skin[f]), p = parse(cur.skin[f]), paid = paidIn(f);
       return el('div', { class: 'skin starttile' + (paid ? ' paid' : '') }, el('div', { class: 'pic' }, itemThumb(f, it, p.color, p.variant)), el('b', { text: itemName(it) }), el('small', { text: LABEL[f] }),
-        paid ? el('small', { class: 'dim', text: 'Paid item' }) : it.custom ? el('div', { class: 'acts' }, el('button', { class: 'mini primary', text: 'Open', title: 'Keep editing your version', onclick: guard(() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id); if (!a) throw new Error('That custom item is gone.'); return openAsset(a); }) }),
+        paid ? el('small', { class: 'dim', text: 'Paid item: can’t be copied', title: 'Paid items (from editions like Supporter or Cursebreaker) can only be edited by an account that owns them. That check needs Sign in with Hytale, which is waiting on Hytale’s approval.' }) : it.custom ? el('div', { class: 'acts' }, el('button', { class: 'mini primary', text: 'Open', title: 'Keep editing your version', onclick: guard(() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id); if (!a) throw new Error('That custom item is gone.'); return openAsset(a); }) }),
           el('button', { class: 'mini', text: 'Copy', title: 'Make a second version to edit', onclick: () => newAsset(f) }))
         : el('button', { class: 'mini primary', text: 'Edit a copy', onclick: () => newAsset(f) })); };
     return [head('Asset Creator'), el('div', { class: 'pbody' },
