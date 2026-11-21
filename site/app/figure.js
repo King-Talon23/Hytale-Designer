@@ -187,8 +187,8 @@ const canvasOf = path => once('c:' + path, async () => { const i = await game.bi
 function tinted(c, hex) {   // a greyscale texture coloured the way the game tints it (multiply), keeping its see-through parts
   if (!hex) return c; const o = document.createElement('canvas'); o.width = c.width; o.height = c.height; const x = o.getContext('2d'); x.drawImage(c, 0, 0);
   x.globalCompositeOperation = 'multiply'; x.fillStyle = hex; x.fillRect(0, 0, o.width, o.height); x.globalCompositeOperation = 'destination-in'; x.drawImage(c, 0, 0); return o; }
-function blockMat(c, cut) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapLinearFilter;
-  return new THREE.MeshLambertMaterial({ map: t, color: new THREE.Color(SHADE, SHADE, SHADE), alphaTest: cut ? 0.5 : 0, side: cut ? THREE.DoubleSide : THREE.FrontSide }); }
+function blockMat(c, cut, k = 1) { /* k: a face's own shade (block sides darker than tops, so slopes read even in snow) */ const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapLinearFilter;
+  return new THREE.MeshLambertMaterial({ map: t, color: new THREE.Color(SHADE * k, SHADE * k, SHADE * k), alphaTest: cut ? 0.5 : 0, side: cut ? THREE.DoubleSide : THREE.FrontSide }); }
 function mergeMeshes(group) {   // every box and quad of a model, moved into place and joined into one geometry
   group.updateMatrixWorld(true); const pos = [], uv = [], nor = [], idx = []; const v = new THREE.Vector3(), nm = new THREE.Matrix3();
   group.traverse(m => { if (!m.isMesh) return; const g = m.geometry, P = g.attributes.position, U = g.attributes.uv, N = g.attributes.normal, base = pos.length / 3; nm.getNormalMatrix(m.matrixWorld);
@@ -199,9 +199,9 @@ function mergeMeshes(group) {   // every box and quad of a model, moved into pla
 // one block type as [{ geo, mat }] (a cube with several tops gives one entry per top, the world picks among them)
 const blockParts = (name, tint) => once('blk:' + name + '|' + tint, async () => {
   const b = BLOCKS[name]; if (!b) throw new Error('unknown block ' + name);
-  if (b.cube) { const side0 = await canvasOf(b.cube.side), bottom = blockMat(await canvasOf(b.cube.bottom));
+  if (b.cube) { const side0 = await canvasOf(b.cube.side), bottom = blockMat(await canvasOf(b.cube.bottom), false, 0.6);
     let side = side0; if (b.cube.sideMask) { side = document.createElement('canvas'); side.width = side0.width; side.height = side0.height; const x = side.getContext('2d'); x.drawImage(side0, 0, 0); x.drawImage(tinted(await canvasOf(b.cube.sideMask), tint), 0, 0, side.width, side.height); }
-    const sideM = blockMat(side), tops = Array.isArray(b.cube.top) ? b.cube.top : [b.cube.top], geo = new THREE.BoxGeometry(BLOCK, BLOCK, BLOCK).translate(0, BLOCK / 2, 0);
+    const sideM = blockMat(side, false, 0.78), tops = Array.isArray(b.cube.top) ? b.cube.top : [b.cube.top], geo = new THREE.BoxGeometry(BLOCK, BLOCK, BLOCK).translate(0, BLOCK / 2, 0);
     return Promise.all(tops.map(async t => ({ geo, mat: [sideM, sideM, blockMat(b.tintUp ? tinted(await canvasOf(t), tint) : await canvasOf(t)), bottom, sideM, sideM] }))); }
   const m = await game.json(game.common(b.model)), c = tinted(await canvasOf(b.tex[0]), b.tint), mat = blockMat(c, true), T = { w: c.width, h: c.height, mat }, g = new THREE.Group();
   for (const n of m.nodes) g.add(node(n, T, null, new Map())); g.scale.setScalar(BLOCK / 32);
@@ -216,10 +216,12 @@ async function buildWorld(sc, tint) {
   // place's hills and trees as a fixed ring of distant scenery standing on it, from RIN blocks out into the haze. Nothing that slides is
   // solid and nothing solid moves, so nothing can ever reach the character or the camera, and no move ever needs a correction.
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const P = 80, RIN = 17, R = 27, TAU = Math.PI * 2, sym = v => { const w = ((v % P) + P) % P; return w >= P / 2 ? w - P : w; };
+  const P = 128, RIN = 17, R = 60, TAU = Math.PI * 2, sym = v => { const w = ((v % P) + P) % P; return w >= P / 2 ? w - P : w; };
   const raw = (x, z) => { const n = Math.sin(TAU * 2 * x / P + 1.3) * Math.cos(TAU * 3 * z / P - 0.7) + 0.7 * Math.sin(TAU * (x + z) / P + 2.1) + 0.4 * Math.cos(TAU * 4 * (x - z) / P);
     return Math.max(0, (n + 0.5) * sc.hills * 0.55); };
-  const h = (x, z) => { const d = Math.hypot(x, z); return d < RIN ? 0 : Math.round(raw(x, z) * Math.min(1, (d - RIN) / 5)); };   // the ring's hills rise gently from its inner edge
+  const h = (x, z) => { const d = Math.hypot(x, z); if (d < RIN) return 0; const a = Math.atan2(z, x), far = Math.max(0, (d - RIN - 9) / (R - RIN - 9));   // rolling hills from the ring's inner edge, growing into a ring of mountains on the horizon
+    const peaks = 0.55 + 0.25 * Math.sin(a * 3 + 1.1) + 0.2 * Math.cos(a * 7 - 0.4) + 0.12 * Math.sin(a * 13 + x * 0.21 - z * 0.17);
+    return Math.round(raw(x, z) * Math.min(1, (d - RIN) / 12) * 0.8 + Math.pow(far, 1.8) * (2 + 7.5 * peaks)); };   // low enough that the sky shows over them from eye height
   const items = new Map(), put = (key, x, y, z, q, plant, slide) => { const k = key + (slide ? '|s' : '|f'); (items.get(k) || items.set(k, { plant, slide, name: key, list: [] }).get(k)).list.push([x, y, z, q]); };
   const nTops = (await blockParts(sc.ground, tint)).length;
   // plant sizes (third value): 1 low, 2 knee-high, none tall
@@ -227,8 +229,8 @@ async function buildWorld(sc, tint) {
     for (const [n, w] of from) if ((r -= w) <= 0) return n; return from[0][0]; };
   // trees in the ring, each wholly inside it, never touching another
   const taken = new Set(), trees = await Promise.all(sc.trees.map(p => game.json(p))), placed = [];
-  for (let i = 0, tries = 0; placed.length < 7 && tries < 600; tries++) { const tb = trees[i % trees.length].blocks, reach = Math.max(0, ...tb.map(b => Math.hypot(b.x, b.z)));
-    const a = rnd() * TAU, d = RIN + reach + 2 + rnd() * Math.max(0, R - 2 - (RIN + reach + 2)), cx = Math.round(Math.cos(a) * d), cz = Math.round(Math.sin(a) * d);
+  for (let i = 0, tries = 0; placed.length < 30 && tries < 2400; tries++) { const tb = trees[i % trees.length].blocks, reach = Math.max(0, ...tb.map(b => Math.hypot(b.x, b.z)));
+    const a = rnd() * TAU, d = RIN + reach + 2 + rnd() * Math.max(0, Math.min(R - 2, RIN + 26) - (RIN + reach + 2)), cx = Math.round(Math.cos(a) * d), cz = Math.round(Math.sin(a) * d);
     if (placed.some(t => Math.hypot(t[0] - cx, t[1] - cz) < t[2] + reach + 2)) { if (tries % 40 === 39) i++; continue; }
     placed.push([cx, cz, reach]); i++;
     const trunks = tb.filter(b => /Trunk/.test(b.name)), lift = trunks.length ? -Math.min(...trunks.map(b => b.y)) : 0, base = h(cx, cz);   // the trunk's foot on the ground
@@ -272,9 +274,9 @@ function lights(scene) { scene.add(new THREE.AmbientLight(0xffffff, 1.7)); const
 export function stage(canvas, Controls) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const scene = new THREE.Scene(); lights(scene);
-  const cam = new THREE.PerspectiveCamera(32, 1, 1, 6000); cam.position.set(-75, 95, 255);
+  const cam = new THREE.PerspectiveCamera(32, 1, 1, 16000); cam.position.set(-75, 95, 255);
   const ctl = new Controls(cam, canvas); ctl.target.set(0, 62, 0); ctl.enablePan = false; ctl.zoomToCursor = false;   // zoom stays on the figure's centre, lined up with the buttons under it
-  ctl.minDistance = 40; ctl.maxDistance = 480; ctl.maxPolarAngle = Math.PI * 0.55; ctl.update();
+  ctl.minDistance = 40; ctl.maxDistance = 900; ctl.rotateSpeed = 0.55; ctl.maxPolarAngle = Math.PI * 0.55; ctl.update();
   const disc = new THREE.Mesh(new THREE.CircleGeometry(58, 48), new THREE.MeshBasicMaterial({ color: 0x0b1626, transparent: true, opacity: 0.55, fog: false })); disc.rotation.x = -Math.PI / 2; disc.position.y = -0.2; scene.add(disc);
   const CELL = 32, grid = new THREE.GridHelper(CELL * 40, 40, 0x4a76ad, 0x33557f); grid.material.transparent = true; grid.material.opacity = 0; grid.material.depthWrite = false; scene.add(grid);
   let sky = null, world = null, scrollers = [], flowing = [], mist = null; const FOG = [950, 1750];   // mist: the short fade that hides the land going back to the crossing   // the in-game background (setBackdrop below); set pieces that slide while climbing
@@ -294,7 +296,7 @@ export function stage(canvas, Controls) {
     wallG.position.set(wx % CELL, WALL_Y + wy % CELL, WALL_Z); for (const p of scrollers) { const b = p.userData.scroll; if (!wallOn) { p.position.copy(b); continue; } p.position.x = b.x + (p.position.x - b.x - wallOn[0] * dt) % BLOCK; p.position.y = b.y + (p.position.y - b.y - wallOn[1] * dt) % BLOCK; }
     wallG.material.opacity += ((wallOn && !scrollers.length ? 0.5 : 0) - wallG.material.opacity) * (1 - Math.exp(-dt * 6)); wallG.visible = wallG.material.opacity > 0.01; }
   let hl = null, helpers = [];   // outlines around picked boxes (see drawHL)
-  const anim = new Animator(), mountAnim = new Animator(); let figure = null, held = [], perchY = 0, faceCb = null, faced = '', last = performance.now(), mountRoot = null, seat = null, hoverTo = 0, hoverAt = 0;
+  const anim = new Animator(), mountAnim = new Animator(); let figure = null, held = [], perchY = 0, faceCb = null, faced = '', last = performance.now(), mountRoot = null, seat = null, hoverTo = 0, hoverAt = 0, pitchTo = 0, pitchAt = 0;
   let inset = 0, insetR = 0, figTop = 130, autoFit = true;   // the buttons over the bottom and right of the view: the picture is centred on what is left, at the same scale
   const insets = () => { const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1; return [inset > 0 && inset < h * 0.45 ? inset : 0, insetR > 0 && insetR < w * 0.35 ? insetR : 0, w, h]; };
   function fit() { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false);
@@ -381,7 +383,8 @@ export function stage(canvas, Controls) {
   }
   const VIEWS = { front: [0, 62, 270], back: [0, 62, -270], side: [-270, 62, 0], top: [0, 330, 1], persp: [-75, 95, 255] };
   // a ridden animal under the figure: the figure sits at the animal's seat (in model units) and the view backs off to fit both
-  const seatAt = () => { if (!figure) return; const k = anim.blend < 1 ? anim.blend * anim.blend * (3 - 2 * anim.blend) : 1; figure.position.set(0, (seat ? seat[1] : 0) + hoverAt + perchY * k, seat ? seat[2] : 0); };   // a seat's lift eases in with the pose, so nobody stands on the chair first
+  const seatAt = () => { if (!figure) return; const k = anim.blend < 1 ? anim.blend * anim.blend * (3 - 2 * anim.blend) : 1; figure.position.set(0, (seat ? seat[1] : 0) + hoverAt + perchY * k, seat ? seat[2] : 0);
+  figure.rotation.x = pitchAt; if (pitchAt) { const c = 70; figure.position.y += c - c * Math.cos(pitchAt); figure.position.z -= c * Math.sin(pitchAt); } };   // a swimmer lies forward, turning about the chest   // a seat's lift eases in with the pose, so nobody stands on the chair first
   // scenery a move needs: boxes and planes in the scene (a chair, a bed, the water's surface); perch lifts the figure onto it
   const setPiece = new THREE.Group(); scene.add(setPiece);
   async function scenery(list, perch = 0) { const my = (scenery.n = (scenery.n || 0) + 1);
@@ -407,6 +410,7 @@ export function stage(canvas, Controls) {
   let pendingRects = [];
   // flying moves: the figure rises off the ground and bobs gently, easing up and down when the move changes
   function float(dt, now) { if (figure && perchY) seatAt(); for (const h of held) { if (anim.blend > 0.8 || now - (h.at || 0) > 600) h.shown = true; h.root.visible = !!h.shown; }   // a held thing shows once the hands have reached it, not swinging up from the feet
+    if (figure && (pitchTo || pitchAt)) { pitchAt += (pitchTo - pitchAt) * (1 - Math.exp(-dt * 5)); if (Math.abs(pitchTo - pitchAt) < 0.002) pitchAt = pitchTo; seatAt(); }
     if (!figure || (!hoverTo && !hoverAt)) return; hoverAt += (hoverTo - hoverAt) * (1 - Math.exp(-dt * 4)); if (Math.abs(hoverTo - hoverAt) < 0.05) hoverAt = hoverTo;
     seatAt(); if (hoverAt > 1 && hoverTo) figure.position.y += Math.sin(now / 1000 * 2.2) * 2.5 * Math.min(1, hoverAt / hoverTo); }
   // things held in the hands (a glider, a sword ...): each hangs on a bone of the figure and moves with it; re-hung when the figure is rebuilt
@@ -438,6 +442,7 @@ export function stage(canvas, Controls) {
   function liftNow(y, phi = 0, len = 360, z = 0) { const off = cam.position.clone().sub(ctl.target);   // phi: look down from at least this high (polar angle), to see into a bed
     if (y) { if (!lifted) lifted = { len: off.length(), phi: new THREE.Spherical().setFromVector3(off).phi }; off.setLength(len < 0 ? -len : Math.max(off.length(), len)); if (len < 0) { const sp = new THREE.Spherical().setFromVector3(off); sp.theta = 0; off.setFromSpherical(sp); } ctl.target.set(0, y, z);   // a negative len is an exact distance (close on the face)
       if (phi) { const sp = new THREE.Spherical().setFromVector3(off); sp.phi = Math.min(sp.phi, phi); off.setFromSpherical(sp); } }
+    else if (lifted && mountRoot) { lifted = null; return; }   // the mount has framed rider and animal itself: leave that
     else if (lifted) { const sp = new THREE.Spherical().setFromVector3(off); sp.radius = lifted.len; sp.phi = Math.max(sp.phi, lifted.phi); off.setFromSpherical(sp); ctl.target.set(0, 62, 0); lifted = null; } else return;
     cam.position.copy(ctl.target).add(off); ctl.update(); }
   function mount(root, at) { endGlide(); return mountNow(root, at); }
@@ -446,15 +451,15 @@ export function stage(canvas, Controls) {
     mountRoot = root || null; seat = root ? at : null; if (root) { scene.add(root); mountAnim.setFigure(root); } else { mountAnim.anim = null; mountAnim.figure = null; }
     seatAt();
     if (root) { const top = at[1] + 135, [b, , , h] = insets(), len = Math.min(700, (top + 40) * h / (2 * Math.tan(16 * Math.PI / 180) * (h - b)));   // rider and animal both in view: the rider's head is the seat plus a body
-      ctl.maxDistance = Math.max(480, len); const off = cam.position.clone().sub(ctl.target).setLength(len), sp = new THREE.Spherical().setFromVector3(off); sp.theta = 0.9; sp.phi = Math.min(sp.phi, 1.3); off.setFromSpherical(sp); ctl.target.set(0, top / 2 + 4, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
-    else if (was) { ctl.maxDistance = 480; const off = cam.position.clone().sub(ctl.target).setLength(fitLen()); ctl.target.set(0, 62, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
+      ctl.maxDistance = Math.max(900, len); const off = cam.position.clone().sub(ctl.target).setLength(len), sp = new THREE.Spherical().setFromVector3(off); sp.theta = 0.9; sp.phi = Math.min(sp.phi, 1.3); off.setFromSpherical(sp); ctl.target.set(0, top / 2 + 4, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
+    else if (was) { ctl.maxDistance = 900; const off = cam.position.clone().sub(ctl.target).setLength(fitLen()); ctl.target.set(0, 62, 0); cam.position.copy(ctl.target).add(off); ctl.update(); }
   }
   const fitLen = () => { const [b, r, w, h] = insets(), t = Math.tan(16 * Math.PI / 180), tall = 2 * Math.max(62, figTop - 62) + 26;   // far enough that the whole character (helmet and all) fits in the free part of the view
     return Math.min(470, Math.max(tall * h / (2 * t * (h - b)), 48 * h / (t * (w - r)))); };
   const refit = () => glideCam(refitNow);
   const refitNow = () => { if (!autoFit || lifted || mountRoot) return; const off = cam.position.clone().sub(ctl.target); off.setLength(fitLen()); cam.position.copy(ctl.target).add(off); ctl.update(); };
   let grabbed = null; ctl.addEventListener('start', () => { tw = null; grabbed = cam.position.clone(); }); ctl.addEventListener('end', () => { if (grabbed && cam.position.distanceTo(grabbed) > 2) autoFit = false; grabbed = null; });   // once the player really zooms or turns the view, it stays theirs (a click is not a turn)
-  const api = { inset: (px, right = 0) => { px = Math.max(0, Math.round(px || 0)); right = Math.max(0, Math.round(right || 0)); if (px !== inset || right !== insetR) { inset = px; insetR = right; fit(); refit(); } }, plantClear: r => { plantClear = r || 0; }, isolate: img => { isoImage = img || null; applyIsolate(); drawHL(); }, anim, mountAnim, mount, props, lift, scenery, onFacing: cb => { faceCb = cb; faced = ''; }, wall: v => { wallOn = v || null; }, hover: h => { hoverTo = Math.max(0, h || 0); }, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
+  const api = { inset: (px, right = 0) => { px = Math.max(0, Math.round(px || 0)); right = Math.max(0, Math.round(right || 0)); if (px !== inset || right !== insetR) { inset = px; insetR = right; fit(); refit(); } }, plantClear: r => { plantClear = r || 0; }, isolate: img => { isoImage = img || null; applyIsolate(); drawHL(); }, anim, mountAnim, mount, props, lift, scenery, onFacing: cb => { faceCb = cb; faced = ''; }, wall: v => { wallOn = v || null; }, keepBehind: on => { ctl.minAzimuthAngle = on ? Math.PI - 1.1 : -Infinity; ctl.maxAzimuthAngle = on ? -Math.PI + 1.1 : Infinity; ctl.update(); }, hover: (h, now) => { if (h === null) return; hoverTo = Math.max(0, h || 0); if (now) { hoverAt = hoverTo; seatAt(); } }, shadow: on => { disc.visible = on !== false; }, pitch: deg => { pitchTo = (deg || 0) * Math.PI / 180; }, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
     gizmoBusy: (cx, cy) => { if (cx != null && tc.object && !tc.dragging) { const r = canvas.getBoundingClientRect(); tc.pointerHover({ x: ((cx - r.left) / r.width) * 2 - 1, y: -((cy - r.top) / r.height) * 2 + 1, button: 0 }); } return tc.dragging || tc.axis !== null; },   // a press right on the gizmo (ring, arrow, handle) is the gizmo's, even with no hover before it
     // where a click lands on a box: the point and the face's outward direction, in the box's own part (node) space
     pickHit(cx, cy, keep) { if (!figure) return null; aim(cx, cy); for (const h of ray.intersectObject(figure, true)) if (h.object.visible && keep(h.object)) {
@@ -468,12 +473,12 @@ export function stage(canvas, Controls) {
         end() { ctl.enabled = true; mesh.position.copy(p0); } }; },
     zoomBy(k) { autoFit = false; const off = cam.position.clone().sub(ctl.target), len = Math.max(ctl.minDistance, Math.min(ctl.maxDistance, off.length() * k)); cam.position.copy(ctl.target).add(off.setLength(len)); ctl.update(); },
     frameOn(img) {   // turn the view on the parts painted with this texture, close enough to fill the view
-      if (!figure || !img) return; const box = new THREE.Box3(); figure.updateMatrixWorld(true);
+      if (!figure || !img) return; endGlide(); autoFit = false; const box = new THREE.Box3(); figure.updateMatrixWorld(true);   // a close-up is the player's view now: no refit or glide pulls it back
       figure.traverse(o => { if (o.isMesh && (o.userData.realMat || o.material)?.map?.image === img) box.expandByObject(o); }); if (box.isEmpty()) return;
       const c = box.getCenter(new THREE.Vector3()), r = Math.max(14, box.getSize(new THREE.Vector3()).length() / 2), dir = cam.position.clone().sub(ctl.target).normalize();
       ctl.target.copy(c); const half = Math.min(cam.fov * Math.PI / 360, Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect));   // the narrower of the two view angles
       cam.position.copy(c).add(dir.multiplyScalar(Math.min(ctl.maxDistance, Math.max(ctl.minDistance, r / Math.sin(half) * 1.1)))); ctl.update(); },
-    orbit(dx, dy) { const off = cam.position.clone().sub(ctl.target), s = new THREE.Spherical().setFromVector3(off); const k = 2 * Math.PI / Math.max(1, canvas.clientHeight); s.theta -= dx * k; s.phi = Math.max(0.05, Math.min(Math.PI - 0.05, s.phi - dy * k)); off.setFromSpherical(s); cam.position.copy(ctl.target).add(off); ctl.update(); },
+    orbit(dx, dy) { const off = cam.position.clone().sub(ctl.target), s = new THREE.Spherical().setFromVector3(off); const k = 0.55 * 2 * Math.PI / Math.max(1, canvas.clientHeight); s.theta -= dx * k; s.phi = Math.max(0.05, Math.min(Math.PI - 0.05, s.phi - dy * k)); off.setFromSpherical(s); cam.position.copy(ctl.target).add(off); ctl.update(); },
     findMesh(keep) { let hit = null; figure?.traverse(o => { if (!hit && o.isMesh && keep(o)) hit = o; }); return hit; },
     setView(name) { const v = VIEWS[name] || VIEWS.persp; cam.position.set(...v); ctl.target.set(0, 62, 0); ctl.update(); },
     highlight(f) { hl = f; drawHL(); },
@@ -496,12 +501,12 @@ export function stage(canvas, Controls) {
     disc.material.map = bd ? shadow : null; disc.material.color.set(bd ? 0xffffff : 0x0b1626); disc.material.opacity = bd ? 1 : 0.55; disc.material.needsUpdate = true; disc.position.y = bd ? 0.9 : -0.2;   // the shadow above the sliding floor
     ctl.maxPolarAngle = Math.PI * (bd ? 0.47 : 0.55); ctl.update();   // on real land the camera stays above the ground
     if (!bd) return;
-    const top = new THREE.Color(bd.top), hor = new THREE.Color(bd.fog), R = 2600, g = new THREE.SphereGeometry(R, 48, 24), p = g.attributes.position, cols = [];
+    const top = new THREE.Color(bd.top), hor = new THREE.Color(bd.fog), R = 11000, g = new THREE.SphereGeometry(R, 48, 24), p = g.attributes.position, cols = [];
     for (let i = 0; i < p.count; i++) { const c = hor.clone().lerp(top, Math.pow(Math.max(0, p.getY(i) / R), 0.5)); cols.push(c.r, c.g, c.b); }
     g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
     sky = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })); sky.renderOrder = -2; scene.add(sky);
     if (built) { world = built; scene.add(world); world.userData.avoid = pendingRects; groundRects(); }
-    scene.fog = new THREE.Fog(hor, FOG[0], FOG[1]); mist = null;   // the far edge of the land melts into the sky, as the game's fog does
+    scene.fog = null; mist = null;   // clear air all the way out: the mountain ring closes the horizon
   };
   return api;
 }

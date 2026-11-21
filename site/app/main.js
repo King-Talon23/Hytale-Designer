@@ -117,7 +117,7 @@ function open(rec, asNew, look) {   // put a skin on the stage: a wardrobe recor
   cur = asNew ? { id: null, kind: null, slot: null, name: cleanName(rec.name), skin: R.fit(rec.skin) } : { id: rec.id, kind: rec.kind, slot: rec.slot ?? null, name: rec.name, skin: R.fit(rec.skin) };
   hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = !!asNew; keepDraft(); rebuild(); plate(); if (!look) pushWearing();
 }
-function setSkin(s) { cur.skin = s; autosave(); pushWearing(); hist = hist.slice(0, hpos + 1); hist.push(JSON.stringify(s)); if (hist.length > 200) hist.shift(); hpos = hist.length - 1; dirty = true; keepDraft(); rebuild(); render(); }
+function setSkin(s, random = false) { cur.random = random; cur.skin = s; autosave(); pushWearing(); hist = hist.slice(0, hpos + 1); hist.push(JSON.stringify(s)); if (hist.length > 200) hist.shift(); hpos = hist.length - 1; dirty = true; keepDraft(); rebuild(); render(); }
 function step(d) { const p = hpos + d; if (p < 0 || p >= hist.length) return; hpos = p; cur.skin = JSON.parse(hist[p]); dirty = true; autosave(); pushWearing(); keepDraft(); rebuild(); render(); }
 // the companion mod dresses you in game from "<skins folder>/Wearing.json"
 function pushWearing() { clearTimeout(pushWearing.t); pushWearing.t = setTimeout(async () => {
@@ -160,7 +160,7 @@ const HEADF = new Set(['face', 'eyes', 'eyebrows', 'mouth', 'ears', 'haircut', '
 const BASE = ['bodyCharacteristic', 'face', 'eyes', 'eyebrows', 'mouth', 'ears', 'underwear'];
 // pictures of game items are also kept in this browser (per game version), so the next visit shows them at once instead of drawing each again;
 // a custom piece in the picture is named with the time it was last changed, so a repaint makes a new picture
-const THUMB_V = 1, keepKey = key => { if (!META) return null; let gone = false;
+const THUMB_V = 2, keepKey = key => { if (!META) return null; let gone = false;
   const k = key.replace(/Custom_([A-Za-z0-9_-]+)/g, (m, id) => { const a = ASSETS.find(x => x.id === id); if (!a || !a.updated) gone = true; return m + '@' + (a && a.updated); });
   return gone ? null : THUMB_V + '|' + META.size + '|' + META.modified + '|' + k; };
 function picture(key, make) { if (pics.has(key)) return Promise.resolve(pics.get(key)); const gen = jobGen, kk = keepKey(key);
@@ -198,13 +198,14 @@ function itemThumb(f, it, color, variant, bare) {   // the current character, we
 // an animation's picture: the current skin caught part-way through the move
 function animThumb(g, n) { const s = R.fit(cur.skin);
   return lazyImg('a|' + g + '|' + n + '|' + JSON.stringify(s), async () => { const [root, a] = await Promise.all([fig.build(s, R), fig.loadAnim(g, n)]);
-    const an = new fig.Animator(); an.setFigure(root); an.set(a, 1, true); an.t = an.duration * 0.45; an.apply(); return fig.snapshot(root, 'full'); }, 'anim|' + g + '|' + n); }
+    const an = new fig.Animator(); an.setFigure(root); an.set(a, 1, true); an.t = an.duration * 0.45; an.apply(); return fig.snapshot(root, g === 'Expressions' ? 'head' : 'full'); }, 'anim|' + g + '|' + n); }   // faces are pictured close, so they can be told apart
 const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.stringify(s), async () => fig.snapshot(await fig.build(s, R), 'full')); };
 
 // ---------------------------------------------------------------- panels
 function setTab(t) { if (t !== 'editor' && picking) leavePicker();
   // opening or leaving the Animations tab stops whatever move is playing (and drops what it holds)
   if (t !== tab && (t === 'animations' || tab === 'animations') && R && !(playing.group === 'Default' && playing.name === 'Idle')) playAnim('Default', 'Idle', 0.5);
+  if (t === 'animations' && tab !== 'animations' && st) st.view(true);   // moves are watched whole, from the front, not from a Wardrobe close-up
   if (ED && t !== 'creator') closeAsset(true).then(() => { playAnim('Default', 'Idle', 0.5); rebuild(); render(); });   // render again once the piece is closed, or the editor (and its tool tip) stays up under the new tab
   tab = t; for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t);
   const on = $('tabs').querySelector('.on'), nav = on?.parentElement;   // on a phone the tab row scrolls sideways: keep the open tab in view
@@ -299,7 +300,7 @@ function panelPicker() {
           if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Sure?'; b.title = 'Click again to delete "' + a.name + '"'; clearTimeout(b._t);
             b._t = setTimeout(() => { b.classList.remove('sure'); b.textContent = '🗑'; b.title = 'Delete this custom piece'; }, 3000); return; }
           clearTimeout(b._t); deleteAsset(a); } }) : null;
-      return el('button', { class: 'lcard ' + (e ? tierClass(e) : 'none') + (e === it ? ' on' : ''), title: e ? itemName(e) : 'None', onclick: () => change(e, color, variant),
+      return el('button', { class: 'lcard ' + (e ? tierClass(e) : 'none') + ((e?.Id ?? null) === (it?.Id ?? null) ? ' on' : ''), title: e ? itemName(e) : 'None', onclick: () => change(e, color, variant),
         onpointerenter: ev => { hv.onpointerenter(ev); if (peek.part === part) showDetail(e, e !== it); }, onpointermove: ev => { if (peek.part === part) return; hv.onpointermove(ev); if (peek.part === part) showDetail(e, e !== it); }, onpointerleave: ev => { hv.onpointerleave(ev); showDetail(it); } },
         e ? itemThumb(f, e, color, variant) : el('span', { class: 'nothing', text: '✕' }), star, bin, e && isNew(f, e) ? el('span', { class: 'new', text: 'NEW' }) : null, el('b', { text: e ? itemName(e) : 'None' })); };
     cardsBox.replaceChildren(...(REQUIRED.has(f) || lockFilter !== 'all' ? [] : [card(null)]), ...items.map(card));
@@ -470,10 +471,10 @@ function checklist(rec) {
     return el('tr', {}, el('td', { text: g + ' ▸ ' + LABEL[f] }), el('td', { text: item ? itemName(item) : nice(p.id) }), el('td', { text: [p.color && nice(p.color), p.variant && nice(p.variant)].filter(Boolean).join(', ') })); }));
   ask(`Set "${rec.name}" in game`, [el('p', { text: `In Hytale, open My Avatar, choose preset ${rec.slot + 1} and pick these parts:` }), el('table', { class: 'parts' }, el('tbody', {}, rows))], [{ label: 'Done', value: '', primary: true }]);
 }
-async function save() { if (!cur.id) return saveAs();
+async function save() { cur.random = false; if (!cur.id) return saveAs();
   await guard(async () => { const r = cur.kind === 'game' ? await store.saveGame(cur.slot, cur.name, cur.skin) : await store.saveCustom(cur.name, cur.skin, cur.id); dirty = false; await refreshWard(); say(`Saved "${r.name}"`);
     if (PUBMAP[r.id] && canPublish() && !hasCustom(r.skin)) publish(r, true); })(); }
-async function saveAs() {
+async function saveAs() { cur.random = false;
   const name = el('input', { type: 'text', value: cur.name || '', maxLength: 40, placeholder: 'Skin name', autofocus: true });
   const where = el('select', {}, el('option', { value: 'custom', text: `My skins (${WARD.custom.length} / ${store.CUSTOM_MAX})` }), WARD.game.map((r, i) => el('option', { value: String(i), text: `In-game slot ${i + 1}${r ? ', replaces "' + r.name + '"' : ' (empty)'}` })));
   const v = await ask('Save skin', [el('label', { text: 'Name' }), name, el('label', { text: 'Save to' }), where], [{ label: 'Cancel', value: '' }, { label: 'Save', value: 'yes', primary: true }]);
@@ -522,7 +523,7 @@ const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -61], turn: 0, stretch: 
 const BENCH = [{ block: game.SET_PIECES.bench, at: [-32, 0, 84], turn: 180 }];   // something to work at, centred in front of the hands (it is two blocks wide: x -64..64)
 const LADDERS = cols => [{ ladder: [cols, 7], at: [0, 0, -8] }];   // climbing faces +z: the rungs just in front of the hands, planks behind them
 const DEEP = 192;   // how far above the lake bed a swimmer floats (3 blocks)
-const WATER = (y, under) => [{ plane: [3600, 3600], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.45, flow: true }, ...(under ? [{ box: [3600, y, 3600], at: [0, y / 2, 0], color: 0x2f74b8, opacity: 0.32, volume: true }] : [])];   // a lake to the hills, drifting with the land while swimming
+const WATER = (y, under) => [{ plane: [3600, 3600], at: [0, y, 0], tex: W.water, repeat: [56, 56], color: 0x7fb2e6, opacity: 0.55, flow: true }, ...(under ? [{ box: [3600, y, 3600], at: [0, y / 2, 0], color: 0x1d5ca8, opacity: 0.62, volume: true }] : [])];   // a lake to the hills, drifting with the land while swimming
 function sceneryFor(g, n) {
   if (g === 'Flavor' && /^Sit2?$/.test(n)) return [CHAIR, 32];   // the village chair's seat top
   if (g === 'Flavor' && /^Sleep/.test(n)) return [BED, 50];   // on the mattress, under the blanket's top
@@ -539,9 +540,12 @@ async function setProps(g, n) { const want = heldBy(g, n);
   const built = await Promise.all(want.map(async ([k, bone, shift]) => { try { const [model, tex] = game.PROPS[k]; return { root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone, shift }; } catch (e) { console.warn(k, e.message); return null; } }));
   st.props(built.filter(Boolean)); if (built.some(b => !b)) say('Your saved copy of the game files is from before held items were added. Refresh it once in the Locker to see them (your skins are kept).', true); }
 // st.lift: tall moves aim the view higher, moves near the floor aim lower so they clear the buttons under the view
-async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); try { await setMount(g === 'Mount' ? mountKind : null, n); await setProps(g, n); const faceUp = g === 'Expressions' || g === 'Flavor' && /^(Blink|Eye)/.test(n); st.lift(faceUp ? 98 : g === 'Glide' ? 210 : g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 106 : g === 'Climb' ? 86 : g === 'Taunt' && /Staff_Helicopter/.test(n) ? 100 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' ? (/^Mantle_Up/.test(n) ? 150 : 110) : g === 'Swim' ? 62 + DEEP : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : faceUp ? -200 : 360, g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Swim' ? 99 : g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); let a = await fig.loadAnim(g, n); { const m = g === 'Flavor' && /^(Crouch(?:_Walk)?|Fly)_Look_Around/.exec(n); if (m) { const base = await (m[1] === 'Fly' ? fig.loadAnim('Fly', 'Fly_Idle') : fig.loadAnim('Default', m[1])).catch(() => null); if (base) a = { ...a, nodeAnimations: { ...base.nodeAnimations, ...a.nodeAnimations } }; } } st.hover(g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 44 : g === 'Glide' ? 150 : g === 'Swim' ? DEEP : 0); playing = { group: g, name: n }; st.anim.set(a, speed);
+// the speed each move plays at in game (Server/Models/Human/Player.json, AnimationSets); everything else plays at 1
+const GAME_SPEED = { 'Default/Idle': 0.3, 'Default/Run': 0.6, 'Default/Run_Backward': 0.6, 'Default/Sprint': 0.6, 'Default/Crouch': 0.5, 'Default/Crouch_Walk': 0.8, 'Default/Crouch_Walk_Backward': 0.8, 'Default/Walk': 0.6, 'Default/Walk_Backward': 0.6, 'Default/Jump': 0.8, 'Default/Jump_Far': 0.8, 'Default/Jump_Far2': 0.8, 'Default/Step_Run': 1.1, 'Default/Step_Run2': 1.1, 'Default/Step_Sprint': 1.2, 'Default/Step_Sprint2': 1.2, 'Default/Step_Crouch_Walk': 1.1, 'Default/Step_Crouch_Walk2': 1.1, 'Roll/Roll': 2, 'Roll/Roll_Backward': 2, 'Roll/Roll_Left': 2, 'Roll/Roll_Right': 2, 'Swim/Swim': 0.6, 'Swim/Swim_Fast': 0.6, 'Swim/Swim_Jump': 0.8, 'Swim/Swim_Dive': 0.6, 'Swim/Swim_Dive_Fast': 0.6, 'Swim/Swim_Dive_Fast2': 0.6, 'Climb/Climb_Idle': 0.5, 'Mantle/Mantle_Idle': 0.5, 'Flavor/Sit': 0.5, 'Flavor/Sit2': 0.5, 'Flavor/Sit_Ground': 0.5 };
+let playSeq = 0;   // a newer move cancels one still loading, so two never mix (one's camera with the other's height)
+async function playAnim(g, n, speed = 1, once = false) { clearTimeout(onceT); const my = ++playSeq; try { await setMount(g === 'Mount' ? mountKind : null, n); if (my !== playSeq) return; await setProps(g, n); if (my !== playSeq) return; const faceUp = g === 'Expressions' || g === 'Flavor' && /^(Blink|Eye)/.test(n); st.lift(faceUp ? 98 : g === 'Glide' ? 210 : g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 106 : g === 'Climb' ? 86 : g === 'Taunt' && /Staff_Helicopter/.test(n) ? 100 : g === 'Default' && n === 'Interact' ? 70 : g === 'Mantle' ? (/^Mantle_Up/.test(n) ? 150 : 110) : g === 'Swim' ? 62 + DEEP : g === 'Flavor' && /^(Sit_Ground|Sleep)/.test(n) ? 34 : g === 'Flavor' && /^Sit2?$/.test(n) ? 58 : 0, g === 'Flavor' && /^Sleep/.test(n) ? 0.9 : g === 'Default' && n === 'Interact' ? 1.1 : 0, g === 'Glide' ? 470 : faceUp ? -200 : g === 'Flavor' && /^Sit2?$/.test(n) ? 440 : 360, g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0); st.scenery(...sceneryFor(g, n)); st.plantClear(g === 'Swim' ? 99 : g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n) || /Crawl|Prone/.test(n) ? 1.9 : 0); if (facesAway(g, n) && !facesAway(playing.group, playing.name)) st.behind(); else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) st.view(true); st.keepBehind(facesAway(g, n)); st.wall(g === 'Climb' ? (/_Up$/.test(n) ? [0, 55] : /_Down$/.test(n) ? [0, -55] : /_Left$/.test(n) ? [45, 0] : /_Right$/.test(n) ? [-45, 0] : [0, 0]) : null); let a = await fig.loadAnim(g, n); if (my !== playSeq) return; { const m = g === 'Flavor' && /^(Crouch(?:_Walk)?|Fly)_Look_Around/.exec(n); if (m) { const base = await (m[1] === 'Fly' ? fig.loadAnim('Fly', 'Fly_Idle') : fig.loadAnim('Default', m[1])).catch(() => null); if (my !== playSeq) return; if (base) a = { ...a, nodeAnimations: { ...base.nodeAnimations, ...a.nodeAnimations } }; } } st.pitch(g === 'Swim' && /^Swim(_Fast|_Dive|_Dive_Fast2?)?$/.test(n) ? 65 : 0); st.shadow(g !== 'Swim'); st.hover(g === 'Fly' || g === 'Flavor' && /^Fly_/.test(n) ? 44 : g === 'Glide' ? 150 : g === 'Swim' ? DEEP : 0, g === 'Swim'); /* a swimmer is in the water at once, not floating up from the lake bed */ playing = { group: g, name: n }; const gs = GAME_SPEED[g + '/' + n]; st.anim.set(a, gs ?? speed);
     if (once) { const still = fig.motionOf(g, n) && st.anim.still, ms = still ? 1700 : (Math.max(1, a.duration || 60) / 60 / speed) * 1000 + (a.holdLastKeyframe ? 700 : 0) + 250;
-      onceT = setTimeout(() => { if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); }, ms); } st.anim.setMove(fig.motionOf(g, n)); st.anim.playing = true; drawEmotes(); } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
+      onceT = setTimeout(() => { if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); }, ms); } st.anim.setMove((m => m && m.map(v => v * (GAME_SPEED[g + '/' + n] ?? 1)))(fig.motionOf(g, n))); st.anim.playing = true; drawEmotes(); } catch (e) { say('That animation could not be loaded.', true); } if (tab === 'animations') render(); }
 let animGroup = 'Emote';
 // the move groups as locker tiles: the game's 16 folders folded into a few, each tile showing its signature move
 // a group can be split with "Group:part": Sit and Sleep live in Flavor in the game files but players look for them under Poses
@@ -1000,7 +1004,7 @@ function shapeEdit(fn) {   // with Symmetry on, the box's twin on the other side
   const before = JSON.stringify(ED.model), b0 = curBox(), tw = symTwin(); fn();
   if (tw && b0 && b0.node !== tw && boxesOf(ED.model).some(x => x.node === b0.node) && boxesOf(ED.model).some(x => x.node === tw)) mirrorNode(b0.node, tw);
   finishShape(before); }
-async function setMode(m) { if (ED.float) placeFloat(); say(''); if (m === 'shape') { await editModel(); ED.box ||= 0; ED.stool ||= 'select'; st.cursor(null); ED.hover = ED.hoverM = null; } ED.mode = m; ED.shapeOpen = m === 'shape'; render(); placeGizmo(); }
+async function setMode(m) { if (ED.float) placeFloat(); say(''); if (m === 'shape') { await editModel(); if (boxesOf(ED.model).filter(b => /^Box_/.test(b.node.name) && bakeOffset(b.node)).length) shapeChanged(); ED.box ||= 0; ED.stool ||= 'select'; st.cursor(null); ED.hover = ED.hoverM = null; } ED.mode = m; ED.shapeOpen = m === 'shape'; render(); placeGizmo(); }
 function pickTool(id) { if (ED.mode === 'shape') { if (ED.stool !== id) say(''); ED.stool = id; } else { if (id !== 'select' && ED.float) placeFloat(); ED.painter.tool = id; } render(); placeGizmo(); }
 function curBox() { return ED.model ? boxesOf(ED.model)[ED.box || 0] : null; }
 function placeGizmo() {
@@ -1187,7 +1191,12 @@ function tidyResized(beforeJson) {
   }
   return paints;
 }
+// a box the player added turns about its own middle: any shift of it goes into its place (position), never its offset from that place
+function bakeOffset(n) { const o = n.shape?.offset; if (!o || !(o.x || o.y || o.z)) return false; const q = n.orientation || { x: 0, y: 0, z: 0, w: 1 }, p = n.position || { x: 0, y: 0, z: 0 }, r = v => Math.round(v * 100) / 100;
+  const ix = q.w * o.x + q.y * o.z - q.z * o.y, iy = q.w * o.y + q.z * o.x - q.x * o.z, iz = q.w * o.z + q.x * o.y - q.y * o.x, iw = -q.x * o.x - q.y * o.y - q.z * o.z;
+  n.position = { x: r(p.x + ix * q.w - iw * q.x - iy * q.z + iz * q.y), y: r(p.y + iy * q.w - iw * q.y - iz * q.x + ix * q.z), z: r(p.z + iz * q.w - iw * q.z - ix * q.y + iy * q.x) }; n.shape.offset = { x: 0, y: 0, z: 0 }; return true; }
 function finishShape(before) {
+  for (const b of boxesOf(ED.model)) if (/^Box_/.test(b.node.name)) bakeOffset(b.node);
   const paints = tidyResized(before); recordShape(before);
   if (paints.length) { ED.painter.write((d, W, H) => paints.forEach(p => p(d, W, H))); ED.hist.push({ k: 'g', parts: ED.hist.splice(-2) }); }
   shapeChanged();
@@ -1207,7 +1216,8 @@ function shapeSide() {
     el('div', { class: 'options' }, el('button', { class: 'chip' + (ED.sym ? ' on' : ''), text: `Symmetry: ${ED.sym ? 'on' : 'off'}`, title: 'Changes to a box also change its twin on the other side',
       onclick: () => { ED.sym = !ED.sym; render(); } }), ED.sym ? el('small', { class: 'dim', text: twinOf(b) ? 'Twin: ' + boxLabel(twinOf(b)) : 'No twin for this box' }) : null),
     el('div', { class: 'wshead', text: boxLabel(b.node) }),
-    el('div', { class: 'wsgroup' }, el('b', { text: 'Position' }), axisField('X', sh, 'offset', 'x', -64, 64, 0.5), axisField('Y', sh, 'offset', 'y', -64, 64, 0.5), axisField('Z', sh, 'offset', 'z', -64, 64, 0.5)),
+    el('div', { class: 'wsgroup' }, el('b', { text: 'Position' }), ...(/^Box_/.test(b.node.name) ? [axisField('X', b.node, 'position', 'x', -64, 64, 0.5), axisField('Y', b.node, 'position', 'y', -64, 64, 0.5), axisField('Z', b.node, 'position', 'z', -64, 64, 0.5)]
+      : [axisField('X', sh, 'offset', 'x', -64, 64, 0.5), axisField('Y', sh, 'offset', 'y', -64, 64, 0.5), axisField('Z', sh, 'offset', 'z', -64, 64, 0.5)])),
     el('div', { class: 'wsgroup' }, el('b', { text: 'Size' }),
       el('div', { class: 'sizebtns' }, ...[['Longer', 'y', 2], ['Shorter', 'y', -2], ['Wider', 'x', 2], ['Narrower', 'x', -2], ['Thicker', 'z', 2], ['Thinner', 'z', -2]].map(([t, ax, d]) =>
         el('button', { class: 'chip', text: t, title: ax === 'y' ? 'Changes the height; the top stays where it is' : '', onclick: () => shapeEdit(() => { const cur_ = sh.settings.size?.[ax] ?? 0, nv = Math.max(1, cur_ + d), dd = nv - cur_;
@@ -1401,6 +1411,9 @@ function addBox(kind = 'dup', at = null) {   // 'dup' a copy, 'mirror' a copy on
       const ix = q.w * o.x + q.y * o.z - q.z * o.y, iy = q.w * o.y + q.z * o.x - q.x * o.z, iz = q.w * o.z + q.x * o.y - q.y * o.x, iw = -q.x * o.x - q.y * o.y - q.z * o.z;
       copy.position = { x: r(p.x + ix * q.w - iw * q.x - iy * q.z + iz * q.y), y: r(p.y + iy * q.w - iw * q.y - iz * q.x + ix * q.z), z: r(p.z + iz * q.w - iw * q.z - ix * q.y + iy * q.x) }; cs.offset = { x: 0, y: 0, z: 0 }; }
     else if (kind === 'add') { const front = (sh.offset?.z ?? 0) + Math.abs(sh.settings?.size?.z ?? 0) / 2 * (n.shape?.stretch?.z || 1); cs.type = 'box'; cs.settings = { ...cs.settings, normal: undefined, size: { x: 4, y: 4, z: 4 } }; cs.stretch = { x: 1, y: 1, z: 1 }; cs.offset.z = front + 2; } else cs.offset.x += 2;
+    if (!(kind === 'add' && at)) { const o = cs.offset, q = copy.orientation || { x: 0, y: 0, z: 0, w: 1 }, p = copy.position || { x: 0, y: 0, z: 0 }, r = v => Math.round(v * 100) / 100;   // the copy turns about its own middle, not the part it came from
+      const ix = q.w * o.x + q.y * o.z - q.z * o.y, iy = q.w * o.y + q.z * o.x - q.x * o.z, iz = q.w * o.z + q.x * o.y - q.y * o.x, iw = -q.x * o.x - q.y * o.y - q.z * o.z;
+      copy.position = { x: r(p.x + ix * q.w - iw * q.x - iy * q.z + iz * q.y), y: r(p.y + iy * q.w - iw * q.y - iz * q.x + ix * q.z), z: r(p.z + iz * q.w - iw * q.z - ix * q.y + iy * q.x) }; cs.offset = { x: 0, y: 0, z: 0 }; }
     const lay = allocLayout(cs) || (growTexture() ? allocLayout(cs) : null); if (lay) { cs.textureLayout = lay; paint = paintFaces(cs, lay, sh.textureLayout, kind === 'mirror', kind === 'add' ? hexRgb(standOut(ED.painter.color)) : null); }
     if (into) (into.children ||= []).push(copy); else (b.parent ? b.parent.children : ED.model.nodes).push(copy); ED.box = boxesOf(ED.model).findIndex(x => x.node === copy);
     ED.asset = { ...ED.asset, labels: { ...(ED.asset.labels || {}), [copy.name]: label } }; });
@@ -1444,8 +1457,9 @@ function panelCreator() {
 for (const b of $('tabs').children) b.onclick = () => setTab(b.dataset.tab);
 document.addEventListener('click', e => { const a = e.target.closest('a[data-tab]'); if (a) { e.preventDefault(); if (R) setTab(a.dataset.tab); else ask('How this works', el('p', { text: 'The editor reads the character files from your own Assets.zip and keeps them in this browser only. Nothing is uploaded, and this site hosts no Hytale files.' }), [{ label: 'OK', value: '', primary: true }]); } });
 $('undo').onclick = () => step(-1); $('redo').onclick = () => step(1);
-$('random').onclick = () => { if (cur.id) { flush(); cur = { id: null, kind: null, slot: null, name: '', skin: cur.skin }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; say('A new random look. Your saved skins stay as they were.'); }   // never overwrites a saved look
-  setSkin(R.random(e => !e.custom && !isTmp(e))); };
+$('random').onclick = () => { if (cur.id && !cur.random) {   // another roll right after one replaces that look in place (no pile of saved skins)
+   flush(); cur = { id: null, kind: null, slot: null, name: '', skin: cur.skin }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; say('A new random look. Your saved skins stay as they were.'); }   // never overwrites a saved look
+  setSkin(R.random(e => !e.custom && !isTmp(e)), true); };
 $('new').onclick = () => { flush(); cur = { id: null, kind: null, slot: null, name: '', skin: R.blank() }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; keepDraft(); rebuild(); render(); };
 $('front').onclick = () => st.view(true);
 $('ingame').onclick = async () => { SHOWGAME = !SHOWGAME; await db.put('meta', 'showInGame', SHOWGAME).catch(() => {}); drawGameSwitch(); pushWearing(); say(SHOWGAME ? 'Showing in game' : 'Your own skin is back in game'); };
