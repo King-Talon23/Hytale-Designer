@@ -32,8 +32,8 @@ const say = (t, bad) => { const s = $('status'); s.textContent = t || ''; s.clas
 function ask(title, body, buttons) {
   const d = $('dlg'); $('dlgtitle').textContent = title; $('dlgbody').replaceChildren(...[].concat(body));
   $('dlgbtns').replaceChildren(...buttons.map(b => el('button', { class: 'btn ' + (b.primary ? 'primary' : b.danger ? 'danger' : 'ghost'), value: b.value, text: b.label })));
-  const main = buttons.find(b => b.primary) || buttons.find(b => b.danger); d.onkeydown = e => { if (e.key === 'Enter' && main && e.target.matches?.('input:not([type=checkbox]):not([type=radio])')) { e.preventDefault(); d.close(main.value); } };   // Enter in a text box presses the main button, not Cancel
-  return new Promise(ok => { let done = false; const end = v => { if (done) return; done = true; ok(v); };   /* a button answers at once; closing (Esc) answers too */
+  const main = buttons.find(b => b.primary) || buttons.find(b => b.danger); let enter = null; d.onkeydown = e => { if (e.key === 'Enter' && main && e.target.matches?.('input:not([type=checkbox]):not([type=radio])')) { e.preventDefault(); d.close(main.value); enter && enter(main.value); } };   // Enter in a text box presses the main button, not Cancel
+  return new Promise(ok => { let done = false; const end = v => { if (done) return; done = true; ok(v); }; enter = end;   /* Enter answers at once too (a close event can come late) */   /* a button answers at once; closing (Esc) answers too */
     for (const b of $('dlgbtns').children) b.addEventListener('click', e => { e.preventDefault(); d.close(b.value); end(b.value); });
     d.onclose = () => end(d.returnValue || ''); d.returnValue = ''; d.showModal(); });
 }
@@ -103,7 +103,7 @@ let FOLDER = { state: 'none' }, ACCOUNT = null, SHOWGAME = false;
 let found = [];   // skins brought in this session by a lookup or from files; not saved until the player saves them
 
 async function startApp() {
-  META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets(); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false));
+  META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets(); await applyRescue().catch(e => console.warn(e)); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false));
   $('connect').hidden = true; $('app').hidden = false;
   if (!st) { st = fig.stage($('view'), OrbitControls);
     if (location.hostname.endsWith('localhost')) { window.__st = st; window.__dbg = { combineWith: (...a) => combineWith(...a), combinePick: () => combinePick(), cat: () => CAT, ed: () => ED, sizeOf: sh => sizeOf(sh) }; }   // local tests only
@@ -114,7 +114,7 @@ async function startApp() {
     st.afterShow = () => { outlineBox(); placeGizmo(); if (ED && ED.frame) { ED.frame = false; st.frameOn(ED.canvas); } };
     $('view').addEventListener('pointerdown', e => { if (!ED || !ED.shapeOpen || e.button !== 0 || (!ED.placing && st.gizmoBusy(e.clientX, e.clientY))) return;
       const mine = o => o.material?.map?.image === ED.canvas;
-      if (ED.placing) { const h = st.pickHit(e.clientX, e.clientY, mine); if (!h) { say('Missed the item', true); return; } e.stopImmediatePropagation(); ED.placing = false;
+      if (ED.placing) { const h = st.pickHit(e.clientX, e.clientY, mine); if (!h) { say('Missed the item', true); return; } e.stopImmediatePropagation(); ED.placing = false; say("");
         const k = boxesOf(ED.model).findIndex(b => b.node.name === h.mesh.userData.nodeName); if (k >= 0) { ED.box = k; addBox('add', h); } return; }
       const hit = st.pickMesh(e.clientX, e.clientY, mine); if (!hit) return;
       const k = boxesOf(ED.model).findIndex(b => b.node.name === hit.userData.nodeName); if (k >= 0 && k !== ED.box) { ED.box = k; render(); placeGizmo(); return; }
@@ -312,11 +312,8 @@ function panelPicker() {
       const star = e ? el('span', { class: 'star' + (fav ? ' on' : ''), role: 'button', title: fav ? 'Remove from favourites' : 'Add to favourites', text: fav ? '★' : '☆',
         onclick: ev => { ev.stopPropagation(); LOCK.favs.has(k) ? LOCK.favs.delete(k) : LOCK.favs.add(k); saveLock(); render(); } }) : null;
       const a = e?.custom && ASSETS.find(x => 'Custom_' + x.id === e.Id);
-      const bin = a ? el('span', { class: 'bin' + (fav ? ' off' : ''), role: 'button', title: fav ? 'Favourites can\'t be deleted. Unstar it first.' : 'Delete this custom piece', text: '🗑',
-        onclick: ev => { ev.stopPropagation(); const b = ev.currentTarget; if (fav) { say('Favourites can\'t be deleted. Unstar it first.', true); return; }
-          if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Sure?'; b.title = 'Click again to delete "' + a.name + '"'; clearTimeout(b._t);
-            b._t = setTimeout(() => { b.classList.remove('sure'); b.textContent = '🗑'; b.title = 'Delete this custom piece'; }, 3000); return; }
-          clearTimeout(b._t); deleteAsset(a); } }) : null;
+      const bin = a ? el('span', { class: 'bin' + (fav ? ' off' : ''), role: 'button', title: fav ? 'Unstar to delete' : 'Delete', text: '🗑',
+        onclick: ev => { ev.stopPropagation(); if (fav) { say('Unstar to delete', true); return; } guard(() => deleteAsset(a))(); } }) : null;   /* deletes at once; the status bar offers Undo */
       return el('button', { class: 'lcard ' + (e ? tierClass(e) : 'none') + ((e?.Id ?? null) === (it?.Id ?? null) ? ' on' : ''), title: e ? itemName(e) : 'None', onclick: () => change(e, color, variant),
         onpointerenter: ev => { hv.onpointerenter(ev); if (peek.part === part) showDetail(e, e !== it); }, onpointermove: ev => { if (peek.part === part) return; hv.onpointermove(ev); if (peek.part === part) showDetail(e, e !== it); }, onpointerleave: ev => { hv.onpointerleave(ev); showDetail(it); } },
         e ? itemThumb(f, e, color, variant) : el('span', { class: 'nothing', text: '✕' }), star, bin, e && isNew(f, e) ? el('span', { class: 'new', text: 'NEW' }) : null, el('b', { text: e ? itemName(e) : 'None' })); };
@@ -332,8 +329,8 @@ function panelPicker() {
   return [head('Wardrobe'), el('div', { class: 'pbody' },
     el('div', { class: 'pickhead' }, el('button', { class: 'btn ghost', text: '‹ Wardrobe', onclick: () => { leavePicker(); render(); const pb = document.querySelector('.panel .pbody'); if (pb) pb.scrollTop = slotScroll; } }), icon(SLOT_ICON[f]), el('b', { text: LABEL[f] })),
     el('div', { class: 'row' }, search, locked('Owned only', 'the owned cosmetics filter', 'chip')), bar, cardsBox, el('div', { class: 'pickfoot' }, detail,
-    it?.custom ? [el('h3', { text: 'Colour' }), el('p', { class: 'dim' }, 'This is your own piece, painted in the Creator. ', (() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id);
-      return a ? el('button', { class: 'btn ghost small', text: 'Recolour in the Creator', onclick: guard(() => openAsset(a)) }) : null; })())]
+    it?.custom ? [el('h3', { text: 'Colour' }), (() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id);
+      return a ? el('button', { class: 'btn ghost small', text: 'Edit in Creator', onclick: guard(() => openAsset(a)) }) : null; })()]
       : cols.length ? [el('h3', { text: 'Colour' }), swatches] : null, vs.length > 1 ? [el('h3', { text: 'Option' }), options] : null))];
 }
 // top-left of the stage: the background behind the character, and a clean view with the controls hidden (for a good look or a screenshot).
@@ -622,9 +619,9 @@ async function exportSkin(rec) {   // the skin plus the items of yours it wears,
   const ids = new Set(Object.values(rec.skin || {}).map(v => (String(v).match(/^Custom_([\w-]+)/) || [])[1]).filter(Boolean)), mine = [];
   for (const a of ASSETS) if (ids.has(a.id)) mine.push(await store.packAsset(a));
   download((rec.name.replace(/[\\/:*?"<>|]/g, '').trim() || 'skin') + '.skin.json', mine.length ? { name: rec.name, skin: rec.skin, assets: mine } : { name: rec.name, skin: rec.skin }); }
-async function importSkinFiles(files) { let n = 0, items = 0;
-  for (const f of [...files].slice(0, 200)) { try { const j = await readJsonFile(f, 8_000_000); if (Array.isArray(j?.assets)) items += await store.unpackAssets(j.assets, m => !!CAT.items[m.field]?.some(e => !e.custom && e.Id === m.baseId)); const s = sanitize(j?.skin || j); if (s) { found.unshift({ name: cleanName(j?.name || f.name.replace(/(_portrait\.png)?\.(skin|json)+$/gi, '')).slice(0, 40) || 'Imported', skin: s }); n++; } } catch { /* not a skin file */ } }
-  if (items) await reloadAssets(); found = found.slice(0, 200); say(n ? `Brought in ${n} skin${n > 1 ? 's' : ''}` + (items ? ` and ${items} item${items > 1 ? 's' : ''}` : '') : 'No skins in those files', !n); tab = 'lookup'; setTab('lookup'); }
+async function importSkinFiles(files) { let n = 0, items = 0, offered = 0;
+  for (const f of [...files].slice(0, 200)) { try { const j = await readJsonFile(f, 8_000_000); if (Array.isArray(j?.assets)) offered += j.assets.filter(m => m && !ASSETS.some(a => a.id === m.id)).length; if (Array.isArray(j?.assets)) items += await store.unpackAssets(j.assets, m => !!CAT.items[m.field]?.some(e => !e.custom && e.Id === m.baseId)); const s = sanitize(j?.skin || j); if (s) { found.unshift({ name: cleanName(j?.name || f.name.replace(/(_portrait\.png)?\.(skin|json)+$/gi, '')).slice(0, 40) || 'Imported', skin: s }); n++; } } catch { /* not a skin file */ } }
+  if (items) await reloadAssets(); found = found.slice(0, 200); say(n ? `Imported ${n} skin${n > 1 ? 's' : ''}` + (items ? ` and ${items} item${items > 1 ? 's' : ''}` : '') + (offered > items ? `; ${offered - items} item${offered - items > 1 ? 's' : ''} skipped` : '') : 'No skins in those files', !n || offered > items); tab = 'lookup'; setTab('lookup'); }
 // opens in your skins folder when one is connected, else in Documents (no picker id: a remembered id folder would beat Documents); browsers without the picker fall back to the plain file box
 async function pickSkinFiles(fallback) {
   if (typeof self.showOpenFilePicker !== 'function') return fallback.click();
@@ -648,7 +645,7 @@ function panelHelp() {
   const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.filter(p => p !== '').map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
   const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const r = await store.importAll(await readJsonFile(f, 40_000_000)); await reloadAssets(); await refreshWard(); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}${r.skipped ? `, ${r.skipped} did not fit` : ''}`); }) });
   const steps = [['Wardrobe', 'pick a slot, click items to try them on.'], ['Locker', 'your saved skins.'], ['Animations', "the game's moves on your skin."],
-    ['Creator', 'make your own pieces from any item.'], ['Players', 'look someone up by username.']];
+    ['Creator', 'make your own items from any item.'], ['Players', 'look someone up by username.']];
   return [head('Help'), el('div', { class: 'pbody prose' },
 
     sec('Game files', META ? `Connected: ${META.name}, ${META.files} character files, read on ${new Date(META.at).toLocaleDateString()}.` : 'Not connected yet.',
@@ -690,7 +687,8 @@ const newAsset = guard(async (f, val) => {
   try { await makeAsset(f, val); } finally { document.body.classList.remove('busy'); }
 });
 async function makeAsset(f, val) {
-  if (ASSETS.length >= assets.MAX) throw new Error(`My items is full (${assets.MAX})`);
+  if (ASSETS.length + MAKING >= assets.MAX) throw new Error(`My items is full (${assets.MAX})`); MAKING++; try { return await makeAsset1(f, val); } finally { MAKING--; } }
+async function makeAsset1(f, val) {
   if (val && cur.skin[f] && parse(cur.skin[f]).id === parse(val).id) val = cur.skin[f];   /* the worn item keeps its worn colour */
   const skin = val ? { ...cur.skin, [f]: val } : { ...cur.skin }; for (const h of HIDE[f] || []) delete skin[h]; const r = R.resolve(f, skin), it = R.find(f, skin[f]); if (!r || !it) throw new Error('Pick an item');
   const paidBase = it.custom ? CAT.items[f].find(e => e.Id === it.baseId) : it;
@@ -735,10 +733,17 @@ const keepBrush = () => { if (!ED) return; const P = ED.painter; Object.assign(B
 const markSaved = ok => { if (!ED) return; ED.saved = ok; const s = $('wssaved'); if (s) { s.textContent = ok ? 'Saved' : 'Saving…'; s.classList.toggle('busy', !ok); } };
 function queueAssetSave() { markSaved(false); clearTimeout(queueAssetSave.t); queueAssetSave.pending = true; queueAssetSave.t = setTimeout(() => { queueAssetSave.pending = false; flushAsset().catch(e => say(e.message, true)); }, 400); }
 // leaving or hiding the page saves a waiting edit at once; if one is still waiting on reload or close, the browser asks first, so no edit is lost
+// a reload can cut the async save short: the unsaved item is also kept in localStorage at once, and put back on the next start
+const rescue = () => { if (!ED || ASIDE || !(queueAssetSave.pending || ED.saved === false)) return; try { const out = trimmedCanvas(ED);
+  localStorage.setItem('se_rescue', JSON.stringify({ id: ED.asset.id, t: Date.now(), name: ED.asset.name, png: out.toDataURL('image/png'), w: out.width, h: out.height, shape: ED.model && ED.shapeN ? JSON.stringify(ED.model) : null, labels: ED.asset.labels || null, split: !!ED.asset.split })); } catch { /* storage full or blocked */ } };
+async function applyRescue() { let r = null; try { r = JSON.parse(localStorage.getItem('se_rescue') || 'null'); localStorage.removeItem('se_rescue'); } catch { return; } if (!r || typeof r.png !== 'string') return;
+  const a = ASSETS.find(x => x.id === r.id); if (!a || (a.updated || 0) >= r.t) return;
+  const bin = atob(r.png.split(',')[1] || ''), u8 = Uint8Array.from(bin, c => c.charCodeAt(0));
+  await assets.save({ ...a, data: new Blob([u8], { type: 'image/png' }), w: r.w, h: r.h, name: r.name || a.name, shape: r.shape || a.shape, labels: r.labels || a.labels, split: !!r.split }); ASSETS = await assets.list(); registerAssets(); }
 const flushNow = () => { if (queueAssetSave.pending) { queueAssetSave.pending = false; flushAsset().catch(() => {}); } };
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); });
-addEventListener('pagehide', () => { flushNow(); if (!ASIDE && ED && (ED.before || beforeEdit)) { cur.skin = ED.before ? keptSkin() : beforeEdit; db.put('meta', 'draft', { id: cur.id, kind: cur.kind, slot: cur.slot, name: cur.name, skin: cur.skin, auto: !!cur.auto }).catch(() => {}); } });
-addEventListener('beforeunload', e => { if (queueAssetSave.pending || (ED && ED.saved === false)) { flushNow(); e.preventDefault(); e.returnValue = ''; } });
+addEventListener('pagehide', () => { rescue(); flushNow(); if (!ASIDE && ED && (ED.before || beforeEdit)) { cur.skin = ED.before ? keptSkin() : beforeEdit; db.put('meta', 'draft', { id: cur.id, kind: cur.kind, slot: cur.slot, name: cur.name, skin: cur.skin, auto: !!cur.auto }).catch(() => {}); } });
+addEventListener('beforeunload', e => { if (queueAssetSave.pending || (ED && ED.saved === false)) { rescue(); flushNow(); e.preventDefault(); e.returnValue = ''; } });
 // the saved picture is only as big as what is drawn and used (a texture that grew for parts since removed shrinks back), in powers of two
 function trimmedCanvas(e) { const c = e.canvas, W = c.width, H = c.height; let mx = 0, my = 0;
   for (const r of e.rects || []) { mx = Math.max(mx, Math.ceil(r.x + r.w)); my = Math.max(my, Math.ceil(r.y + r.h)); }
@@ -904,8 +909,9 @@ async function checkReplica() {   // after an import, a recolour, a shape change
 
 const FLAG_WHY = n => `This looks too much like ${n}, a paid item, so it stays on this site and won't show in game. Change its colours or pattern more and the check clears by itself.`;
 function copyName(n) { const base = n.replace(/ \(mine\)$/, '').replace(/ copy( \d+)?$/, '') + ' copy', used = new Set(ASSETS.map(x => x.name)); let k = 1, out = base; while (used.has(out)) out = base + ' ' + ++k; return out; }
-async function copyAsset(a) { if (ASSETS.length >= assets.MAX) throw new Error(`My items is full (${assets.MAX})`);
-  const c = await assets.save({ ...a, id: assets.newId(), name: copyName(a.name), flag: undefined }); ASSETS = await assets.list(); registerAssets(); syncFolder(); render();  }
+let MAKING = 0;   // copies being written: quick repeat clicks can't pass the item limit
+async function copyAsset(a) { if (ASSETS.length + MAKING >= assets.MAX) throw new Error(`My items is full (${assets.MAX})`);
+  MAKING++; try { await assets.save({ ...a, id: assets.newId(), name: copyName(a.name), flag: undefined }); ASSETS = await assets.list(); } finally { MAKING--; } registerAssets(); syncFolder(); render(); }
 const keepAny = () => store_.set('se_anyitem', JSON.stringify({ picks: anyItem.picks || {}, slot: anyItem.slot }));   // the picker's slot and item, remembered between visits
 function anyItem() {   // or start from any free item in the game, worn or not
   if (!anyItem.loaded) { anyItem.loaded = true; try { const k = JSON.parse(store_.get('se_anyitem') || '{}'); anyItem.picks = k.picks || {}; anyItem.slot = k.slot; } catch { /* fresh */ } }
@@ -933,7 +939,7 @@ function anyItem() {   // or start from any free item in the game, worn or not
     Object.assign(menu.style, { left: r.left + 'px', width: r.width + 'px', maxHeight: h + 'px', top: up ? '' : r.bottom + 2 + 'px', bottom: up ? innerHeight - r.top + 2 + 'px' : '' }); };
   const open = () => { if (!list.length || !menu.hidden) return; document.querySelectorAll('body > .anymenu').forEach(x => x.remove()); document.body.append(menu); place(); menu.hidden = false; item.setAttribute('aria-expanded', 'true'); mark(at);
     document.addEventListener('pointerdown', away, true); addEventListener('scroll', drift, true); addEventListener('resize', close); };
-  const choose = i => { at = i; if (list[i] && list[i][2]) { (anyItem.picks ||= {})[list[i][1]] = list[i][2].Id; anyItem.slot = list[i][1]; } keepAny(); label(); close(); clearTimeout(hov); draw(at); };
+  const choose = i => { at = i; if (list[i] && list[i][2]) { (anyItem.picks ||= {})[list[i][1]] = list[i][2].Id; anyItem.slot = list[i][1]; if (slot.value !== list[i][1]) { slot.value = list[i][1]; slotBtn.textContent = LABEL[slot.value]; } } keepAny(); label(); close(); clearTimeout(hov); draw(at); };
   item.onclick = () => menu.hidden ? open() : close();
   item.onkeydown = ev => { const k = ev.key, n = list.length; if (!n) return;
     if (k === 'ArrowDown' || k === 'ArrowUp') { ev.preventDefault(); if (menu.hidden) open(); const i = Math.max(0, Math.min(n - 1, act + (k === 'ArrowDown' ? 1 : -1))); mark(i); peek(i); }
@@ -968,12 +974,19 @@ function anyItem() {   // or start from any free item in the game, worn or not
 function assetCard(a) {
   const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
   const worn = cur.skin[a.field] && cur.skin[a.field].startsWith('Custom_' + a.id);
-  return el('div', { class: 'skin asset' + (worn ? ' on' : ''), tabIndex: 0, onclick: guard(() => openAsset(a)) },
+  return el('div', { class: 'skin asset' + (worn ? ' on' : ''), tabIndex: 0, onclick: guard(() => openAsset(a)), onkeydown: e => { if (e.key === 'Enter' && e.target === e.currentTarget) e.currentTarget.click(); } },
     el('div', { class: 'pic' }, assetThumb(a)), el('b', { text: a.name }), el('small', { text: modReady(a) ? LABEL[a.field] : a.flag ? 'Site only: looks like ' + a.flag : 'Paid item: site only', title: a.flag ? FLAG_WHY(a.flag) : '' }),
-    el('div', { class: 'acts' }, act('Edit', guard(() => openAsset(a)), 'primary'), act('Copy', guard(() => copyAsset(a))), worn ? el('span', { class: 'worn', text: 'Worn ✓' }) : act('Equip', () => setSkin({ ...cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' })),
+    worn ? el('span', { class: 'worntick', text: '✓', title: 'Worn' }) : null,
+    cardMenu([act('Edit', guard(() => openAsset(a))), act('Copy', guard(() => copyAsset(a))), worn ? null : act('Wear', () => { const v = 'Custom_' + a.id + '.Mine'; if (cur.skin[a.field] !== v) setSkin({ ...cur.skin, [a.field]: v }); }),
 
-      act('Delete', guard(async () => { pressing = false; await deleteAsset(a); }), 'danger')));
+      act('Delete', guard(async () => { pressing = false; await deleteAsset(a); }), 'danger')]));
 }
+function cardMenu(acts) {   // a card's actions in a ⋯ menu, as in file browsers
+  const m = el('div', { class: 'cardacts', hidden: true, onkeydown: e => { if (e.key === 'Escape') { e.stopPropagation(); m.hidden = true; b.setAttribute('aria-expanded', 'false'); b.focus(); } } }, acts);
+  m.addEventListener('focusout', e => { if (!m.contains(e.relatedTarget) && e.relatedTarget !== b) { m.hidden = true; b.setAttribute('aria-expanded', 'false'); } });
+  const b = el('button', { class: 'cardmenu', text: '⋯', 'aria-label': 'More', 'aria-expanded': 'false', onclick: e => { e.stopPropagation(); const open_ = m.hidden; document.querySelectorAll('.cardacts').forEach(x => x.hidden = true); m.hidden = !open_; b.setAttribute('aria-expanded', String(open_)); if (open_) m.querySelector('button')?.focus();
+    if (open_) { const close = ev => { if (!m.contains(ev.target) && ev.target !== b) { m.hidden = true; removeEventListener('pointerdown', close, true); } }; addEventListener('pointerdown', close, true); } } });
+  return [b, m]; }
 async function deleteAsset(a) {   // skins wearing it go back to the game item it was copied from (or the slot's usual item)
   const mine = v => typeof v === 'string' && v.startsWith('Custom_' + a.id), base = R.ITEMS[a.field]?.find(e => e.Id === a.baseId && !e.custom), back = base ? R.partStr(base) : null;
   const swap = sk => (mine(sk[a.field]) ? { ...sk, [a.field]: back } : sk), worn = mine(cur.skin[a.field]);
@@ -986,7 +999,7 @@ async function deleteAsset(a) {   // skins wearing it go back to the game item i
   const back1 = async () => { await assets.save(full); for (const rec of hit) await put(rec, rec.skin); if (worn && cur === wasCur) setSkin(R.fit(was)); },   /* the look on screen only changes back if it is still the same skin */
     prev = deleteAsset.undo && Date.now() - deleteAsset.at < 8000 ? deleteAsset.undo : null, all = async () => { await back1(); if (prev) await prev(); };
   deleteAsset.undo = all; deleteAsset.at = Date.now();
-  sayUndo(prev ? 'Deleted items' : `Deleted "${a.name}"`, guard(async () => { deleteAsset.undo = null; await all(); ASSETS = await assets.list(); syncFolder(); registerAssets(); WARD = await store.list(); pics.clear(); rebuild(); render(); }));
+  deleteAsset.n = prev ? (deleteAsset.n || 1) + 1 : 1; sayUndo(prev ? `Deleted ${deleteAsset.n} items` : `Deleted "${a.name}"`, guard(async () => { deleteAsset.undo = null; await all(); ASSETS = await assets.list(); syncFolder(); registerAssets(); WARD = await store.list(); pics.clear(); rebuild(); render(); }));
 }
 const disclosure = () => el('div', { class: 'disclose' }, el('b', { text: 'Site only' }), el('span', { text: 'With the Skin Editor Sync mod installed and Show in game on, your character in your own worlds wears what you have on here, custom assets included. Repaints of edition and reward items stay on this site.' }));
 // the drawn area over the flat texture: everything outside it is dimmed and each drawn face is outlined
@@ -1016,7 +1029,7 @@ fig.setShapeSource(async id => {
   const a = ASSETS.find(x => x.id === id); if (!a || !a.shape) throw new Error('that shape is gone'); return JSON.parse(a.shape);
 });
 const boxesOf = m => { const out = []; const walk = (n, parent) => { const s = n.shape || {}; if ((s.type === 'box' || s.type === 'quad') && s.visible !== false) out.push({ node: n, parent }); for (const c of n.children || []) walk(c, n); }; for (const n of m.nodes) walk(n, null); return out; };
-function uniqNames(model) { const seen = new Set(); const walk = l => { for (const n of l || []) { if (seen.has(n.name) && !n.children?.length) { let k = 2; while (seen.has(n.name + '~' + k)) k++; n.name += '~' + k; } seen.add(n.name); walk(n.children); } }; walk(model.nodes); return model; }   // game models repeat some part names; every part gets its own, so picking and dragging find the right one
+function uniqNames(model) { const seen = new Set(); const walk = l => { for (const n of l || []) { if (seen.has(n.name)) { let k = 2; while (seen.has(n.name + '~' + k)) k++; n.name += '~' + k; } seen.add(n.name); walk(n.children); } }; walk(model.nodes); return model; }   // game models repeat some part names; every part gets its own, so picking and dragging find the right one
 async function editModel() { if (!ED.model) ED.model = uniqNames(ED.asset.shape ? JSON.parse(ED.asset.shape) : structuredClone(await game.json(game.common(ED.asset.model)))); return ED.model; }
 function shapeChanged() {   // the preview, the drawn-area guide and the saved copy follow every edit
   ED.shapeN = (ED.shapeN || 0) + 1; ED.rects = fig.usedRects(ED.model); maskFromRects();
@@ -1045,7 +1058,7 @@ function toQuat(dx, dy, dz) { const [c1, c2, c3] = [dx, dy, dz].map(d => Math.co
 // top: name, Paint/Shape tabs, undo, redo, Done. Left edge: tools with their shortcut keys. Left panel: the texture. Middle: the
 // model with view buttons and, in Shape mode, a gizmo. Right: colours and brush (Paint), or the outliner and box fields (Shape).
 const PAINT_TOOLS = [['select', 'Select area', 'M', '⬚'], ['brush', 'Brush', 'B', '✎'], ['erase', 'Eraser', 'E', '⌫'], ['part', 'Fill part', 'P', '◩'], ['fill', 'Fill', 'F', '◧'], ['pick', 'Pick colour', 'I', '◉'], ['replace', 'Replace colour', 'H', '⇄'],
-  ['line', 'Line', 'L', '╱'], ['box', 'Rectangle', 'U', '▢'], ['boxfill', 'Filled rectangle', '', '■'], ['light', 'Lighten', '', '☀'], ['dark', 'Darken', '', '☾'], ['noise', 'Noise', 'N', '░']];
+  ['line', 'Line', 'L', '╱'], ['box', 'Rectangle', 'U', '▢'], ['boxfill', 'Filled rectangle', 'Q', '■'], ['light', 'Lighten', 'O', '☀'], ['dark', 'Darken', 'D', '☾'], ['noise', 'Noise', 'N', '░']];
 const SHORT = { part: 'Whole part', more: 'More', select: 'Select', pick: 'Pick', replace: 'Replace', boxfill: 'Filled', light: 'Lighten', dark: 'Darken', dup: 'Copy', del: 'Delete' };   // names under the tool icons
 const SHAPE_TOOLS = [['move', 'Move', 'G', '✥'], ['resize', 'Resize', 'S', '⤢'], ['rotate', 'Turn', 'R', '⟳']];   // click a part to pick it; these set what its handles do
 const capHist = () => { if (ED.hist.length > 90) ED.hist.splice(0, ED.hist.length - 90); };   /* below the painter's own step limit, so every undo still has its paint */
@@ -1053,7 +1066,8 @@ const recordPaint = () => { if (ED && !ED.replaying) { ED.hist.push({ k: 'p' });
 function recordShape(before) { ED.hist.push({ k: 's', other: before }); ED.fut = []; capHist(); }
 function undoEntry(e, redo) {
   if (e.k === 'p') { ED.replaying = true; redo ? ED.painter.redo() : ED.painter.undo(); ED.replaying = false; return e; }
-  if (e.k === 'g') return { k: 'g', parts: e.parts.slice().reverse().map(x => undoEntry(x, redo)) };
+  if (e.k === 'g') { if (e.splitWas !== undefined) { const v = redo ? false : e.splitWas; ED.splitDone = v; ED.asset = { ...ED.asset, split: v }; return { k: 'g', splitWas: e.splitWas, parts: e.parts.slice().reverse().map(x => undoEntry(x, redo)) }; }
+    if (e.setup) { ED.splitDone = !!redo; ED.asset = { ...ED.asset, split: !!redo }; } return { k: 'g', setup: e.setup, parts: e.parts.slice().reverse().map(x => undoEntry(x, redo)) }; }   /* undoing the split makes the next Shape visit split again */
   const now = JSON.stringify(ED.model), keep = boxesOf(ED.model)[ED.box || 0]?.node.name; ED.model = JSON.parse(e.other); { const bs = boxesOf(ED.model), i = bs.findIndex(x => x.node.name === keep); ED.box = i >= 0 ? i : Math.min(ED.box || 0, bs.length - 1); } ED.reshaped = true; return { k: 's', other: now };
 }
 function wsUndo(redo) {
@@ -1067,7 +1081,7 @@ function shapeEdit(fn) {   // with Symmetry on, the box's twin on the other side
   const before = JSON.stringify(ED.model), b0 = curBox(), tw = symTwin(); fn();
   if (tw && b0 && b0.node !== tw && boxesOf(ED.model).some(x => x.node === b0.node) && boxesOf(ED.model).some(x => x.node === tw)) mirrorNode(b0.node, tw);
   finishShape(before); }
-async function setMode(m) { if (ED.float) placeFloat(); if (m === 'shape') ED.sel = null; say(''); if (m === 'shape') { await editModel(); const h0 = ED.hist.length; if (boxesOf(ED.model).filter(b => /^Box_/.test(b.node.name) && bakeOffset(b.node)).length) shapeChanged(); splitShared(); if (ED.hist.length - h0 > 1) ED.hist.push({ k: 'g', parts: ED.hist.splice(h0) });   /* setup on entering Shape is one undo step */
+async function setMode(m) { if (ED.float) placeFloat(); if (m === 'shape') ED.sel = null; say(''); if (m === 'shape') { await editModel(); const h0 = ED.hist.length; if (boxesOf(ED.model).filter(b => /^Box_/.test(b.node.name) && bakeOffset(b.node)).length) shapeChanged(); splitShared(); if (ED.hist.length > h0) ED.hist.push({ k: 'g', setup: true, parts: ED.hist.splice(h0) });   /* setup on entering Shape is one undo step */
     ED.box ||= 0; if (!ED.stool || ED.stool === 'select') ED.stool = 'move'; st.cursor(null); ED.hover = ED.hoverM = null; } ED.mode = m; ED.shapeOpen = m === 'shape'; render(); placeGizmo(); }
 function pickTool(id) { if (ED.mode === 'shape') { if (ED.stool !== id) say(''); ED.stool = id; } else { if (id !== 'select' && ED.float) placeFloat(); ED.painter.tool = id; } render(); placeGizmo(); }
 function curBox() { return ED.model ? boxesOf(ED.model)[ED.box || 0] : null; }
@@ -1117,7 +1131,7 @@ function paintSide() {
   const chip = (text, fn, key, off) => el('button', { class: 'chip', text, title: key || '', disabled: !!off, onclick: () => { fn(); render(); } });
   if (ED.adjOpen) return [el('div', { class: 'wshead', text: 'Adjust colours' }),
     adjRow('h', 'Hue', -180, 180), adjRow('s', 'Saturation', -100, 100), adjRow('l', 'Brightness', -100, 100),
-    el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Keep', onclick: () => { ED.adjOpen = false; endAdjust(true); } }), el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { ED.adjOpen = false; endAdjust(false); } }))];
+    el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Apply', onclick: () => { ED.adjOpen = false; endAdjust(true); } }), el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { ED.adjOpen = false; endAdjust(false); } }))];
   return [el('div', { class: 'wshead', text: 'Colour' }),
     el('div', { class: 'row' }, el('input', { type: 'color', value: P.color, oninput: e => { P.color = e.target.value; }, onchange: e => useColour(e.target.value) }), el('input', { type: 'text', class: 'hex', value: P.color, maxLength: 7, spellcheck: false, onchange: e => { let v = e.target.value.trim().replace(/^#?/, '#'); if (/^#[0-9a-f]{3}$/i.test(v)) v = '#' + [...v.slice(1)].map(c => c + c).join(''); if (/^#[0-9a-f]{6}$/i.test(v)) useColour(v.toLowerCase()); else e.target.value = P.color; }, onkeydown: e => { if (e.key === 'Enter') e.target.blur(); } })),
     el('div', { class: 'swlabel', text: 'Basic' }), swatchRow(BASIC), el('div', { class: 'swlabel', text: 'In this item' }), swatchRow(ED.palette),
@@ -1134,7 +1148,7 @@ function paintSide() {
       ...(ED.float ? [chip('Place', placeFloat, 'Enter'), chip('Flip ↔', () => flipFloat(true)), chip('Flip ↕', () => flipFloat(false)), chip('Cancel', () => { ED.float = null; render(); }, 'Esc')]
         : [chip('Copy', () => copySel(false), 'Ctrl+C', !ED.sel), chip('Cut', () => copySel(true), 'Ctrl+X', !ED.sel), chip('Paste', pasteClip, 'Ctrl+V', !CLIP), chip('Clear', clearSel, 'Del', !ED.sel)]))] : null,
     ED.adjOpen ? [el('div', { class: 'wshead', text: 'Adjust colours of the whole item' }), adjRow('h', 'Hue', -180, 180), adjRow('s', 'Saturation', -100, 100), adjRow('l', 'Brightness', -100, 100),
-      el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Keep', onclick: () => { ED.adjOpen = false; endAdjust(true); } }), el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { ED.adjOpen = false; endAdjust(false); } }))]
+      el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Apply', onclick: () => { ED.adjOpen = false; endAdjust(true); } }), el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { ED.adjOpen = false; endAdjust(false); } }))]
       : el('button', { class: 'btn ghost wide', text: 'Adjust colours…', onclick: () => { ED.adjOpen = true; render(); } })];
 }
 // boxes get readable names: the player's own, else one made from the game's node name ("L-ArmCostume" -> "Left arm", new boxes -> "Box 2")
@@ -1149,7 +1163,7 @@ function boxLabel(node) {
 }
 function renameBox(btn, node) {
   const inp = el('input', { type: 'text', value: boxLabel(node), maxLength: 30, class: 'rename' });
-  const done = keep => { if (keep) { const v = cleanName(inp.value).slice(0, 30); ED.asset = { ...ED.asset, labels: { ...(ED.asset.labels || {}), [node.name]: v || undefined } }; if (!v) delete ED.asset.labels[node.name]; queueAssetSave(); } render(); };
+  let ended = false; const done = keep => { if (ended) return; ended = true; if (keep) { const v = cleanName(inp.value).slice(0, 30); ED.asset = { ...ED.asset, labels: { ...(ED.asset.labels || {}), [node.name]: v || undefined } }; if (!v) delete ED.asset.labels[node.name]; queueAssetSave(); } render(); };
   inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); }; inp.onblur = () => done(true);
   btn.replaceWith(inp); inp.focus(); inp.select();
 }
@@ -1236,7 +1250,7 @@ async function finishAsset(equip = false) {
   const text = linked ? (SHOWGAME ? 'It is on your character in your own worlds too, through the Skin Editor Sync mod.' : 'Turn on In game to wear it in your own Hytale worlds (needs the Skin Editor Sync mod).')
     : 'To wear it in Hytale, install the Skin Editor Sync mod and pick a skins folder in the Locker.';
   const upd = cur.id && cur.name ? ` "${cur.name}" now wears it too.` : '';
-  if (store_.get('se_finished')) return say(`Saved. You are wearing ${a.name}.${upd}`);
+  if (true) return say(`Wearing ${a.name}`); void upd;   /* no once-only explainer dialog */
   store_.set('se_finished', '1');
   const btns = [{ label: 'Back to my items', value: 'back', primary: true }, { label: 'Keep editing', value: 'edit' },
     ...(linked && !SHOWGAME ? [{ label: 'Show in game', value: 'game' }] : [])];
@@ -1326,8 +1340,8 @@ const resetShape = guard(async () => {   // the game's own shape and paint come 
   if (ED !== e) return; const h0 = e.hist.length;
   if (img) { const c = e.canvas; if (img.width > c.width || img.height > c.height) { e.painter.grow(Math.max(c.height, img.height), Math.max(c.width, img.width)); e.asset = { ...e.asset, w: c.width, h: c.height }; }
     const src = img.getContext('2d').getImageData(0, 0, img.width, img.height).data; e.painter.write((d, W) => { d.fill(0); for (let y = 0; y < img.height; y++) d.set(src.subarray(y * img.width * 4, (y + 1) * img.width * 4), y * W * 4); }); }
-  e.asset = { ...e.asset, split: false, labels: undefined }; e.splitDone = false;   /* shared paint is shared again, as in the game */
-  shapeEdit(() => { ED.model = orig; ED.box = 0; }); if (e.hist.length - h0 > 1) e.hist.push({ k: 'g', parts: e.hist.splice(h0) }); ED.palette = ED.painter.palette(); requestAnimationFrame(() => { if (ED) { fitTexture(); render(); } }); });
+  const splitWas = !!e.asset.split; e.asset = { ...e.asset, split: false, labels: undefined }; e.splitDone = false;   /* shared paint is shared again, as in the game */
+  shapeEdit(() => { ED.model = orig; ED.box = 0; }); if (e.hist.length > h0) e.hist.push({ k: 'g', splitWas, parts: e.hist.splice(h0) }); ED.palette = ED.painter.palette(); requestAnimationFrame(() => { if (ED) { fitTexture(); render(); } }); });
 function renderWorkspace() {
   const P = ED.painter, a = ED.asset, c = ED.canvas, mode = ED.mode || 'paint'; ED.shapeOpen = mode === 'shape';
   const tools = mode === 'paint' ? PAINT_TOOLS : SHAPE_TOOLS, active = mode === 'paint' ? P.tool : ED.stool || 'select';
@@ -1338,7 +1352,7 @@ function renderWorkspace() {
     el('button', { class: 'btn icon', text: '↶', title: 'Undo (Ctrl+Z)', disabled: !ED.hist.length, onclick: () => wsUndo(false) }),
     el('button', { class: 'btn icon', text: '↷', title: 'Redo (Ctrl+Y)', disabled: !ED.fut.length, onclick: () => wsUndo(true) }),
     
-    el('button', { id: 'wsequip', class: 'btn', text: 'Wear it', title: 'Save and wear', onclick: () => finishAsset(true) }), el('button', { id: 'wsdone', class: 'btn primary', text: 'Done', title: 'Save and close', onclick: () => finishAsset() })].filter(Boolean));
+    el('button', { id: 'wsequip', class: 'btn', text: 'Wear', onclick: () => finishAsset(true) }), el('button', { id: 'wsdone', class: 'btn primary', text: 'Done', title: 'Save and close', onclick: () => finishAsset() })].filter(Boolean));
   const tool = (id, label, key, ic, on, fn) => el('button', { class: 'wstool' + (on ? ' on' : ''), title: (SHORT[id] || label) + (key ? ` (${key})` : ''), onclick: fn }, el('span', { text: ic }), el('b', { text: SHORT[id] || label }), key && key.length === 1 ? el('i', { text: key }) : null);
   const pickAny = (kind, id) => guard(async () => { if (ED.mode !== kind) await setMode(kind); pickTool(id); })();
   const paintIds = ['brush', 'erase', 'fill', 'pick'], extra = PAINT_TOOLS.filter(t => !paintIds.includes(t[0]));
@@ -1349,7 +1363,7 @@ function renderWorkspace() {
   $('wstools').replaceChildren(
     el('div', { class: 'wsgroup2' }, ...PAINT_TOOLS.filter(t => paintIds.includes(t[0])).sort((a, b) => paintIds.indexOf(a[0]) - paintIds.indexOf(b[0])).map(t => btn('paint', t)),
       ED.moreTools ? el('div', { class: 'wsextra' }, ...extra.map(t => btn('paint', t))) : null,
-      el('button', { class: 'wstool', title: ED.moreTools ? 'Fewer tools' : 'More tools', onclick: () => { ED.moreTools = !ED.moreTools; render(); } }, el('span', { text: ED.moreTools ? '‹' : '⋯' }), el('b', { text: ED.moreTools ? 'Less' : 'More' }))),
+      el('button', { class: 'wstool', 'aria-label': ED.moreTools ? 'Fewer tools' : 'More tools', onclick: () => { ED.moreTools = !ED.moreTools; render(); } }, el('span', { text: ED.moreTools ? '‹' : '⋯' }), el('b', { text: ED.moreTools ? 'Less' : 'More' }))),
     el('div', { class: 'wsgroup2' }, ...SHAPE_TOOLS.map(t => btn('shape', t)),
       el('button', { class: 'wstool', title: 'Add part (A)', onclick: guard(async () => { if (ED.mode !== 'shape') await setMode('shape'); startPlacing(); }) }, el('span', { text: '+' }), el('b', { text: 'Add' }))));
   c.style.width = c.width * ED.zoom + 'px';
@@ -1390,7 +1404,7 @@ addEventListener('keydown', e => {
     shapeEdit(() => { const o = { x: 0, y: 0, z: 0, ...sh.offset }; if (e.shiftKey) o.z += d[1] || -d[0]; else { o.x += d[0]; o.y += d[1]; } sh.offset = o; }); }
   else if (k === 'tab' && !ctrl && !e.shiftKey && !e.target?.closest?.('button, a, [tabindex], label')) setMode(ED.mode === 'shape' ? 'paint' : 'shape');
   else if (['1', '2', '3', '7', '5'].includes(k) && !ctrl) { st.setView({ 1: 'front', 2: 'back', 3: 'side', 7: 'top', 5: 'persp' }[k]); st.frameOn(ED.canvas); }
-  else if (ED.mode !== 'shape' && !ctrl && (k === '[' || k === ']')) { const P = ED.painter; P.size = Math.max(1, Math.min(8, P.size + (k === ']' ? 1 : -1))); render(); say('Brush size ' + P.size); }
+  else if (ED.mode !== 'shape' && !ctrl && (k === '[' || k === ']')) { const P = ED.painter; P.size = Math.max(1, Math.min(8, P.size + (k === ']' ? 1 : -1))); render(); }
   else if (ED.mode !== 'shape' && k === 'alt' && !e.repeat && ED.painter.tool !== 'pick') { ED.altFrom = ED.painter.tool; pickTool('pick'); }
   else if (!ctrl && !e.altKey) { const same = (ED.mode === 'shape' ? SHAPE_TOOLS : PAINT_TOOLS).find(x => x[2] && x[2].toLowerCase() === k), other = (ED.mode === 'shape' ? PAINT_TOOLS : SHAPE_TOOLS).find(x => x[2] && x[2].toLowerCase() === k);
     if (same) pickTool(same[0]); else if (other) guard(async () => { await setMode(ED.mode === 'shape' ? 'paint' : 'shape'); pickTool(other[0]); })(); else done = false; }
@@ -1534,7 +1548,7 @@ async function combineWith(f, e) { say('');
     renameAll(n); into.push(n); const walk = m => { if (m.shape && (m.shape.type === 'box' || m.shape.type === 'quad') && m.shape.visible !== false) added.push([m, m.shape.textureLayout || {}]); for (const c of m.children || []) walk(c); }; walk(n); } };
   const count = boxesOf(ED.model).length, before = JSON.stringify(ED.model), canvasW0 = ED.canvas.width, canvasH0 = ED.canvas.height;
   const incoming = []; { const walk = m => { if (m.shape && (m.shape.type === 'box' || m.shape.type === 'quad') && m.shape.visible !== false) incoming.push(m); for (const c of m.children || []) walk(c); }; src.model.nodes.forEach(walk); }
-  if (count + incoming.length > assets.MAX_BOXES) throw new Error(`Together that would be ${count + incoming.length} boxes; a piece can have up to ${assets.MAX_BOXES}.`);
+  if (count + incoming.length > assets.MAX_BOXES) throw new Error(`Limit is ${assets.MAX_BOXES} parts`);
   merge(ED.model.nodes, src.model.nodes);
   // room on this item's texture for each new box (the texture grows when it must), then their paint is copied across in one step
   let used = fig.usedRects(JSON.parse(before)); const lays = [];   // the free room counts this item's own parts and the new ones already placed (not their old spots)
@@ -1548,17 +1562,18 @@ async function combineWith(f, e) { say('');
     for (let v = 0; v < fv; v++) for (let u = 0; u < fu; u++) { const [dx, dy] = texelAt(a, u, v), [sx, sy] = texelAt(b, u, v); if (dx < 0 || dy < 0 || dx >= W || dy >= H || sx < 0 || sy < 0 || sx >= SW || sy >= SH) continue;
       const j = (dy * W + dx) * 4, k = (sy * SW + sx) * 4; d[j] = sd[k]; d[j + 1] = sd[k + 1]; d[j + 2] = sd[k + 2]; d[j + 3] = sd[k + 3]; } } }); });
   ED.hist.push({ k: 'g', parts: ED.hist.splice(-2) }); shapeChanged();
-  
+  if (added.length) { const k = boxesOf(ED.model).findIndex(b => b.node === added[0][0]); if (k >= 0) { ED.box = k; render(); placeGizmo(); const nm = added[0][0].name; setTimeout(() => { const m = ED && st.findMesh(o => o.userData.nodeName === nm); if (m) { st.showMesh(m); placeGizmo(); } }, 200); } }   /* the added item comes in picked and in view */
 }
 async function combinePick() {   // types down the left (hovering one shows its items at once), item pictures on the right
   const slots = game.FIELDS.filter(f => CAT.items[f]?.length);
   let cur_ = slots.includes(combinePick.last) ? combinePick.last : slots.includes('faceAccessory') && ED?.asset.field !== 'faceAccessory' ? 'faceAccessory' : slots[0], chosen = null, hov = 0, shown = null;
   const find = el('input', { type: 'text', placeholder: 'Search', maxLength: 40, autocomplete: 'off' }), grid = el('div', { class: 'cards combinegrid' });
   const fill = (f, force) => { if (f === shown && !force) return; shown = f; const q = find.value.trim().toLowerCase();
-    const list = oneEach(CAT.items[f]).filter(e => !isTmp(e) && !(!e.custom && paidLocked(e)) && !(ED && e.Id === 'Custom_' + ED.asset.id) && (!q || itemName(e).toLowerCase().includes(q)));
-    grid.replaceChildren(...list.map(e => { const a = e.custom && ASSETS.find(x => 'Custom_' + x.id === e.Id);
-      const card = el('button', { type: 'button', class: 'skin' + (chosen && chosen.e === e ? ' on' : ''), title: itemName(e), onclick: () => { cur_ = f; types(); chosen = { f, e }; const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.disabled = false; for (const c of grid.children) c.classList.toggle('on', c === card); }, ondblclick: () => { const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add && chosen) add.click(); }, onkeydown: ev => { if (ev.key === 'Enter' && chosen && chosen.e === e) { ev.preventDefault(); const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.click(); } } },
-        el('div', { class: 'pic' }, a ? assetThumb(a) : itemThumb(f, e, null, null, true)), el('b', { text: itemName(e) }));
+    const okE = e => !isTmp(e) && !(!e.custom && paidLocked(e)) && !(ED && e.Id === 'Custom_' + ED.asset.id) && (!q || itemName(e).toLowerCase().includes(q));
+    const list = (q ? slots : [f]).flatMap(g => oneEach(CAT.items[g]).filter(okE).map(e => [g, e])).slice(0, 300);   /* a search looks in every type */
+    grid.replaceChildren(...list.map(([g, e]) => { const a = e.custom && ASSETS.find(x => 'Custom_' + x.id === e.Id);
+      const card = el('button', { type: 'button', class: 'skin' + (chosen && chosen.e === e ? ' on' : ''), title: itemName(e), onclick: () => { if (!q) { cur_ = g; types(); } chosen = { f: g, e }; const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.disabled = false; for (const c of grid.children) c.classList.toggle('on', c === card); }, ondblclick: () => { const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add && chosen) add.click(); }, onkeydown: ev => { if (ev.key === 'Enter' && chosen && chosen.e === e) { ev.preventDefault(); const add = [...$('dlgbtns').children].find(b => b.value === 'yes'); if (add) add.click(); } } },
+        el('div', { class: 'pic' }, a ? assetThumb(a) : itemThumb(g, e, null, null, true)), el('b', { text: itemName(e) }));
       return card; }));
     if (!list.length) grid.append(el('p', { class: 'blank', text: 'No results' })); grid.scrollTop = 0; };
   const typeList = el('div', { class: 'combinetypes', onpointerleave: () => { clearTimeout(hov); fill(cur_); } });
@@ -1622,7 +1637,7 @@ function panelCreator() {
     const paidIn = f => { const it = R.find(f, cur.skin[f]), b = it && it.custom ? CAT.items[f].find(e => e.Id === it.baseId) : it; return b && paidLocked(b); };
     const tile = f => { const it = R.find(f, cur.skin[f]), p = parse(cur.skin[f]), paid = paidIn(f);
       return el('div', { class: 'skin starttile' + (paid ? ' paid' : '') }, el('div', { class: 'pic' }, itemThumb(f, it, p.color, p.variant)), el('b', { text: itemName(it) }), el('small', { text: LABEL[f] }),
-        paid ? el('small', { class: 'dim', text: 'Paid' }) : it.custom ? el('div', { class: 'acts' }, el('button', { class: 'mini', text: 'Open', onclick: guard(() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id); if (!a) throw new Error('That custom item is gone.'); return openAsset(a); }) }),
+        paid ? el('small', { class: 'dim', text: 'Paid' }) : it.custom ? el('div', { class: 'acts' }, el('button', { class: 'mini', text: 'Edit', onclick: guard(() => { const a = ASSETS.find(x => 'Custom_' + x.id === it.Id); if (!a) throw new Error('That custom item is gone.'); return openAsset(a); }) }),
           el('button', { class: 'mini', text: 'Copy', onclick: () => newAsset(f) }))
         : el('button', { class: 'mini', text: 'Edit a copy', onclick: () => newAsset(f) })); };
     return [head('Creator'), el('div', { class: 'pbody' },
