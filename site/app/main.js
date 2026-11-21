@@ -140,7 +140,7 @@ function pushWearing() { clearTimeout(pushWearing.t); pushWearing.t = setTimeout
   if (FOLDER.state !== 'on') return;
   try { await store.writeWearing(SHOWGAME ? { on: true, name: cur.name || 'New skin', keepOwn: store.keepOwnOf(cur.skin), skin: cur.skin } : { on: false }); } catch (e) { console.warn(e); } }, 400); }
 function drawGameSwitch() { const b = $('ingame'); if (!b) return; b.hidden = FOLDER.state !== 'on'; b.classList.toggle('primary', SHOWGAME); b.classList.toggle('ghost', !SHOWGAME);
-  b.textContent = SHOWGAME ? 'In game: on' : 'In game: off'; b.title = SHOWGAME ? 'Your character in your own worlds wears this (Skin Editor Sync mod)' : 'Show this skin on your character in your own worlds (needs the Skin Editor Sync mod)'; }
+  b.textContent = SHOWGAME ? 'In game: on' : 'In game: off'; b.title = 'Skin Editor Sync mod'; }
 const persist = c => c.kind === 'game' ? store.saveGame(c.slot, c.name, c.skin) : store.saveCustom(c.name, c.skin, c.id);
 function autosave() { clearTimeout(autosave.t); autosave.t = setTimeout(flush, 700); }   // every change saves itself; a new skin becomes "My skin N" in My skins on its first change
 function restoreFrom(s, before, fs) { const o = { ...s }; for (const f of fs) { if (before[f] == null) delete o[f]; else o[f] = before[f]; } return o; }
@@ -412,7 +412,7 @@ function card(rec, kind, i) {
   if (!rec) return el('div', { class: 'skin empty ' + kind }, el('div', { class: 'pic' }, el('span', { text: '+' })), el('b', { text: 'Slot ' + (i + 1) }), el('small', { text: 'Empty' }));
   const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
   const acts = kind === 'game' ? [act('Set in game', () => checklist(rec)), act('Rename', () => renameSkin(rec)), act('Move out', () => moveOut(rec)), pubButton(rec), locked('Send to game', 'sending this skin to your in-game preset', 'mini')]
-    : kind === 'custom' ? [act('To in-game', () => toGame(rec)), act('Rename', () => renameSkin(rec)), act('Copy', () => duplicate(rec)), pubButton(rec), act('Export', guard(() => exportSkin(rec))), act('Delete', () => removeSkin(rec), 'danger')]
+    : kind === 'custom' ? [act('Send to game', () => toGame(rec)), act('Rename', () => renameSkin(rec)), act('Copy', () => duplicate(rec)), pubButton(rec), act('Export', guard(() => exportSkin(rec))), act('Delete', () => removeSkin(rec), 'danger')]
     : [act('Save', () => { open(rec, true); saveAs(); })];
   const menu = acts.filter(Boolean).length > 1 ? cardMenu(acts.filter(Boolean)) : null;   /* card actions live in a ⋯ menu, as in file browsers */
   return el('div', { class: 'skin ' + kind + (cur.id && cur.id === rec.id ? ' on' : ''), tabIndex: 0, onclick: () => { if (kind === 'pub') { open(rec, true, true); return render(); } open(rec, kind === 'found'); setTab('editor'); },
@@ -682,9 +682,9 @@ fig.setCustomSource(async id => {
   const a = ASSETS.find(x => x.id === id); if (!a) throw new Error('that custom asset is gone');
   const bmp = await createImageBitmap(a.data), c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height; c.getContext('2d').drawImage(bmp, 0, 0); return c;
 });
-const newAsset = guard(async (f, val) => {
+const newAsset = guard(async (f, val) => { if (newAsset.busy) return; newAsset.busy = true;   /* a double click makes one copy */
   document.body.classList.add('busy');
-  try { await makeAsset(f, val); } finally { document.body.classList.remove('busy'); }
+  try { await makeAsset(f, val); } finally { document.body.classList.remove('busy'); newAsset.busy = false; }
 });
 async function makeAsset(f, val) {
   if (ASSETS.length + MAKING >= assets.MAX) throw new Error(`My items is full (${assets.MAX})`); MAKING++; try { return await makeAsset1(f, val); } finally { MAKING--; } }
@@ -751,11 +751,16 @@ function trimmedCanvas(e) { const c = e.canvas, W = c.width, H = c.height; let m
   const up = v => { let k = 16; while (k < v) k *= 2; return k; }, w = Math.min(W, up(mx)), h = Math.min(H, up(my)); if (w === W && h === H) return c;
   const t = document.createElement('canvas'); t.width = w; t.height = h; t.getContext('2d').drawImage(c, 0, 0); return t; }
 async function flushAsset() { clearTimeout(queueAssetSave.t); if (!ED || ASIDE) return; const e = ED, out = trimmedCanvas(e), data = await new Promise(ok => out.toBlob(ok, 'image/png'));
-  try { e.asset = await assets.save({ ...e.asset, data, w: out.width, h: out.height, shape: e.model && e.shapeN ? JSON.stringify(e.model) : e.asset.shape }); ASSETS = await assets.list(); syncFolder(); } finally { if (ED === e) markSaved(true); } }
+  const sent = e.asset, n0 = e.shapeN; let ok = false, threw = true;
+  try { const saved = await assets.save({ ...sent, data, w: out.width, h: out.height, shape: e.model && e.shapeN ? JSON.stringify(e.model) : sent.shape });
+    e.asset = e.asset === sent ? saved : { ...e.asset, w: saved.w, h: saved.h, updated: saved.updated, shape: saved.shape };   /* a rename or new labels made during the save are kept */
+    threw = false; ok = e.asset === saved && e.shapeN === n0; ASSETS = await assets.list(); syncFolder(); }
+  finally { if (ED === e) { if (ok) markSaved(true); else { markSaved(false); e.fails = threw ? (e.fails || 0) + 1 : 0; if (!queueAssetSave.pending && e.fails < 3) queueAssetSave(); } } } }   /* a failed or overtaken save stays unsaved and tries again */
 let CLIP = null;   // copied texture area, kept across items
 let beforeEdit = null;   // the outfit before an item went on for editing: Done puts it back, Equip keeps the item on
 const STEPS = new Map();   // undo history per custom item, kept for this visit so reopening an item can still undo
-async function closeAsset(quiet, keep = false) {
+function closeAsset(quiet, keep = false) { return (closeAsset.last = closeAsset1(quiet, keep)); }   // the last close is kept, so a delete can wait for its save
+async function closeAsset1(quiet, keep = false) {
   if (!ED) return; const before = ED.before, fld = ED.asset.field, edited = ED.asset.id; keepBrush(); if (ED.float) placeFloat(); STEPS.set(ED.asset.id, { hist: ED.hist, fut: ED.fut, paint: ED.painter.keepSteps(), mode: ED.mode }); tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); if (queueAssetSave.pending || ED.saved === false) await flushAsset().catch(e => say(e.message, true)); else clearTimeout(queueAssetSave.t); ED = null;   /* nothing changed: nothing is re-saved */ if ($('viewhint')) $('viewhint').hidden = true; registerAssets(); if (before) { const fs = [...(keep ? [] : [fld]), ...(HIDE[fld] || [])], s = restoreFrom(cur.skin, before, fs); if (JSON.stringify(s) !== JSON.stringify(cur.skin)) setSkin(s); else if (keep) { dirty = true; autosave(); keepDraft(); } } st.highlight(null); st.isolate(null); st.paintMode(false); st.gizmo(null); setTimeout(() => { viewInset(); st.unclose(); }, 60); for (const k of [...pics.keys()]) if (k.includes(edited)) pics.delete(k);
   if (!quiet) { playAnim('Default', 'Idle', 0.5); rebuild(); render(); }
 }
@@ -988,6 +993,7 @@ function cardMenu(acts) {   // a card's actions in a ⋯ menu, as in file browse
     if (open_) { const close = ev => { if (!m.contains(ev.target) && ev.target !== b) { m.hidden = true; removeEventListener('pointerdown', close, true); } }; addEventListener('pointerdown', close, true); } } });
   return [b, m]; }
 async function deleteAsset(a) {   // skins wearing it go back to the game item it was copied from (or the slot's usual item)
+  await closeAsset.last?.catch(() => {});   /* a close still saving would write the item back */
   const mine = v => typeof v === 'string' && v.startsWith('Custom_' + a.id), base = R.ITEMS[a.field]?.find(e => e.Id === a.baseId && !e.custom), back = base ? (a.tone ? base.Id + '.' + a.tone : R.partStr(base)) : null;   /* a copied body hands back its own tone */
   const swap = sk => (mine(sk[a.field]) ? { ...sk, [a.field]: back } : sk), worn = mine(cur.skin[a.field]);
   const full = (await assets.list()).find(x => x.id === a.id) || a, was = cur.skin, wasCur = cur, hit = [...WARD.custom, ...WARD.game].filter(r => r && mine(r.skin?.[a.field]));
@@ -1029,7 +1035,7 @@ fig.setShapeSource(async id => {
   const a = ASSETS.find(x => x.id === id); if (!a || !a.shape) throw new Error('that shape is gone'); return JSON.parse(a.shape);
 });
 const boxesOf = m => { const out = []; const walk = (n, parent) => { const s = n.shape || {}; if ((s.type === 'box' || s.type === 'quad') && s.visible !== false) out.push({ node: n, parent }); for (const c of n.children || []) walk(c, n); }; for (const n of m.nodes) walk(n, null); return out; };
-function uniqNames(model) { const seen = new Set(); const walk = l => { for (const n of l || []) { if (seen.has(n.name)) { let k = 2; while (seen.has(n.name + '~' + k)) k++; n.name += '~' + k; } seen.add(n.name); walk(n.children); } }; walk(model.nodes); return model; }   // game models repeat some part names; every part gets its own, so picking and dragging find the right one
+function uniqNames(model) { const seen = new Set(); const walk = l => { for (const n of l || []) { if (seen.has(n.name)) { const b = String(n.name).slice(0, 56); let k = 2; while (seen.has(b + '~' + k)) k++; n.name = b + '~' + k; } seen.add(n.name); walk(n.children); } }; walk(model.nodes); return model; }   // game models repeat some part names; every part gets its own, so picking and dragging find the right one
 async function editModel() { if (!ED.model) ED.model = uniqNames(ED.asset.shape ? JSON.parse(ED.asset.shape) : structuredClone(await game.json(game.common(ED.asset.model)))); return ED.model; }
 function shapeChanged() {   // the preview, the drawn-area guide and the saved copy follow every edit
   ED.shapeN = (ED.shapeN || 0) + 1; ED.rects = fig.usedRects(ED.model); maskFromRects();
@@ -1061,7 +1067,8 @@ const PAINT_TOOLS = [['select', 'Select area', 'M', '⬚'], ['brush', 'Brush', '
   ['line', 'Line', 'L', '╱'], ['box', 'Rectangle', 'U', '▢'], ['boxfill', 'Filled rectangle', 'Q', '■'], ['light', 'Lighten', 'O', '☀'], ['dark', 'Darken', 'D', '☾'], ['noise', 'Noise', 'N', '░']];
 const SHORT = { part: 'Whole part', more: 'More', select: 'Select', pick: 'Pick', replace: 'Replace', boxfill: 'Filled', light: 'Lighten', dark: 'Darken', dup: 'Copy', del: 'Delete' };   // names under the tool icons
 const SHAPE_TOOLS = [['move', 'Move', 'G', '✥'], ['resize', 'Resize', 'S', '⤢'], ['rotate', 'Turn', 'R', '⟳']];   // click a part to pick it; these set what its handles do
-const capHist = () => { if (ED.hist.length > 90) ED.hist.splice(0, ED.hist.length - 90); };   /* below the painter's own step limit, so every undo still has its paint */
+const paintsIn = e => e.k === 'p' ? 1 : e.k === 'g' ? e.parts.reduce((n, x) => n + paintsIn(x), 0) : 0;
+const capHist = () => { let n = ED.hist.reduce((a, x) => a + paintsIn(x), 0); while (ED.hist.length && (ED.hist.length > 90 || n > 110)) n -= paintsIn(ED.hist.shift()); };   /* counts the paint steps inside groups too */   /* below the painter's own step limit, so every undo still has its paint */
 const recordPaint = () => { if (ED && !ED.replaying) { ED.hist.push({ k: 'p' }); ED.fut = []; capHist(); } };
 function recordShape(before) { ED.hist.push({ k: 's', other: before }); ED.fut = []; capHist(); }
 function undoEntry(e, redo) {
@@ -1083,7 +1090,7 @@ function shapeEdit(fn) {   // with Symmetry on, the box's twin on the other side
   finishShape(before); }
 async function setMode(m) { if (ED.float) placeFloat(); if (m === 'shape') ED.sel = null; say(''); if (m === 'shape') { await editModel(); const h0 = ED.hist.length; if (boxesOf(ED.model).filter(b => /^Box_/.test(b.node.name) && bakeOffset(b.node)).length) shapeChanged(); splitShared(); if (ED.hist.length > h0) ED.hist.push({ k: 'g', setup: true, parts: ED.hist.splice(h0) });   /* setup on entering Shape is one undo step */
     ED.box ||= 0; if (!ED.stool || ED.stool === 'select') ED.stool = 'move'; st.cursor(null); ED.hover = ED.hoverM = null; } ED.mode = m; ED.shapeOpen = m === 'shape'; render(); placeGizmo(); }
-function pickTool(id) { if (ED.mode === 'shape') { if (ED.stool !== id) say(''); ED.stool = id; } else { if (id !== 'select' && ED.float) placeFloat(); ED.painter.tool = id; } render(); placeGizmo(); }
+function pickTool(id) { if (ED.mode === 'shape') { if (ED.stool !== id) say(''); ED.stool = id; ED.moreTools = false; } else { if (id !== 'select' && ED.float) placeFloat(); ED.painter.tool = id; } render(); placeGizmo(); }
 function curBox() { return ED.model ? boxesOf(ED.model)[ED.box || 0] : null; }
 function placeGizmo() {
   if (!st) return; wsAnim(); const b = ED && ED.mode === 'shape' && ['move', 'resize', 'rotate'].includes(ED.stool) ? curBox() : null;
@@ -1168,9 +1175,10 @@ function renameBox(btn, node) {
   btn.replaceWith(inp); inp.focus(); inp.select();
 }
 // the texture view: the wheel zooms, right- or middle-drag pans; in Shape mode a click picks the box that owns that area
-function fitTexture() { if (!ED) return; const w = $('wsleft').clientWidth - 26; ED.zoom = Math.max(1, Math.min(24, Math.floor(w / ED.canvas.width))); }
+function fitTexture() { if (!ED) return; if (!fitTexture.ro && window.ResizeObserver) { fitTexture.ro = new ResizeObserver(() => { if (ED && !ED.userZoom) { const z = ED.zoom; fitTexture(); if (ED.zoom !== z) render(); } }); fitTexture.ro.observe($('wsleft')); }   /* refits when the panel changes size, unless zoomed by hand */
+  const w = $('wsleft').clientWidth - 26; ED.zoom = Math.max(1, Math.min(24, Math.floor(w / ED.canvas.width))); }
 function bindTexView(box) {
-  box.addEventListener('wheel', e => { if (!ED) return; e.preventDefault(); const z = Math.max(1, Math.min(24, ED.zoom + (e.deltaY < 0 ? 1 : -1))); if (z === ED.zoom) return;
+  box.addEventListener('wheel', e => { if (!ED) return; e.preventDefault(); const z = Math.max(1, Math.min(24, ED.zoom + (e.deltaY < 0 ? 1 : -1))); if (z === ED.zoom) return; ED.userZoom = true;
     const cv = () => box.querySelector('canvas'), r0 = cv()?.getBoundingClientRect(), tx = r0 ? (e.clientX - r0.left) / r0.width : 0, ty = r0 ? (e.clientY - r0.top) / r0.height : 0;
     ED.zoom = z; render(); const r1 = cv()?.getBoundingClientRect(); if (r0 && r1) { box.scrollLeft += r1.left + tx * r1.width - e.clientX; box.scrollTop += r1.top + ty * r1.height - e.clientY; } }, { passive: false });   /* the texel under the cursor stays under it */
   box.addEventListener('contextmenu', e => e.preventDefault());
@@ -1204,7 +1212,7 @@ function useColour(h) { const P = ED.painter; P.color = h; if (!ED.altFrom && P.
 const swatchRow = list => el('div', { class: 'swatches' }, list.map(h => { const b = el('button', { title: h, class: h === ED.painter.color ? 'on' : '', onclick: () => useColour(h) }); b.style.background = h; return b; }));
 // ---- the finish: after Done, say what happens next
 async function finishAsset(equip = false) {
-  const a = ED.asset; await closeAsset(false, equip); if (!equip) return say((cur.skin[a.field] || '').startsWith('Custom_' + a.id) ? `Saved ${a.name}` : `Saved ${a.name}`); const linked = FOLDER.state === 'on';
+  const a = ED.asset; await closeAsset(false, equip); if (!equip) return;   /* the editor closing is the result; no message */ const linked = FOLDER.state === 'on';
   const text = linked ? (SHOWGAME ? 'It is on your character in your own worlds too, through the Skin Editor Sync mod.' : 'Turn on In game to wear it in your own Hytale worlds (needs the Skin Editor Sync mod).')
     : 'To wear it in Hytale, install the Skin Editor Sync mod and pick a skins folder in the Locker.';
   const upd = cur.id && cur.name ? ` "${cur.name}" now wears it too.` : '';
@@ -1292,6 +1300,7 @@ function delBox(k = ED.box || 0) { const boxes = boxesOf(ED.model), i = k, b = b
     for (let k = 0; k < W * H; k++) if (!used[k]) d[k * 4 + 3] = 0; }); ED.hist.push({ k: 'g', parts: ED.hist.splice(-2) }); render();
 }
 const resetShape = guard(async () => {   // the game's own shape and paint come back (one undo step)
+  say('');
   const e = ED, f = e.asset.field, base = CAT.items[f]?.find(x => x.Id === e.asset.baseId && !x.custom), orig = uniqNames(structuredClone(await game.json(game.common(e.asset.model))));
   let img = null; if (base) { const worn = e.before?.[f], val = e.asset.tone ? base.Id + '.' + e.asset.tone : worn && parse(worn).id === base.Id ? worn : R.partStr(base), sk = { ...cur.skin, [f]: val }; for (const h of HIDE[f] || []) delete sk[h];
     const r = R.resolve(f, sk); if (r) img = await fig.bakedCanvas(r.tex, r.tint).catch(() => null); }
@@ -1329,9 +1338,9 @@ function renderWorkspace() {
   ED.box_.replaceChildren(el('div', { class: 'paintwrap' }, c, limits(c), sizeOvl()));
   ED.box_.classList.toggle('resizing', mode === 'shape' && ED.stool === 'resize');   // drag a part's area on the texture to resize it
   $('wsleft').replaceChildren(...[el('div', { class: 'wshead row' }, el('span', { text: 'Texture', class: 'grow' }),
-      el('button', { class: 'chip' + (ED.wide ? ' on' : ''), text: ED.wide ? 'Smaller' : 'Bigger', onclick: e => { ED.wide = !ED.wide; e.currentTarget.textContent = ED.wide ? 'Smaller' : 'Bigger'; e.currentTarget.classList.toggle('on', ED.wide); $('app').classList.toggle('ws-wide', ED.wide); requestAnimationFrame(() => { fitTexture(); render(); }); } })),
+      el('button', { class: 'chip' + (ED.wide ? ' on' : ''), text: ED.wide ? 'Smaller' : 'Bigger', onclick: e => { ED.wide = !ED.wide; ED.userZoom = false; e.currentTarget.textContent = ED.wide ? 'Smaller' : 'Bigger'; e.currentTarget.classList.toggle('on', ED.wide); $('app').classList.toggle('ws-wide', ED.wide); requestAnimationFrame(() => { fitTexture(); render(); }); } })),
     ED.box_,
-    el('div', { class: 'row' }, el('button', { class: 'btn icon', text: '−', title: 'Zoom out', disabled: ED.zoom <= 1, onclick: () => { ED.zoom = Math.max(1, ED.zoom - 1); render(); } }), el('button', { class: 'btn icon', text: '+', title: 'Zoom in', disabled: ED.zoom >= 24, onclick: () => { ED.zoom = Math.min(24, ED.zoom + 1); render(); } }),
+    el('div', { class: 'row' }, el('button', { class: 'btn icon', text: '−', title: 'Zoom out', disabled: ED.zoom <= 1, onclick: () => { ED.userZoom = true; ED.zoom = Math.max(1, ED.zoom - 1); render(); } }), el('button', { class: 'btn icon', text: '+', title: 'Zoom in', disabled: ED.zoom >= 24, onclick: () => { ED.userZoom = true; ED.zoom = Math.min(24, ED.zoom + 1); render(); } }),
       ED.rects.length ? el('button', { class: 'chip' + (P.inside ? '' : ' on'), text: 'Paint outside', 'aria-pressed': String(!P.inside), onclick: () => { P.inside = !P.inside; render(); } }) : null),
     ].filter(Boolean));
   $('wsright').replaceChildren(...(mode === 'paint' ? paintSide() : shapeSide()).flat(Infinity).filter(Boolean)); $('wsright').querySelector('.partrow.on')?.scrollIntoView({ block: 'nearest' });
@@ -1496,7 +1505,7 @@ async function combineSource(f, e) {   // that item's model and its painted text
 async function combineWith(f, e) { say('');
   const src = await combineSource(f, e); await editModel();
   const names = new Set(), seen = list => { for (const n of list || []) { names.add(n.name); seen(n.children); } }; seen(ED.model.nodes);
-  const fresh = n => { let k = n, i = 2; while (names.has(k)) k = n + '_' + i++; names.add(k); return k; };
+  const fresh = n => { const b = String(n).slice(0, 56); let k = n, i = 2; while (names.has(k)) k = b + '_' + i++; names.add(k); return k; };   /* names stay under the 64-character limit */
   const renameAll = n => { n.name = fresh(n.name); for (const c of n.children || []) renameAll(c); };
   const holder = n => !n.shape || n.shape.type === 'none' || n.shape.visible === false;   // a bone the parts hang on, not a part
   const added = [];   // [box node, its layout in the other item's texture]
@@ -1626,7 +1635,7 @@ addEventListener('keydown', e => { if (!R || e.target?.matches?.('input, textare
 // one tab at a time: a newly opened tab asks the others to save and step aside, so two tabs never write over each other
 let ASIDE = false; const TAB_ID = Math.random().toString(36).slice(2), TABS = 'BroadcastChannel' in self ? new BroadcastChannel('skin-editor-tabs') : null;
 let READY = false, HANDING = false; const BORN = Date.now();
-addEventListener('keydown', e => { if (ASIDE || HANDING) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);   /* a tab that stepped aside takes no shortcuts */
+for (const ev of ['keydown', 'pointerdown', 'wheel']) addEventListener(ev, e => { if (ASIDE || HANDING) { e.stopImmediatePropagation(); if (ev !== 'wheel') e.preventDefault(); } }, { capture: true, passive: false });   /* a tab handing off or stepped aside takes no edits */
 const stepAside = () => { ASIDE = true; HANDING = false; try { if ($('dlg').open) $('dlg').close(''); } catch { /* no dialog */ } if (document.querySelector('.elsewhere')) return;
   document.body.append(el('div', { class: 'elsewhere' }, el('div', { class: 'elsebox' }, el('b', { text: 'Open in another tab' }), el('button', { class: 'btn primary', text: 'Use here', onclick: () => location.reload() })))); };
 if (TABS) TABS.onmessage = async e => { const m = e.data || {}; if (!m.hi || m.hi === TAB_ID || ASIDE || HANDING) return;
@@ -1634,7 +1643,7 @@ if (TABS) TABS.onmessage = async e => { const m = e.data || {}; if (!m.hi || m.h
   HANDING = true; TABS.postMessage({ wait: m.hi }); try { document.activeElement?.blur?.(); } catch { /* typed names commit on blur */ }
   clearTimeout(queueAssetSave.t); clearTimeout(autosave.t); try { if (ED) await flushAsset(); if (ED && ED.before) cur.skin = keptSkin(); dirty = dirty || !!ED; await flush(); await db.put('meta', 'draft', { id: cur.id, kind: cur.kind, slot: cur.slot, name: cur.name, skin: cur.skin, auto: !!cur.auto }); } catch (err) { console.error(err); }
   stepAside(); TABS.postMessage({ bye: m.hi }); };
-const claimTab = () => !TABS ? Promise.resolve() : new Promise(ok => { let t = setTimeout(done, 120); function done() { clearTimeout(t); TABS.removeEventListener('message', on); ok(); } function on(e) { if (e.data?.wait === TAB_ID) { clearTimeout(t); t = setTimeout(done, 3000); } if (e.data?.bye === TAB_ID) done(); } TABS.addEventListener('message', on); TABS.postMessage({ hi: TAB_ID, t: BORN }); });   /* another tab answers 'wait' at once, then 'bye' once saved */
+const claimTab = () => !TABS ? Promise.resolve() : new Promise(ok => { let t = setTimeout(done, 120); function done() { clearTimeout(t); TABS.removeEventListener('message', on); ok(); } function on(e) { if (e.data?.wait === TAB_ID) { clearTimeout(t); t = setTimeout(done, 15000); } if (e.data?.bye === TAB_ID) done(); } TABS.addEventListener('message', on); TABS.postMessage({ hi: TAB_ID, t: BORN }); });   /* another tab answers 'wait' at once, then 'bye' once saved */
 (async function boot() {
   try { await claimTab();
     // Local development only: read the developer's own Assets.zip through the dev server (dev/ is never deployed).

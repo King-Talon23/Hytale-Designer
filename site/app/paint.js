@@ -56,13 +56,13 @@ export function createPainter(canvas, onChange, onPick) {
   const show = () => { ctx.putImageData(img, 0, 0); dirty = true; onChange(false); };
   function swap(from, to) { if (!from.length) return; to.push(copy()); ctx.putImageData(from.pop(), 0, 0); onChange(true); }
   const P = { tool: 'brush', size: 1, color: '#e0b050', opacity: 1, inside: true, mask: null, tolerance: 24, fillMode: 'area', faceAt: null,   // tolerance: how far a colour may differ (0-100) and still count as the same for Fill
-    begin() { img = ctx.getImageData(0, 0, W, H); base = new ImageData(new Uint8ClampedArray(img.data), W, H); undo.push(base); if (undo.length > 120) undo.shift(); touched = new Set(); fresh = true; dirty = false; start = null; },
+    begin() { img = ctx.getImageData(0, 0, W, H); base = new ImageData(new Uint8ClampedArray(img.data), W, H); undo.push(base); touched = new Set(); fresh = true; dirty = false; start = null; },
     stroke(a, b) { if (!img) return; const first = fresh, t = P.tool; fresh = false; if (first) start = a;
       if (t === 'pick') { if (first) { const i = (b.y * W + b.x) * 4, d = img.data; if (d[i + 3]) { P.color = hex(d[i], d[i + 1], d[i + 2]); onPick && onPick(); } } return; }
       if (t === 'fill' || t === 'replace') { if (first) { (t === 'replace' ? replaceAll : P.fillMode === 'side' ? fillSide : P.fillMode === 'every' ? fillEvery : flood)(b.x, b.y); show(); } return; }
       if (SHAPES.has(t)) { img.data.set(base.data); touched.clear(); if (t === 'line') line(start, b); else box(start, b, t === 'boxfill'); show(); return; }   // the shape is redrawn from where the drag began
       line(a, b); show(); },
-    end() { if (!img) return; if (dirty) { redo.length = 0; onChange(true); } else undo.pop(); img = null; base = null; touched = null; },
+    end() { if (!img) return; if (dirty) { redo.length = 0; if (undo.length > 120) undo.shift(); onChange(true); } else undo.pop();   /* the oldest step goes only when a real one is added */ img = null; base = null; touched = null; },
     undo() { swap(undo, redo); }, redo() { swap(redo, undo); },
     keepSteps() { return { undo: undo.slice(), redo: redo.slice(), W, H }; },   // the undo steps, kept while the item is closed
     takeSteps(k) { if (!k || k.W !== W || k.H !== H) return false; undo.splice(0, undo.length, ...k.undo); redo.splice(0, redo.length, ...k.redo); return true; },
