@@ -432,3 +432,13 @@ dialog.wide { width: min(760px, 94vw); }
 .iconbtn { width: 26px; height: 24px; padding: 0; display: grid; place-items: center; background: none; border: 1px solid transparent; border-radius: 3px; color: #c5d6e2; font-size: 15px; line-height: 1; min-height: 0; }
 .iconbtn:hover { background: #1b2e48; border-color: var(--line); }
 .wshead.row { display: flex; align-items: center; gap: 2px; }
+.combinegrid { height: 46vh; max-height: none; align-content: start; } .combinetypes { height: 46vh; }
+/* skin cards: actions in a ⋯ menu */
+.skin { position: relative; }
+.skin .cardmenu { position: absolute; top: 4px; right: 4px; width: 24px; height: 22px; padding: 0; min-height: 0; border-radius: 3px; background: #0d1826cc; border: 1px solid var(--line); color: #dce8eb; font-size: 14px; line-height: 1; opacity: 0; }
+.skin:hover .cardmenu, .skin:focus-within .cardmenu { opacity: 1; }
+.skin .cardacts { position: absolute; top: 28px; right: 4px; z-index: 5; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: #0d1826; border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 18px #000a; min-width: 110px; }
+.skin .cardacts[hidden] { display: none; }
+.skin .cardacts .mini { width: 100%; text-align: left; }
+.status .linkbtn { background: none; border: 0; padding: 0 0 0 6px; min-height: 0; color: var(--gold); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; pointer-events: auto; }
+.status:has(.linkbtn) { pointer-events: auto; }
