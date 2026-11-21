@@ -261,7 +261,7 @@ async function buildWorld(sc, tint) {
           k = Math.min(e((d - clear) / 1.8), e((38 - d) / 8), c ? e((Math.hypot(x * BLOCK - c.x, z * BLOCK - c.z) / BLOCK - 1.2) / 2.2) : 1);
           for (const r of rects) if (x > r[0] - 0.6 && x < r[2] + 0.6 && z > r[1] - 0.6 && z < r[3] + 0.6) k = 0;
           if (k < 0.02) continue; }
-        st.im.setMatrixAt(n++, M.compose(V.set(x * BLOCK, y * BLOCK, z * BLOCK), st.plant ? Q.setFromAxisAngle(Y, q) : q || Q.identity(), st.plant ? SC.setScalar(k) : ONE)); }
+        st.im.setMatrixAt(n++, M.compose(V.set(x * BLOCK, (y - (1 - k) * 2.2) * BLOCK, z * BLOCK), st.plant ? Q.setFromAxisAngle(Y, q) : q || Q.identity(), ONE)); }   /* a plant that must clear the way sinks into the ground at full size (never a shrunken miniature) */
       st.im.count = n; st.im.instanceMatrix.needsUpdate = true; if (!st.slide) st.laid = true; } };
   const span = P * BLOCK;
   root.userData.move = (dx, dz) => { if (!dx && !dz) return layout(true); ax = (ax + dx) % span; az = (az + dz) % span; layout(false); };
@@ -281,7 +281,7 @@ export function stage(canvas, Controls) {
   const ctl = new Controls(cam, canvas); ctl.target.set(0, 62, 0); ctl.enablePan = false; ctl.zoomToCursor = false;   // zoom stays on the figure's centre, lined up with the buttons under it
   ctl.minDistance = 40; ctl.maxDistance = 900; ctl.rotateSpeed = 0.55; ctl.maxPolarAngle = Math.PI * 0.55; ctl.update();
   const disc = new THREE.Mesh(new THREE.CircleGeometry(58, 48), new THREE.MeshBasicMaterial({ color: 0x0b1626, transparent: true, opacity: 0.55, fog: false })); disc.rotation.x = -Math.PI / 2; disc.position.y = -0.2; scene.add(disc);
-  const CELL = 32, grid = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ transparent: true, depthWrite: false,
+  const CELL = 32, grid = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({ transparent: true, depthWrite: false, extensions: { derivatives: true },
     // the Studio floor: grid lines on an endless plane, fading into the dark with distance so no edge is ever seen
     uniforms: { opacity: { value: 0 }, color: { value: new THREE.Color(0x5a8cc8) }, cell: { value: CELL } },
     vertexShader: 'varying vec3 vL; varying vec3 vW; void main() { vL = position; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
@@ -504,7 +504,7 @@ export function stage(canvas, Controls) {
   const shadow = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
     g.addColorStop(0, 'rgba(0,0,0,0.42)'); g.addColorStop(0.6, 'rgba(0,0,0,0.22)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
   // bd: { top, fog } colours from the zone's weather at noon, sc: its entry in SCENES, tint: the biome's grass colour
-  api.world = () => world; api.camera = cam; api.orbit = (az, el, dist) => { const t = ctl.target; cam.position.set(t.x + Math.sin(az) * Math.cos(el) * dist, t.y + Math.sin(el) * dist, t.z + Math.cos(az) * Math.cos(el) * dist); ctl.update(); };   // for tests
+  api.world = () => world; api.camera = cam; api.orbitTo = (az, el, dist) => { const t = ctl.target; cam.position.set(t.x + Math.sin(az) * Math.cos(el) * dist, t.y + Math.sin(el) * dist, t.z + Math.cos(az) * Math.cos(el) * dist); ctl.update(); };   // for tests
   api.setBackdrop = async (bd, sc, tint) => { const my = (api.setBackdrop.n = (api.setBackdrop.n || 0) + 1);
     let built = null; if (bd) try { built = await buildWorld(sc, tint); } catch (e) { console.warn('scene', e); if (my === api.setBackdrop.n) throw new Error('scene files missing'); return; }   // the caller says what is missing
     if (my !== api.setBackdrop.n) { if (built) disposeTree(built); return; }
