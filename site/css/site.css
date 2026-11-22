@@ -470,3 +470,10 @@ table.keys th { text-align: left; font: 700 11px Lexend, sans-serif; letter-spac
 /* keyboard focus is a blue ring, distinct from the gold "on" state */
 .btn:focus-visible, .wstool:focus-visible, .chip:focus-visible, .iconbtn:focus-visible, .partrow button:focus-visible, .skin:focus-visible, .bdopt:focus-visible { outline: 2px solid #7fb3ff; outline-offset: 1px; }
 .animlist button[aria-pressed="false"]::after { content: ""; position: absolute; left: 6px; top: 6px; width: 10px; height: 12px; border: solid #fff; border-width: 0 3px; box-sizing: border-box; filter: drop-shadow(0 1px 1px #000); }   /* paused */
+.transport { position: absolute; left: 50%; bottom: 102px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 10px; background: #0b1626d8; border: 1px solid #22364f; border-radius: 4px; z-index: 5; width: min(440px, 90%); }
+.transport .tbtn { min-width: 28px; height: 26px; padding: 0 6px; border: 1px solid #2c4568; border-radius: 3px; background: #15263c; color: #e8eef6; font: 700 13px/1 var(--b); cursor: pointer; }
+.transport .tbtn:hover { border-color: var(--gold); }
+.transport input[type=range] { flex: 1; min-width: 80px; accent-color: var(--gold); }
+.transport .tframe { font: 600 12px var(--b); color: #c9d6e6; min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+.stbtn .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.shotwrap { position: relative; } .shotmenu { left: 0; white-space: nowrap; }

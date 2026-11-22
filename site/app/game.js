@@ -70,14 +70,16 @@ export const common = p => 'Common/' + p;
 
 export async function catalog() {
   const cat = n => json(`Cosmetics/CharacterCreator/${n}.json`), opt = async n => { try { return await cat(n); } catch { return []; } };
-  const [slots, gradients, fallbacks, emotes] = await Promise.all([
-    Promise.all(SLOTS.map(async ([field, file]) => ({ field, items: await cat(file) }))), cat('GradientSets'), opt('HaircutFallbacks'), opt('Emotes')]);
+  const [slots, gradients, fallbacks, emotes, inGame, faces] = await Promise.all([
+    Promise.all(SLOTS.map(async ([field, file]) => ({ field, items: await cat(file) }))), cat('GradientSets'), opt('HaircutFallbacks'), opt('Emotes'), opt('EmotesInGame'), opt('EmotesFace')]);
   // player moves only: the player folder also holds poses made for creatures and factions (Feran, Outlander, Guardian ...)
   const MOB = /^(Feran|Outlander|Guardian|Skeleton|Zombie|Trork|Goblin|Kweebec|Golem|Scarak|Void)/i, all = (await db.get('meta', 'anims')) || await listAnims();
   const anims = Object.fromEntries(await Promise.all(Object.entries(all).map(async ([g, ns]) => [g, await unique(g, ns.filter(n => !MOB.test(n)))]))); for (const g in anims) if (!anims[g].length) delete anims[g];
   const names = await langNames();
+  // the game's own emote wheel and face lists: the file each id plays, its shown name, whether it loops (Dab Left plays Dab_Right.blockyanim)
+  const list = (es, lang) => (Array.isArray(es) ? es : []).map(e => { const m = /^Characters\/Animations\/(.+)\/([^/]+)\.blockyanim$/.exec(e.Animation || ''); return m && { id: e.Id, g: m[1], n: m[2], name: (lang && names[e.Name]) || e.Id.replace(/([a-z])([A-Z0-9])/g, '$1 $2'), loop: !!e.IsLooping }; }).filter(Boolean);
   return { names, items: Object.fromEntries(slots.map(s => [s.field, s.items])), gradients: Object.fromEntries(gradients.map(g => [g.Id, g.Gradients])),
-    fallbacks: Array.isArray(fallbacks) ? {} : fallbacks, emotes, anims };
+    fallbacks: Array.isArray(fallbacks) ? {} : fallbacks, emotes, anims, wheel: list(inGame, true), faces: list(faces, false) };
 }
 async function langNames() {   // "Cape_King.name = King's Cape" in capes.lang is the name for the key avatarCustomization.capes.Cape_King.name
   const out = {}, utf8 = new TextDecoder();

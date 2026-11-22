@@ -74,7 +74,7 @@ function shapeMesh(sh, T) {
   }
   if (!idx.length) return null;
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, T.mat); mesh.userData.texel = st; return mesh;
+  const mesh = new THREE.Mesh(geo, T.mat); mesh.userData.texel = st; mesh.userData.off = off; mesh.userData.tex = [T.w, T.h]; return mesh;   // off and tex: face animations stretch the shape about its offset and slide its texture
 }
 // a node: its pivot group, its own shape, and a child holder at the shape's offset (children hang from pivot + offset)
 function node(n, T, bones, parts) {
@@ -89,6 +89,8 @@ function attach(ns, T, bones, parts) {
   for (const n of ns) {
     const b = bones[n.name]; if (!b) { attach(n.children || [], T, bones, parts); continue; }
     for (const c of n.children || []) if (!bones[c.name]) b.add(node(c, T, null, parts));
+    for (const c of n.children || []) { const bb = bones[c.name], pg = bb && bb.parent, sh = c.shape || {};   /* a piece named like a body bone (the face's eyelids) keeps its own shape, on that bone */
+      if (pg && !pg.userData.mesh && (sh.type === 'box' || sh.type === 'quad') && sh.visible !== false) { const m = shapeMesh(sh, T); if (m) { pg.add(m); pg.userData.mesh = m; m.userData.nodeName = c.name; } } }
     attach((n.children || []).filter(c => bones[c.name]), T, bones, parts);
   }
 }
@@ -122,6 +124,17 @@ function span(keys, T, dur, loop) {   // the two keyframes around T and how far 
   }
   let i = 1; while (keys[i].time < T) i++; const a = keys[i - 1], b = keys[i]; return [a, b, (T - a.time) / (b.time - a.time || 1)];
 }
+// 'smooth' keys (most of the game's) run on a Catmull-Rom curve through the keys around them, like Blockbench's smooth; 'linear' stays straight
+const isSmooth = (a, b) => a.interpolationType === 'smooth' || b.interpolationType === 'smooth';
+function around(keys, a, b, loop) { const n = keys.length, i = keys.indexOf(a), j = keys.indexOf(b); const pi = i > 0 ? i - 1 : loop ? n - 1 : i, nj = j < n - 1 ? j + 1 : loop ? 0 : j; return [keys[pi], keys[nj]]; }
+const cr = (p0, p1, p2, p3, u) => { const u2 = u * u, u3 = u2 * u; return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3); };
+// a face shape's animated stretch (about its own offset) and texture slide; null puts it back
+function faceShape(m, stretch, uvOff) {
+  const o = m.userData.off || [0, 0, 0], k = stretch || [1, 1, 1]; m.scale.set(k[0], k[1], k[2]); m.position.set(o[0] * (1 - k[0]), o[1] * (1 - k[1]), o[2] * (1 - k[2]));
+  const uv = m.geometry.attributes.uv, base = m.userData.uv0 ||= Float32Array.from(uv.array), [w, h] = m.userData.tex || [1, 1], du = uvOff ? uvOff[0] / w : 0, dv = uvOff ? uvOff[1] / h : 0;   /* the game's y offset runs up the texture: -20 is 20 texels further down */
+  if (du !== m.userData.du || dv !== m.userData.dv) { for (let i = 0; i < base.length; i += 2) { uv.array[i] = base[i] + du; uv.array[i + 1] = base[i + 1] + dv; } uv.needsUpdate = true; m.userData.du = du; m.userData.dv = dv; }
+  m.userData.shaped = !!(stretch || uvOff);
+}
 // Moves that carry the player across the ground in game (walk, run, dash, roll, swim, fly ...). The animation files only hold the
 // body motion, so the stage shows the travel itself: the ground slides under the figure, in units a second ([sideways, forward]).
 const STILL = new Set(['Poses', 'Emote', 'Taunt', 'Flavor', 'Expressions', 'Climb', 'Mantle']);
@@ -139,7 +152,7 @@ export class Animator {
   constructor() { this.anim = null; this.t = 0; this.speed = 1; this.playing = true; this.figure = null; this.blend = 1; this.held = 0; this.move = null; this.pulse = false; this.resting = false; this.pt = 0; this.still = false; }
   setFigure(root) { if (root !== this.figure) this.blend = 1; this.figure = root; this.apply(); }   // the same figure again (held things hung on it) keeps its blend going
   set(anim, speed = 1, instant = false) {
-    if (anim) for (const tr of Object.values(anim.nodeAnimations || {})) for (const k of ['position', 'orientation', 'shapeVisible']) (tr[k] ||= []).sort((a, b) => a.time - b.time);
+    if (anim) for (const tr of Object.values(anim.nodeAnimations || {})) for (const k of ['position', 'orientation', 'shapeVisible', 'shapeStretch', 'shapeUvOffset']) (tr[k] ||= []).sort((a, b) => a.time - b.time);
     const times = new Set(); if (anim) for (const tr of Object.values(anim.nodeAnimations || {})) for (const ks of Object.values(tr)) if (Array.isArray(ks)) for (const k of ks) times.add(k.time);
     this.blendTime = anim && times.size <= 1 ? 0.5 : BLEND;   // a move that is one held pose gets a slower, visible ease into it
     this.still = !!anim && times.size <= 1; this.move = null; this.pulse = false; this.resting = false; this.pt = 0;
@@ -166,14 +179,22 @@ export class Animator {
   }
   apply() {
     const A = this.resting ? null : this.anim, parts = this.figure?.userData.parts; if (!parts) return;
-    parts.forEach(gs => gs.forEach(g => { g.position.copy(g.userData.rest.p); g.quaternion.copy(g.userData.rest.q); if (g.userData.mesh) g.userData.mesh.visible = true; }));
+    parts.forEach(gs => gs.forEach(g => { g.position.copy(g.userData.rest.p); g.quaternion.copy(g.userData.rest.q); const m = g.userData.mesh; if (m) { m.visible = true; if (m.userData.shaped) faceShape(m, null, null); } }));
     if (A) { const dur = this.duration, loop = !A.holdLastKeyframe, T = Math.min(this.t, dur);
       for (const [name, tr] of Object.entries(A.nodeAnimations || {})) { const gs = parts.get(name); if (!gs) continue;
         const o = span(tr.orientation, T, dur, loop), p = span(tr.position, T, dur, loop), v = tr.shapeVisible.length ? span(tr.shapeVisible, T, dur, loop) : null;
         for (const g of gs) { const r = g.userData.rest;
-          if (o) { const a = o[0].delta, b = o[1].delta; q0.set(a.x ?? 0, a.y ?? 0, a.z ?? 0, a.w ?? 1); q1.set(b.x ?? 0, b.y ?? 0, b.z ?? 0, b.w ?? 1); g.quaternion.copy(r.q).multiply(q0.slerp(q1, o[2])); }
-          if (p) { const a = p[0].delta, b = p[1].delta, u = p[2], L = k => (a[k] ?? 0) + ((b[k] ?? 0) - (a[k] ?? 0)) * u; g.position.set(r.p.x + L('x'), r.p.y + L('y'), r.p.z + L('z')); }
-          if (v && g.userData.mesh) g.userData.mesh.visible = v[0].delta !== false; } } }
+          if (o) { const a = o[0].delta, b = o[1].delta; q0.set(a.x ?? 0, a.y ?? 0, a.z ?? 0, a.w ?? 1); q1.set(b.x ?? 0, b.y ?? 0, b.z ?? 0, b.w ?? 1);
+            if (o[0] !== o[1] && o[2] > 0 && o[2] < 1 && isSmooth(o[0], o[1])) { const [pk, nk] = around(tr.orientation, o[0], o[1], loop), A0 = pk.delta, B1 = nk.delta, dq = (p, q) => (p.x ?? 0) * (q.x ?? 0) + (p.y ?? 0) * (q.y ?? 0) + (p.z ?? 0) * (q.z ?? 0) + (p.w ?? 1) * (q.w ?? 1), s = dq(a, b) < 0 ? -1 : 1, s0 = dq(A0, a) < 0 ? -1 : 1, s1 = s * (dq(B1, b) < 0 ? -1 : 1);   /* all four on the same side as the first key, then a curve per component */
+              const C = (k, d) => cr(s0 * (A0[k] ?? d), a[k] ?? d, s * (b[k] ?? d), s1 * (B1[k] ?? d), o[2]); q0.set(C('x', 0), C('y', 0), C('z', 0), C('w', 1)).normalize(); g.quaternion.copy(r.q).multiply(q0); }
+            else g.quaternion.copy(r.q).multiply(q0.slerp(q1, o[2])); }
+          if (p) { const a = p[0].delta, b = p[1].delta, u = p[2]; let L = k => (a[k] ?? 0) + ((b[k] ?? 0) - (a[k] ?? 0)) * u;
+            if (p[0] !== p[1] && u > 0 && u < 1 && isSmooth(p[0], p[1])) { const [pk, nk] = around(tr.position, p[0], p[1], loop); L = k => cr(pk.delta[k] ?? 0, a[k] ?? 0, b[k] ?? 0, nk.delta[k] ?? 0, u); }
+            g.position.set(r.p.x + L('x'), r.p.y + L('y'), r.p.z + L('z')); }
+          if (v && g.userData.mesh) g.userData.mesh.visible = v[0].delta !== false;
+          const m = g.userData.mesh; if (m && (tr.shapeStretch.length || tr.shapeUvOffset.length)) { const sk = tr.shapeStretch.length ? span(tr.shapeStretch, T, dur, loop) : null, uk = tr.shapeUvOffset.length ? span(tr.shapeUvOffset, T, dur, loop) : null;
+            const L = (a, b, u, k, d) => (a[k] ?? d) + ((b[k] ?? d) - (a[k] ?? d)) * u;
+            faceShape(m, sk && [L(sk[0].delta, sk[1].delta, sk[2], 'x', 1), L(sk[0].delta, sk[1].delta, sk[2], 'y', 1), L(sk[0].delta, sk[1].delta, sk[2], 'z', 1)], uk && [uk[0].delta.x ?? 0, uk[0].delta.y ?? 0]); } } } }   /* face: eyelids stretch, the mouth slides to another part of its texture (held until the next key, as in game) */
     if (this.blend < 1) { const k = this.blend * this.blend * (3 - 2 * this.blend);
       parts.forEach(gs => gs.forEach(g => { const f = g.userData.from; if (!f) return; g.position.lerpVectors(f.p, g.position, k); q0.copy(f.q).slerp(g.quaternion, k); g.quaternion.copy(q0); })); }
   }
@@ -273,7 +294,7 @@ async function buildWorld(sc, tint) {
   root.userData.relayout = () => { for (const st of sets) st.laid = false; layout(false); };
   layout(false); root.position.y = -0.5; return root; }
 // ---- the stage (main view) and a small off-screen renderer for thumbnails
-function lights(scene) { scene.add(new THREE.AmbientLight(0xffffff, 1.7)); const l = new THREE.DirectionalLight(0xfff4e0, 1.9); l.position.set(-60, 160, 120); scene.add(l); }
+function lights(scene) { scene.add(new THREE.AmbientLight(0xffffff, 1.25)); const l = new THREE.DirectionalLight(0xfff4e0, 2.9); l.position.set(30, 170, 140); scene.add(l); }   // matched by eye to the same character in game at noon: less flat fill, a stronger sun from above the front
 export function stage(canvas, Controls) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const scene = new THREE.Scene(); lights(scene);
@@ -524,6 +545,11 @@ export function stage(canvas, Controls) {
   const shadow = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
     g.addColorStop(0, 'rgba(0,0,0,0.42)'); g.addColorStop(0.6, 'rgba(0,0,0,0.22)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
   // bd: { top, fog } colours from the zone's weather at noon, sc: its entry in SCENES, tint: the biome's grass colour
+  // a picture of the stage as it is now, at twice the screen's pixels: with its background, or the character alone on transparency
+  api.capture = transparent => { const hide = transparent ? [sky, world, disc].filter(o => o && o.visible) : [], fog = scene.fog, pr = renderer.getPixelRatio(), w = canvas.clientWidth, h = canvas.clientHeight;
+    hide.forEach(o => { o.visible = false; }); if (transparent) scene.fog = null; renderer.setPixelRatio(Math.max(2, pr)); renderer.setSize(w, h, false);
+    try { renderer.render(scene, cam); return { url: renderer.domElement.toDataURL('image/png'), sky: !!sky }; }
+    finally { hide.forEach(o => { o.visible = true; }); scene.fog = fog; renderer.setPixelRatio(pr); renderer.setSize(w, h, false); renderer.render(scene, cam); } };
   api.world = () => world; api.camera = cam; api.orbitTo = (az, el, dist) => { const t = ctl.target; cam.position.set(t.x + Math.sin(az) * Math.cos(el) * dist, t.y + Math.sin(el) * dist, t.z + Math.cos(az) * Math.cos(el) * dist); ctl.update(); };   // for tests
   api.setBackdrop = async (bd, sc, tint) => { const my = (api.setBackdrop.n = (api.setBackdrop.n || 0) + 1);
     let built = null; if (bd) try { built = await buildWorld(sc, tint); } catch (e) { console.warn('scene', e); if (my === api.setBackdrop.n) throw new Error('scene files missing'); return; }   // the caller says what is missing
