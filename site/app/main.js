@@ -110,7 +110,8 @@ async function startApp() {
   META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets(); await applyRescue().catch(e => console.warn(e)); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false));
   $('connect').hidden = true; $('app').hidden = false;
   if (!st) { st = fig.stage($('view'), OrbitControls);
-    ANIMATE = createAnimate({ el, st, render, say, ask, head, cat: () => CAT, nice, label: (g, n) => animLabel(g, n), idle: () => playAnim('Default', 'Idle', 0.5), tab: () => tab }); if (location.hostname.endsWith('localhost')) window.__an = ANIMATE;   // the Animate tab
+    ANIMATE = createAnimate({ el, st, render, say, ask, head, cat: () => CAT, nice, label: (g, n) => animLabel(g, n), idle: () => playAnim('Default', 'Idle', 0.5), tab: () => tab, canPublish: () => canPublish(), lockedPublish: () => locked('Publish', 'publishing', 'mini'), props: Object.keys(game.PROPS).filter(k => k !== 'glider'),
+      hold: async (k, hand) => { propsKey = null; if (!k) return st.props([]); const [model, tex] = game.PROPS[k]; try { st.props([{ root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone: hand === 'L' ? 'L-Attachment' : 'R-Attachment' }]); } catch (e) { say(e.message, true); } } });   /* held-item preview for the Animate tab */ if (location.hostname.endsWith('localhost')) window.__an = ANIMATE;   // the Animate tab
     $('view').addEventListener('pointerdown', e => { if (tab !== 'animate' || !ANIMATE.active() || e.button !== 0 || st.gizmoBusy(e.clientX, e.clientY)) return; ANIMATE.pickAt(e.clientX, e.clientY); });
     if (location.hostname.endsWith('localhost')) { window.__st = st; window.__dbg = { combineWith: (...a) => combineWith(...a), combinePick: () => combinePick(), cat: () => CAT, ed: () => ED, sizeOf: sh => sizeOf(sh), colourPart: n => colourPart(n), geoTwin: n => geoTwin(n), boxes: () => boxesOf(ED.model).map(b => b.node.name) }; }   // local tests only
     st.onMissing = () => say('Missing game files for this move', true); st.onFacing(f => { const t = $('facing') || $('view').parentElement.appendChild(el('div', { id: 'facing', class: 'facing' })); t.textContent = 'Facing you: ' + f; }); bindPaint($('view'), e => ED && !ED.shapeOpen && ED.painter.tool !== 'select' ? st.pick(e.clientX, e.clientY, ED.canvas, ED.mirror) : null, 10, true);
@@ -691,6 +692,7 @@ async function loadPublished(name, id) {
   const me = shown = { name, uuid: id, skins: null }; render();
   try { const r = await fetch('/api/players/' + encodeURIComponent(id) + '/skins', { credentials: 'omit', cache: 'no-store' }), j = r.ok ? await r.json() : null;
     if (!r.ok && r.status !== 404) me.failed = true; if (r.status === 404 && !j) me.failed = true;   /* the skins service missing is not 'no skins' */
+    fetch('/api/players/' + encodeURIComponent(id) + '/anims', { credentials: 'omit', cache: 'no-store' }).then(x => x.ok ? x.json() : null).then(k => { me.anims = (Array.isArray(k?.anims) ? k.anims : []).filter(x => x && x.anim && x.anim.nodeAnimations).map(x => ({ name: cleanName(x.name) || 'Animation', anim: x.anim })).slice(0, 45); if (shown === me) render(); }).catch(() => {});
     me.skins = (Array.isArray(j?.skins) ? j.skins : []).map(k => ({ id: 'pub_' + String(k.id).slice(0, 24), name: cleanName(k.name) || 'Skin', skin: sanitize(k.skin) })).filter(k => k.skin).slice(0, 45);
   } catch { me.skins = []; me.failed = true; }
   if (shown === me) render();
@@ -715,7 +717,9 @@ function panelLookup() {
   return [head('Players'), el('div', { class: 'pbody' },
     el('h3', { text: 'Find a player' }), form, el('p', { class: 'err', text: lookupMsg }),
     shown ? [el('h3', {}, 'Published by ' + shown.name, null), shown.skins === null ? el('p', { class: 'need', text: 'Looking…' })
-      : shown.skins.length ? el('div', { class: 'cards' }, shown.skins.map(r => card(r, 'pub'))) : el('p', { class: 'need', text: shown.failed ? 'Could not load skins' : 'No skins' })] : null,
+      : shown.skins.length ? el('div', { class: 'cards' }, shown.skins.map(r => card(r, 'pub'))) : el('p', { class: 'need', text: shown.failed ? 'Could not load skins' : 'No skins' }),
+      shown.anims && shown.anims.length ? [el('h3', { text: 'Animations' }), el('div', { class: 'animlib' }, shown.anims.map(x => el('div', { class: 'animrow' }, el('span', { class: 'animopen' }, el('b', { text: x.name }), el('small', { text: `${(x.anim.duration / 60).toFixed(2)} s` })),
+        el('button', { class: 'mini', text: 'Copy', onclick: () => { setTab('animate'); ANIMATE.importAnim(x.anim, x.name); } }))))] : null] : null,   /* a copy goes into your own Animate library */
     el('h3', { text: 'Open skin files' }),
     el('button', { class: 'btn ghost', text: 'Choose skin files', onclick: () => pickSkinFiles(file) }), file,
     found.length ? [el('h3', { text: 'Found this session' }), el('div', { class: 'cards' }, found.map(r => card(r, 'found')))] : null)];

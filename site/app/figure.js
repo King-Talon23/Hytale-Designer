@@ -572,6 +572,7 @@ export function stage(canvas, Controls) {
     g.addColorStop(0, 'rgba(0,0,0,0.42)'); g.addColorStop(0.6, 'rgba(0,0,0,0.22)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
   // bd: { top, fog } colours from the zone's weather at noon, sc: its entry in SCENES, tint: the biome's grass colour
   // a picture of the stage as it is now, at twice the screen's pixels: with its background, or the character alone on transparency
+  let recPr = null; api.recordMode = on => { const w = canvas.clientWidth, h = canvas.clientHeight; if (on && recPr === null) { recPr = renderer.getPixelRatio(); renderer.setPixelRatio(Math.max(2, recPr)); renderer.setSize(w, h, false); } else if (!on && recPr !== null) { renderer.setPixelRatio(recPr); recPr = null; renderer.setSize(w, h, false); } };   // videos at twice the screen's pixels
   api.capture = transparent => { const hide = transparent ? [sky, world, disc].filter(o => o && o.visible) : [], fog = scene.fog, pr = renderer.getPixelRatio(), w = canvas.clientWidth, h = canvas.clientHeight;
     hide.forEach(o => { o.visible = false; }); if (transparent) scene.fog = null; renderer.setPixelRatio(Math.max(2, pr)); renderer.setSize(w, h, false);
     try { renderer.render(scene, cam); return { url: renderer.domElement.toDataURL('image/png'), sky: !!sky }; }
