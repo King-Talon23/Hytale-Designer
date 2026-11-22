@@ -4,6 +4,7 @@
 import * as db from './db.js';
 import { sanitize, cleanName } from './skin.js';
 import * as assets from './assets.js';
+import * as anim from './anim.js';
 
 export const GAME_SLOTS = 5, CUSTOM_MAX = 45;
 const gameId = i => 'game-' + i;
@@ -66,7 +67,7 @@ export async function importAll(data) {   // adds to what is there; never overwr
 // ---- a folder on the player's own computer (Chrome and Edge). The browser copy stays the working copy; every change is
 // mirrored into two subfolders as one small .json file per skin, and skins found there are brought in when the folder connects.
 export const folderSupported = typeof self.showDirectoryPicker === 'function';
-const SUB = { custom: 'My skins', game: 'In-game slots' }, ASSET_DIR = 'Custom assets';
+const SUB = { custom: 'My skins', game: 'In-game slots' }, ASSET_DIR = 'Custom assets', ANIM_DIR = 'Animations';
 export const sync = () => mirror();
 // what the player is wearing, for the companion mod: "<skins folder>/Wearing.json" (on:false when Show in game is off)
 let lastWearing = null;
@@ -126,6 +127,7 @@ async function attach() {   // bring in skins the folder has and this browser do
   await mirror(); return { imported };
 }
 let mirroring = Promise.resolve();
+export const syncFolder = () => mirror();   // the Animate tab saves through this too
 function mirror() { if (!dir) return Promise.resolve(); return mirroring = mirroring.catch(() => {}).then(doMirror); }
 async function doMirror() {
   if (!dir) return;
@@ -144,5 +146,11 @@ async function doMirror() {
       for (const [name, body, stamp] of files) { const path = ASSET_DIR + '/' + name, mark = stamp || body; keep.add(path); if (written.get(path) === mark) continue;
         const w = await (await ad.getFileHandle(name, { create: true })).createWritable(); await w.write(body); await w.close(); written.set(path, mark); known.add(path); } }
     for (const path of [...known]) if (path.startsWith(ASSET_DIR + '/') && !keep.has(path)) { try { await ad.removeEntry(path.slice(ASSET_DIR.length + 1)); } catch { /* already gone */ } known.delete(path); written.delete(path); }
+    // animations: "<name> (<id>).blockyanim", read by the mod and turned into emotes in game
+    const nd = await dir.getDirectoryHandle(ANIM_DIR, { create: true }), keepA = new Set();
+    for (const k of (await db.keys('meta')).filter(k => String(k).startsWith('anim:'))) { const r = await db.get('meta', k); if (!r || !r.a) continue;
+      const name = `${safe(r.name)} (${r.id}).blockyanim`, path = ANIM_DIR + '/' + name, text = anim.write(r.a); keepA.add(path); if (written.get(path) === text) continue;
+      const w = await (await nd.getFileHandle(name, { create: true })).createWritable(); await w.write(text); await w.close(); written.set(path, text); known.add(path); }
+    for (const path of [...known]) if (path.startsWith(ANIM_DIR + '/') && !keepA.has(path)) { try { await nd.removeEntry(path.slice(ANIM_DIR.length + 1)); } catch { /* already gone */ } known.delete(path); written.delete(path); }
   } catch (e) { console.error(e); throw new Error('Could not write to your skins folder. Your skins are still saved in this browser.'); }
 }

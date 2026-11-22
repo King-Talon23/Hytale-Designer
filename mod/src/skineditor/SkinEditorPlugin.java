@@ -62,7 +62,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
         "undertop", "overtop", "shoes", "headAccessory", "faceAccessory", "earAccessory", "skinFeature", "gloves", "cape" };
     static final Set<String> SLOTS = Set.of(FIELDS);
     static final String LIVE = "SkinEditor_Live";
-    static final String VERSION = "1.0.3";
+    static final String VERSION = "1.1.0";
     static final Pattern WORD = Pattern.compile("^[A-Za-z0-9_ -]{1,64}$");
     static final Map<String, String> GENERIC = Map.of("Short", "GenericShort", "Medium", "GenericMedium", "Long", "GenericLong");   // Cosmetics/CharacterCreator/HaircutFallbacks.json
 
@@ -81,7 +81,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
     public SkinEditorPlugin(JavaPluginInit init) {
         super(init);
         // the live pack must be a valid pack before the server loads asset packs (after plugins are found, before setup)
-        try { locate(); ensureLivePack(); syncAssets(true); } catch (Throwable ignored) { }   // prune before the packs are read: removing a file after that crashes clients
+        try { locate(); ensureLivePack(); syncAssets(true); syncAnims(true); } catch (Throwable ignored) { }   // prune before the packs are read: removing a file after that crashes clients
         // a world only loads packs it was told about (single-player worlds start with "default mods enabled" off), so the live pack is
         // switched on here, unless the player turned it off themselves
         try { var cfg = com.hypixel.hytale.server.core.HytaleServer.get().getConfig().getModConfig();
@@ -92,7 +92,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
 
     @Override
     protected void setup() {
-        try { locate(); ensureLivePack(); syncAssets(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not prepare: " + e); }
+        try { locate(); ensureLivePack(); syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not prepare: " + e); }
         tick = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "SkinEditor"); t.setDaemon(true); return t; });
         tick.scheduleWithFixedDelay(this::step, 2, 1, TimeUnit.SECONDS);
     }
@@ -115,7 +115,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
     // ------------------------------------------------------------------ once a second
     private void step() {
         markFolder();
-        try { syncAssets(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] sync: " + e); }
+        try { syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] sync: " + e); }
         try {
             UUID me = localPlayer(); if (me == null) return;
             PlayerRef pr = Universe.get().getPlayer(me); if (pr == null) return;
@@ -213,6 +213,44 @@ public final class SkinEditorPlugin extends JavaPlugin {
     }
 
     /** copies "<skins folder>/Custom assets" into the live pack; each texture is named after its content, so a repaint is a new file */
+    // animations made on the site: "<skins folder>/Animations/<name> (<id>).blockyanim" -> an emote in the live pack (animation file +
+    // Server/Emote entry). A new emote is read when the world starts; a changed animation file is picked up by the asset monitor.
+    static final Pattern ANIM_FILE = Pattern.compile("^(.{1,60}) \\(([0-9a-fA-F-]{8,40})\\)\\.blockyanim$");
+    String lastAnimSync = null;
+    synchronized void syncAnims(boolean prune) throws Exception {
+        Path src = skinsDir.resolve("Animations"); if (!Files.isDirectory(src)) return;
+        StringBuilder stamp = new StringBuilder();
+        try (Stream<Path> fs = Files.list(src)) { for (Path f : (Iterable<Path>) fs::iterator) stamp.append(f.getFileName()).append(Files.getLastModifiedTime(f).toMillis()).append(Files.size(f)).append(';'); }
+        if (stamp.toString().equals(lastAnimSync)) return;
+        ensureLivePack(); Path live = modsDir.resolve(LIVE), animDir = live.resolve("Common").resolve("Characters").resolve("Animations").resolve("SkinEditor"), emDir = live.resolve("Server").resolve("Emote"), iconDir = live.resolve("Common").resolve("Icons").resolve("Emotes");
+        Files.createDirectories(animDir); Files.createDirectories(emDir); Files.createDirectories(iconDir); Set<String> keep = new HashSet<>();
+        try (Stream<Path> fs = Files.list(src)) {
+            for (Path f : (Iterable<Path>) fs::iterator) {
+                Matcher m = ANIM_FILE.matcher(f.getFileName().toString()); if (!m.matches() || Files.size(f) > 2_000_000) continue;
+                String body = Files.readString(f).trim(); if (!body.startsWith("{") || !body.contains("\"nodeAnimations\"")) continue;
+                String id = "SE_" + m.group(2).replace("-", "").toLowerCase().substring(0, Math.min(12, m.group(2).replace("-", "").length()));
+                String name = m.group(1).replace("\\", "").replace("\"", "'").trim(); boolean loop = !body.replace(" ", "").contains("\"holdLastKeyframe\":true");
+                Path a = animDir.resolve(id + ".blockyanim"); if (!Files.isRegularFile(a) || !Files.readString(a).equals(body)) Files.writeString(a, body);
+                String entry = "{\n \"Animation\": \"Characters/Animations/SkinEditor/" + id + ".blockyanim\",\n \"Name\": \"" + name + "\",\n \"Icon\": \"Icons/Emotes/" + id + ".png\",\n \"IsLooping\": " + loop + "\n}\n";
+                Path e = emDir.resolve(id + ".json"); if (!Files.isRegularFile(e) || !Files.readString(e).equals(entry)) Files.writeString(e, entry);
+                Path ic = iconDir.resolve(id + ".png"); if (!Files.isRegularFile(ic)) Files.write(ic, icon(name));   // the game refuses an emote whose icon file is missing
+                keep.add(id + ".blockyanim"); keep.add(id + ".json"); keep.add(id + ".png");
+            }
+        }
+        if (prune) for (Path dir : List.of(animDir, emDir, iconDir)) try (Stream<Path> fs = Files.list(dir)) {   // deleted animations go (at world start only)
+            for (Path f : (Iterable<Path>) fs::iterator) if (f.getFileName().toString().startsWith("SE_") && !keep.contains(f.getFileName().toString())) Files.deleteIfExists(f);
+        }
+        lastAnimSync = stamp.toString();
+    }
+    // a plain emote icon: the name's first letter on a round badge (64x64 PNG)
+    static byte[] icon(String name) throws Exception {
+        java.awt.image.BufferedImage im = new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB); java.awt.Graphics2D g = im.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON); g.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g.setColor(new java.awt.Color(0x1d, 0x3a, 0x5a)); g.fillOval(2, 2, 60, 60); g.setColor(new java.awt.Color(0xf4, 0xc4, 0x52)); g.setStroke(new java.awt.BasicStroke(3f)); g.drawOval(3, 3, 58, 58);
+        String t = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase(); g.setFont(new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 34)); java.awt.FontMetrics fm = g.getFontMetrics();
+        g.drawString(t, 32 - fm.stringWidth(t) / 2, 32 + (fm.getAscent() - fm.getDescent()) / 2); g.dispose();
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(); javax.imageio.ImageIO.write(im, "png", out); return out.toByteArray();
+    }
     synchronized void syncAssets(boolean prune) throws Exception {   // prune: only at world start; a texture removed while a client may still draw it crashes that client
         Path src = skinsDir.resolve("Custom assets"); if (!Files.isDirectory(src)) return;
         StringBuilder stamp = new StringBuilder();
