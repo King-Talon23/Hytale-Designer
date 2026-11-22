@@ -57,7 +57,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
     static final Pattern ID = Pattern.compile("^[0-9a-f]{8}$");
     static final Pattern ASSET_PATH = Pattern.compile("^[A-Za-z0-9_ ./-]{1,200}$");
     static final Pattern TEX = Pattern.compile("^Characters/SkinEditor/[0-9a-f]{8}-[0-9a-f]{8}\\.png$");
-    static final Pattern PART = Pattern.compile("^[A-Za-z0-9_ -]{1,64}(\\.[A-Za-z0-9_ -]{1,64}){0,2}$");
+    static final Pattern PART = Pattern.compile("^[A-Za-z0-9_ -]{1,64}(\\.[A-Za-z0-9_ +-]{1,96}){0,2}$");
     static final String[] FIELDS = { "bodyCharacteristic", "underwear", "face", "ears", "mouth", "haircut", "facialHair", "eyebrows", "eyes", "pants", "overpants",
         "undertop", "overtop", "shoes", "headAccessory", "faceAccessory", "earAccessory", "skinFeature", "gloves", "cape" };
     static final Set<String> SLOTS = Set.of(FIELDS);

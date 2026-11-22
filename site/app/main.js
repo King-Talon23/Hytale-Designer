@@ -108,7 +108,7 @@ async function startApp() {
   META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets(); await applyRescue().catch(e => console.warn(e)); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false));
   $('connect').hidden = true; $('app').hidden = false;
   if (!st) { st = fig.stage($('view'), OrbitControls);
-    if (location.hostname.endsWith('localhost')) { window.__st = st; window.__dbg = { combineWith: (...a) => combineWith(...a), combinePick: () => combinePick(), cat: () => CAT, ed: () => ED, sizeOf: sh => sizeOf(sh) }; }   // local tests only
+    if (location.hostname.endsWith('localhost')) { window.__st = st; window.__dbg = { combineWith: (...a) => combineWith(...a), combinePick: () => combinePick(), cat: () => CAT, ed: () => ED, sizeOf: sh => sizeOf(sh), colourPart: n => colourPart(n), boxes: () => boxesOf(ED.model).map(b => b.node.name) }; }   // local tests only
     st.onMissing = () => say('Missing game files for this move', true); st.onFacing(f => { const t = $('facing') || $('view').parentElement.appendChild(el('div', { id: 'facing', class: 'facing' })); t.textContent = 'Facing you: ' + f; }); bindPaint($('view'), e => ED && !ED.shapeOpen && ED.painter.tool !== 'select' ? st.pick(e.clientX, e.clientY, ED.canvas, ED.mirror) : null, 10, true);
     $('view').addEventListener('pointermove', e => { if (!ED) return; partHover(e); const p = ED.shapeOpen || ED.painter.tool === 'select' ? st.cursor(null) : st.cursor(e.clientX, e.clientY, ED.canvas, brushSize(), ED.mirror);
       ED.hover = p; ED.hoverM = p?.m || null; drawOvl(); });
@@ -480,7 +480,7 @@ function panelWardrobe() {
       WARD.custom.length ? el('div', { class: 'cards' }, WARD.custom.map(r => card(r, 'custom'))) : el('p', { class: 'blank', text: 'No skins' })))];
 }
 async function refreshWard() { WARD = await store.list(); if (cur.id && ![...WARD.game, ...WARD.custom].some(r => r && r.id === cur.id)) { cur.id = null; cur.kind = null; cur.slot = null; } render(); }
-function guard(fn) { return async (...a) => { try { await fn(...a); } catch (e) { if (e && e.name === 'AbortError') return; console.error(e); say(e.message || 'That did not work.', true); } }; }
+function guard(fn) { return async (...a) => { try { await fn(...a); } catch (e) { if (e && e.name === 'AbortError') return; if (!/is full|Limit is|Texture full|can't go in game/.test(e?.message || '')) console.error(e);   /* expected refusals are messages, not errors */ say(e.message || 'That did not work.', true); } }; }
 const slotButtons = () => WARD.game.map((r, i) => ({ label: `Slot ${i + 1}${r ? ': ' + r.name : ' (empty)'}`, value: String(i) }));
 const toGame = guard(async rec => { rec = liveRec(rec);
   if (hasCustom(rec.skin)) throw new Error("Custom items can't go in game slots");
@@ -497,9 +497,9 @@ const renameSkin = guard(async rec => { rec = liveRec(rec);
   if (cur.id === rec.id) { cur.name = r.name; cur.auto = false; cur.random = false; keepDraft(); }   /* a renamed skin is kept: Randomize starts a new one */
   await refreshWard(); if (PUBMAP[r.id] && canPublish() && !hasCustom(r.skin)) publish(r, true); });
 const duplicate = guard(async rec => { rec = liveRec(rec); const used = new Set(WARD.custom.map(r => r.name)), stem = String(rec.name).replace(/ copy( \d+)?$/, ''); let n = ''; for (let k = 1; k < 1000; k++) { const suf = ' copy' + (k > 1 ? ' ' + k : ''); n = cleanName(clip(stem, 40 - suf.length) + suf);   /* never cuts an emoji, even multi-part ones */ if (!used.has(n)) break; } await store.saveCustom(n, rec.skin); await refreshWard(); });   /* the number always fits in 40 characters */
-const removeSkin = guard(async rec => { if (PUBMAP[rec.id] && canPublish()) await unpublish(rec, true); await store.remove(rec.id); await refreshWard(); if (cur.id === rec.id) { Object.assign(cur, { id: null, kind: null, slot: null, name: '', auto: false }); keepDraft(); plate(); }   /* the look on screen is no longer that skin */   /* deleted at once, with Undo, instead of asking first */
-  sayUndo(`Deleted "${rec.name}"`, guard(async () => { if (rec.kind !== 'game' && WARD.custom.length >= store.CUSTOM_MAX) throw new Error(`My skins is full (${store.CUSTOM_MAX})`); await store.saveCustom(await store.uniqueName(rec.name, rec.id), rec.skin, rec.id); await refreshWard();
-    if (!cur.id && JSON.stringify(cur.skin) === JSON.stringify(R.fit(rec.skin))) { Object.assign(cur, { id: rec.id, kind: 'custom', slot: null, name: rec.name }); keepDraft(); plate(); } })); });   /* the look on screen is that skin again */
+const removeSkin = guard(async rec => { if (PUBMAP[rec.id] && canPublish()) await unpublish(rec, true); const wasOpen = cur.id === rec.id; await store.remove(rec.id); await refreshWard(); if (wasOpen) { Object.assign(cur, { id: null, kind: null, slot: null, name: '', auto: false }); keepDraft(); plate(); }   /* the look on screen is no longer that skin */   /* deleted at once, with Undo, instead of asking first */
+  sayUndo(`Deleted "${rec.name}"`, guard(async () => { if (rec.kind !== 'game' && WARD.custom.length >= store.CUSTOM_MAX) throw new Error(`My skins is full (${store.CUSTOM_MAX})`); const back = await store.saveCustom(await store.uniqueName(rec.name, rec.id), rec.skin, rec.id); await refreshWard();
+    if (!cur.id && JSON.stringify(cur.skin) === JSON.stringify(R.fit(rec.skin))) { Object.assign(cur, { id: rec.id, kind: 'custom', slot: null, name: back.name }); keepDraft(); plate(); } }));   /* with the name it came back under */ });   /* the look on screen is that skin again */
 function sayUndo(text, undo) { const s = $('status'); say(text); s.append(' ', el('button', { class: 'linkbtn', text: 'Undo', onclick: () => { say(''); undo(); } })); clearTimeout(say.t); say.t = setTimeout(() => s.textContent = '', 8000); }
 function checklist(rec) { rec = liveRec(rec);
   const rows = GROUPS.flatMap(([g, fs]) => fs.filter(f => rec.skin[f]).map(f => { const p = parse(rec.skin[f]), item = R.find(f, rec.skin[f]);
@@ -736,6 +736,7 @@ async function openAsset(a) { say('');
   ED.painter = makePainter(c, a); Object.assign(ED.painter, BRUSH);
   ED.painter.faceRect = (x, y) => ED.rects.filter(q => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h).sort((p_, q) => p_.w * p_.h - q.w * q.h)[0] || null;   // the texture face a fill starts on
   { const k = STEPS.get(a.id); if (k && ED.painter.takeSteps(k.paint)) { ED.hist = k.hist; ED.fut = k.fut; ED.asset = { ...ED.asset, w: c.width, h: c.height }; } if (k && k.mode === 'shape') ED.reopenShape = true; }
+  ED.painter.twinAt = (x, y) => st ? st.twinTexel(ED.canvas, x, y) : null; ED.painter.symOn = () => !!(ED && ED.mirror && st && !ONCE.has(ED.painter.tool));   // Symmetry: the painter maps every texel it paints to its twin
   ED.painter.faceAt = (x, y) => ED && ED.rects.find(r => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h);   // Fill > Whole side: which side was clicked
   if (ED.rects.length) { const m = new Uint8Array(c.width * c.height); for (const r of ED.rects) for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1; ED.painter.mask = m; }
   ED.palette = ED.painter.palette(); ED.ovl = el('canvas', { className: 'limits' }); requestAnimationFrame(() => { fitTexture(); render(); }); setTimeout(() => { if (ED && !ED.userZoom) { const z = ED.zoom; fitTexture(); if (ED.zoom !== z) render(); } }, 150);   /* also when no frame comes (background tab) */ if (ED.reopenShape) { ED.reopenShape = false; setMode('shape').catch(e => console.warn(e)); }
@@ -794,11 +795,14 @@ async function closeAsset1(quiet, keep = false) {
 const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 function sharersOf(node) { const mine = ED.rects.filter(r => r.node === node); return [...new Set(ED.rects.filter(r => r.node !== node && mine.some(m => overlaps(m, r))).map(r => r.node))]; }
 async function colourPart(node) {
-  ED.noCap = true; const h0 = ED.hist.length, splitWas = !!ED.asset.split; await editModel(); splitShared();   /* every part (cuffs and other attached pieces too) gets its own paint first, so the colour never leaks to a twin */
+  ED.noCap = true; const h0 = ED.hist.length, splitWas = !!ED.asset.split, sz0 = [ED.canvas.width, ED.canvas.height]; await editModel(); splitShared();   /* every part (cuffs and other attached pieces too) gets its own paint first, so the colour never leaks to a twin */
   const others = sharersOf(node);
   if (others.length) { await editModel(); const k = boxesOf(ED.model).findIndex(b => b.node.name === node);
-    if (k >= 0) { ED.box = k; if (!ownArea(true)) { if (ED.hist.length > h0) ED.hist.push({ k: 'g', splitWas, splitNow: !!ED.asset.split, parts: ED.hist.splice(h0) }); ED.noCap = false; capHist(); return say('Texture full', true); } } }
-  tintAll(ED.painter.color, node); if (ED.hist.length > h0) ED.hist.push({ k: 'g', splitWas, splitNow: !!ED.asset.split, parts: ED.hist.splice(h0) }); if (ED.lastTint) ED.lastTint.top = ED.hist[ED.hist.length - 1]; ED.noCap = false; capHist();   /* one click, one undo (the cap waits, so it can't shift the start) */
+    if (k >= 0) { ED.box = k; if (!ownArea(true)) { if (ED.hist.length > h0) ED.hist.push({ k: 'g', splitWas, splitNow: !!ED.asset.split, sz: [sz0, [ED.canvas.width, ED.canvas.height]], parts: ED.hist.splice(h0) }); ED.noCap = false; capHist(); return say('Texture full', true); } } }
+  let tw = null; if (ED.mirror) { const bb = boxesOf(ED.model).find(x => x.node.name === node); tw = bb && twinOf(bb); if (tw && tw.name === node) tw = null; }
+  if (tw && sharersOf(tw.name).some(n => n !== node)) { await editModel(); const k = boxesOf(ED.model).findIndex(b => b.node.name === tw.name); if (k >= 0) { const was = ED.box; ED.box = k; if (!ownArea(true)) tw = null; ED.box = was; } }   /* the twin's paint must not leak to the parts it shares texture with either */
+  tintAll(ED.painter.color, tw ? [node, tw.name] : node);   /* Symmetry: both sides in one pass, one shared shade, one step */
+  if (ED.hist.length > h0) ED.hist.push({ k: 'g', splitWas, splitNow: !!ED.asset.split, sz: [sz0, [ED.canvas.width, ED.canvas.height]], parts: ED.hist.splice(h0) }); if (ED.lastTint) ED.lastTint.top = ED.hist[ED.hist.length - 1]; ED.noCap = false; capHist();   /* one click, one undo (the cap waits, so it can't shift the start) */
 }
 const partName = n => { const b = ED.model && boxesOf(ED.model).find(x => x.node.name === n); return b ? boxLabel(b.node) : /^Box_/.test(n) ? 'New box' : boxLabel({ name: n }); };   // same names in Paint as in Shape's outliner
 function partHover(e) { if (ED.mode === 'shape' || ED.painter.tool !== 'part') return;
@@ -815,7 +819,6 @@ function turnDrag(e) {   // drag on empty space or another body part: the model 
   v.addEventListener('pointermove', move); v.addEventListener('pointerup', up); v.addEventListener('pointercancel', up);
 }
 function bindPaint(target, toPixel, reach, onModel) { let down = false, last = null;
-  const twin = (a, b) => { const t = ED.painter.tool; if (ED.mirror && b.m && !SHAPES.has(t) && !ONCE.has(t)) (ED.painter.mir = ED.painter.size % 2 === 0 ? (() => { const n2 = st.twinTexel(ED.canvas, Math.min(ED.canvas.width - 1, b.x + 1), b.y); return !n2 || n2.x <= b.m.x; })() : false, ED.painter.stroke(a && a.m && Math.abs(a.m.x - b.m.x) + Math.abs(a.m.y - b.m.y) <= 10 ? a.m : b.m, b.m), ED.painter.mir = false); };   /* never a line across the texture when the twin jumps faces; the mirrored dab grows the other way */
   let lastC = null, startC = null;
   const at = (x, y) => toPixel({ clientX: x, clientY: y });
   const along = (a, b, step = 2) => { const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / step)), out = []; for (let i = 1; i <= n; i++) out.push({ x: a.x + (b.x - a.x) * i / n, y: a.y + (b.y - a.y) * i / n }); return out; };
@@ -832,10 +835,10 @@ function bindPaint(target, toPixel, reach, onModel) { let down = false, last = n
     const p = onModel && (ED.painter.tool === 'select' || ED.painter.tool === 'part') ? null : toPixel(e);
     if (!p) { if (onModel && !st.gizmoBusy(e.clientX, e.clientY) && !(ED.mode === 'shape' && st.pickMesh(e.clientX, e.clientY, o => o.material?.map?.image === ED.canvas))) turnDrag(e); return; } e.preventDefault(); try { target.setPointerCapture(e.pointerId); } catch { /* fine */ }
     down = true; last = p; lastC = startC = { x: e.clientX, y: e.clientY }; ED.painter.begin();
-    if (onModel && SHAPES.has(ED.painter.tool)) shapeOnModel(startC, false); else { ED.painter.stroke(p, p); twin(null, p); if (ED.mirror && p.m) ED.painter.fillAlso(p.m); } });
-  const paintTo = p => { if (!p) { last = null; return; } const from = last && Math.abs(last.x - p.x) + Math.abs(last.y - p.y) <= reach ? last : p; ED.painter.stroke(from, p); twin(from === last ? last : null, p); last = p; };
+    if (onModel && SHAPES.has(ED.painter.tool)) shapeOnModel(startC, false); else { ED.painter.stroke(p, p); if (ED.mirror && p.m) ED.painter.fillAlso(p.m); } });
+  const paintTo = p => { if (!p) { last = null; return; } const from = last && Math.abs(last.x - p.x) + Math.abs(last.y - p.y) <= reach ? last : p; ED.painter.stroke(from, p); last = p; };
   target.addEventListener('pointermove', e => { if (!down || !ED) return; const cur = { x: e.clientX, y: e.clientY };
-    if (!onModel) { const p = toPixel(e); if (p) { ED.painter.stroke(last && !SHAPES.has(ED.painter.tool) && Math.abs(last.x - p.x) + Math.abs(last.y - p.y) > reach ? p : last || p, p); twin(last, p); last = p; } return; }
+    if (!onModel) { const p = toPixel(e); if (p) { ED.painter.stroke(last && !SHAPES.has(ED.painter.tool) && Math.abs(last.x - p.x) + Math.abs(last.y - p.y) > reach ? p : last || p, p); last = p; } return; }
     if (SHAPES.has(ED.painter.tool)) { shapeOnModel(cur, false); lastC = cur; return; }
     for (const q of along(lastC, cur)) paintTo(at(q.x, q.y));   // a fast drag is filled in between pointer positions, so it never breaks into dots
     lastC = cur; });
@@ -1123,10 +1126,11 @@ const paintsIn = e => e.k === 'p' ? 1 : e.k === 'g' ? e.parts.reduce((n, x) => n
 const capHist = () => { if (ED.noCap) return; let n = ED.hist.reduce((a, x) => a + paintsIn(x), 0); while (ED.hist.length && (ED.hist.length > 90 || n > 110)) n -= paintsIn(ED.hist.shift()); };   /* counts the paint steps inside groups too */   /* below the painter's own step limit, so every undo still has its paint */
 const recordPaint = () => { if (ED && !ED.replaying) { ED.hist.push({ k: 'p' }); ED.fut = []; capHist(); } };
 function recordShape(before) { ED.hist.push({ k: 's', other: before, lab: JSON.stringify(ED.asset.labels || null) }); ED.fut = []; capHist(); }   // part names go back with the shape
+function sizeTo([w, h]) { const c = ED.canvas; if (c.width === w && c.height === h) return; ED.painter.grow(h, w); ED.asset = { ...ED.asset, w, h }; ED.n = ++edN; requestAnimationFrame(() => { if (ED) { if (!ED.userZoom) fitTexture(); render(); } }); }
 function undoEntry(e, redo) {
   if (e.k === 'l') { const now = JSON.stringify(ED.asset.labels || null); ED.asset = { ...ED.asset, labels: JSON.parse(e.other) || undefined }; queueAssetSave(); return { k: 'l', other: now }; }
   if (e.k === 'p') { ED.replaying = true; redo ? ED.painter.redo() : ED.painter.undo(); ED.replaying = false; return e; }
-  if (e.k === 'g') { if (e.splitWas !== undefined) { const v = redo ? !!e.splitNow : e.splitWas; ED.splitDone = v; ED.asset = { ...ED.asset, split: v }; return { k: 'g', splitWas: e.splitWas, splitNow: e.splitNow, parts: e.parts.slice().reverse().map(x => undoEntry(x, redo)) }; }
+  if (e.k === 'g') { if (e.splitWas !== undefined) { const v = redo ? !!e.splitNow : e.splitWas; ED.splitDone = v; ED.asset = { ...ED.asset, split: v }; if (e.sz && redo) sizeTo(e.sz[1]); const parts = e.parts.slice().reverse().map(x => undoEntry(x, redo)); if (e.sz && !redo) sizeTo(e.sz[0]); return { k: 'g', splitWas: e.splitWas, splitNow: e.splitNow, sz: e.sz, parts }; }   /* the texture shrinks back to its size before the step (and grows again on redo) */
     if (e.setup) { ED.splitDone = !!redo; ED.asset = { ...ED.asset, split: !!redo }; } return { k: 'g', setup: e.setup, parts: e.parts.slice().reverse().map(x => undoEntry(x, redo)) }; }   /* undoing the split makes the next Shape visit split again */
   const now = JSON.stringify(ED.model), keep = boxesOf(ED.model)[ED.box || 0]?.node.name; { if (e.lab !== undefined) { const nowLab = JSON.stringify(ED.asset.labels || null); ED.asset = { ...ED.asset, labels: JSON.parse(e.lab) || undefined }; e = { ...e, labNow: nowLab }; } } const namesNow = new Set(boxesOf(ED.model).map(x => x.node.name)); ED.model = JSON.parse(e.other); { const back = boxesOf(ED.model).findIndex(x => !namesNow.has(x.node.name)); if (back >= 0) { ED.box = back; ED.reshaped = true; return { k: 's', other: now, lab: e.labNow }; } }   /* a part that comes back is picked */
   { const bs = boxesOf(ED.model), i = bs.findIndex(x => x.node.name === keep); ED.box = i >= 0 ? i : Math.min(ED.box || 0, bs.length - 1); } ED.reshaped = true; return { k: 's', other: now, lab: e.labNow };
@@ -1172,10 +1176,10 @@ function scrub(label, get, set, step = 1, min = -64, max = 64) {
   return el('label', { class: 'numfield' }, lab, inp);
 }
 // the whole drawn area in one colour: each pixel keeps how light or dark it was compared with the item's average
-function tintAll(hex, node) {   // node: only that box's texture area
-  const lt = ED.lastTint; if (lt && lt.hex === hex && lt.node === (node || null) && lt.top === ED.hist[ED.hist.length - 1]) return;   /* the same tint again changes nothing (it used to drift lighter) */
+function tintAll(hex, node) {   // node: only that box's texture area (or several boxes, tinted together from one shared average so they match exactly)
+  const nodes = node ? [].concat(node) : null; node = nodes ? nodes.join('|') : null; const lt = ED.lastTint; if (lt && lt.hex === hex && lt.node === (node || null) && lt.top === ED.hist[ED.hist.length - 1]) return;   /* the same tint again changes nothing (it used to drift lighter) */
   const P = ED.painter, c = ED.canvas, [r0, g0, b0] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)), lum = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-  let m = P.mask; if (node) { m = new Uint8Array(c.width * c.height); let any = false; for (const r of ED.rects) if (r.node === node) { any = true; for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1; } if (!any) return; }
+  let m = P.mask; if (node) { m = new Uint8Array(c.width * c.height); let any = false; for (const r of ED.rects) if (nodes.includes(r.node)) { any = true; for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1; } if (!any) return; }
   P.write((d, W, H) => { let sum = 0, n = 0; for (let p = 0; p < W * H; p++) if (d[p * 4 + 3] && (!m || m[p])) { sum += lum(d, p * 4); n++; } if (!n) return;
     const avg = Math.max(1, sum / n);
     for (let p = 0; p < W * H; p++) { const i = p * 4; if (!d[i + 3] || (m && !m[p])) continue; const k = Math.min(1.8, Math.max(0.35, lum(d, i) / avg)); d[i] = Math.min(255, r0 * k); d[i + 1] = Math.min(255, g0 * k); d[i + 2] = Math.min(255, b0 * k); } });
@@ -1201,7 +1205,7 @@ function paintSide() {
     el('div', { class: 'swlabel', text: 'Basic' }), swatchRow(BASIC), el('div', { class: 'swlabel', text: 'In this item' }), swatchRow(ED.palette),
     (() => { const r = [el('div', { class: 'swlabel', text: 'Recent' }), swatchRow(RECENT.length ? RECENT : ['#000000'])]; if (!RECENT.length) r.forEach(x => { x.style.visibility = 'hidden'; x.setAttribute('aria-hidden', 'true'); }); return r; })(),   /* the row keeps its place, so buttons below don't jump */
     el('button', { class: 'btn ghost wide', text: 'Tint item', onclick: () => tintAll(P.color) }),
-    el('div', { class: 'options' }, toggle('Symmetry', ED.mirror, () => { ED.mirror = !ED.mirror; render(); })),
+    el('div', { class: 'options' }, (() => { const t = toggle('Symmetry', ED.mirror, () => { ED.mirror = !ED.mirror; render(); }); t.disabled = ['select', 'pick', 'replace'].includes(P.tool); return t; })())   /* greyed for tools it does not mirror */,
     ED.adjOpen ? [el('div', { class: 'wshead', text: 'Adjust colours' }), adjRow('h', 'Hue', -180, 180), adjRow('s', 'Saturation', -100, 100), adjRow('l', 'Brightness', -100, 100),
       el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Apply', onclick: () => { ED.adjOpen = false; endAdjust(true); } }), el('button', { class: 'btn ghost', text: 'Cancel', onclick: () => { ED.adjOpen = false; endAdjust(false); } }))]
       : el('button', { class: 'btn ghost wide', text: 'Adjust colours…', onclick: () => { ED.adjOpen = true; ED.sel = null; render(); } }),   /* tool options come after the fixed buttons, so Symmetry and Adjust colours stay put */

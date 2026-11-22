@@ -13,7 +13,7 @@ export const GROUPS = [
 export const REQUIRED = new Set(['bodyCharacteristic', 'face', 'eyes', 'mouth', 'ears', 'underwear']);   // the game never leaves these empty
 export const nice = s => String(s).replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Za-z])(\d+)(?=\s|$)/g, '$1 $2').replace(/\bSuprised\b/g, 'Surprised');   // Look_Around2 -> Look Around 2
 
-const PART = /^[A-Za-z0-9_ -]{1,64}(\.[A-Za-z0-9_ -]{1,64}){0,2}$/;
+const PART = /^[A-Za-z0-9_ -]{1,64}(\.[A-Za-z0-9_ +-]{1,96}){0,2}$/;   // colour keys can join several gradients with + (Pastel Tracksuit)
 // Anything that comes from outside (a file, a lookup, a backup) passes through here: only known slots, only plain part strings.
 export function sanitize(o) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return null;

@@ -15,7 +15,8 @@ export function createPainter(canvas, onChange, onPick) {
   const undo = [], redo = []; let img = null, base = null, start = null, touched = null, fresh = false, dirty = false, adjFrom = null;
   const copy = () => { const d = ctx.getImageData(0, 0, W, H); return new ImageData(new Uint8ClampedArray(d.data), W, H); };
   function px(x, y) {   // one texel, once per stroke (so lighten, darken and see-through paint do not stack while the pointer rests)
-    if (x < 0 || y < 0 || x >= W || y >= H) return; const k = y * W + x; if (touched.has(k)) return; touched.add(k);
+    if (x < 0 || y < 0 || x >= W || y >= H) return; if (mapTo) { const t = mapTo(x, y); if (!t) return; x = t.x; y = t.y; }   /* Symmetry pass: each texel lands on its own twin */
+    const k = y * W + x; if (touched.has(k)) return; touched.add(k);
     if (P.inside && P.mask && !P.mask[k]) return;   // outside the drawn area: never shows on the model
     const d = img.data, i = k * 4, t = P.tool;
     if (t === 'erase') d[i + 3] = 0;
@@ -23,7 +24,10 @@ export function createPainter(canvas, onChange, onPick) {
     else if (t === 'noise') { if (!d[i + 3]) return; const n = (Math.random() - 0.5) * 26; for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] + n); }
     else { const [r, g, b] = rgb(P.color), a = d[i + 3] ? P.opacity : 1; d[i] = clamp(d[i] * (1 - a) + r * a); d[i + 1] = clamp(d[i + 1] * (1 - a) + g * a); d[i + 2] = clamp(d[i + 2] * (1 - a) + b * a); d[i + 3] = 255; }
   }
-  function dot(x, y) { const s = P.size, o = Math.floor((s - 1) / 2), ox = P.mir ? s - 1 - o : o;   /* a mirrored dab grows the other way across (left/right) only */ for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) px(x - ox + dx, y - o + dy); }
+  function dot(x, y) { const s = P.size, o = Math.floor((s - 1) / 2); for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) px(x - o + dx, y - o + dy); }
+  // Symmetry: run the same drawing again with every texel sent to its twin on the other side (exact for any brush size, turned faces and shapes across faces)
+  let mapTo = null; const twins = new Map();
+  function mirrored(fn) { if (!P.twinAt || !(P.symOn && P.symOn())) return; mapTo = (x, y) => { const k = y * W + x; if (!twins.has(k)) twins.set(k, P.twinAt(x, y)); return twins.get(k); }; try { fn(); } finally { mapTo = null; } }
   function line(a, b) { let x = a.x, y = a.y; const dx = Math.abs(b.x - x), dy = -Math.abs(b.y - y), sx = x < b.x ? 1 : -1, sy = y < b.y ? 1 : -1; let e = dx + dy;
     for (let n = 0; n < 4096; n++) { dot(x, y); if (x === b.x && y === b.y) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x += sx; } if (e2 <= dx) { e += dx; y += sy; } } }
   function box(a, b, filled) { const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
@@ -56,12 +60,14 @@ export function createPainter(canvas, onChange, onPick) {
   const show = () => { ctx.putImageData(img, 0, 0); dirty = true; onChange(false); };
   function swap(from, to) { if (!from.length) return; to.push(copy()); ctx.putImageData(from.pop(), 0, 0); onChange(true); }
   const P = { tool: 'brush', size: 1, color: '#e0b050', opacity: 1, inside: true, mask: null, tolerance: 24, fillMode: 'area', faceAt: null,   // tolerance: how far a colour may differ (0-100) and still count as the same for Fill
-    begin() { img = ctx.getImageData(0, 0, W, H); base = new ImageData(new Uint8ClampedArray(img.data), W, H); undo.push(base); touched = new Set(); fresh = true; dirty = false; start = null; },
+    begin() { img = ctx.getImageData(0, 0, W, H); base = new ImageData(new Uint8ClampedArray(img.data), W, H); undo.push(base); touched = new Set(); twins.clear(); fresh = true; dirty = false; start = null; },
     stroke(a, b) { if (!img) return; const first = fresh, t = P.tool; fresh = false; if (first) start = a;
       if (t === 'pick') { if (first) { const i = (b.y * W + b.x) * 4, d = img.data; if (d[i + 3]) { P.color = hex(d[i], d[i + 1], d[i + 2]); onPick && onPick(); } } return; }
       if (t === 'fill' || t === 'replace') { if (first) { (t === 'replace' ? replaceAll : P.fillMode === 'side' ? fillSide : P.fillMode === 'every' ? fillEvery : flood)(b.x, b.y); show(); } return; }
-      if (SHAPES.has(t)) { img.data.set(base.data); touched.clear(); if (t === 'line') line(start, b); else box(start, b, t === 'boxfill'); show(); return; }   // the shape is redrawn from where the drag began
-      line(a, b); show(); },
+      if (SHAPES.has(t)) { img.data.set(base.data); touched.clear(); if (t === 'line') line(start, b); else box(start, b, t === 'boxfill');
+        mirrored(() => { if (t === 'line') line(start, b); else box(start, b, t === 'boxfill'); });
+        show(); return; }   // the shape is redrawn from where the drag began
+      line(a, b); mirrored(() => line(a, b)); show(); },
     fillAlso(b) { if (!img || !b || P.tool !== 'fill' || P.fillMode === 'every') return; (P.fillMode === 'side' ? fillSide : flood)(b.x, b.y); show(); },   // Symmetry: the same fill at the mirrored spot, in the same step
     end() { if (!img) return; if (dirty && base) { const a = img.data, b = base.data; let same = true; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { same = false; break; } if (same) dirty = false; }   /* a stroke that changed nothing is not a step */
       if (dirty) { redo.length = 0; if (undo.length > 120) undo.shift(); onChange(true); } else undo.pop();   /* the oldest step goes only when a real one is added */ img = null; base = null; touched = null; },
@@ -70,10 +76,11 @@ export function createPainter(canvas, onChange, onPick) {
     takeSteps(k) { if (!k) return false; if (k.W >= W && k.H >= H && (k.W !== W || k.H !== H)) this.grow(k.H, k.W); if (k.W !== W || k.H !== H) return false;   /* the saved copy was trimmed: grow back so the kept steps fit */ undo.splice(0, undo.length, ...k.undo); redo.splice(0, redo.length, ...k.redo); return true; },
     // the texture gets taller: the picture and every undo step keep their pixels where they were, the new rows are empty
     grow(h2, w2 = W) { const old = copy(); canvas.width = w2; canvas.height = h2; W = w2; H = h2; ctx.putImageData(old, 0, 0);   // taller and/or wider, keeping every pixel where it was
-      const pad = im => { const n = new ImageData(w2, h2); for (let y = 0; y < im.height; y++) n.data.set(im.data.subarray(y * im.width * 4, (y + 1) * im.width * 4), y * w2 * 4); return n; }; for (const a of [undo, redo]) a.forEach((im, i) => { a[i] = pad(im); }); if (adjFrom) adjFrom = pad(adjFrom); },
+      const pad = im => { if (im.width >= w2 && im.height >= h2) return im;   /* shrinking (undo of a grow): steps keep their bigger size, so redo still has every pixel */ const n = new ImageData(w2, h2), cw = Math.min(im.width, w2) * 4; for (let y = 0; y < Math.min(im.height, h2); y++) n.data.set(im.data.subarray(y * im.width * 4, y * im.width * 4 + cw), y * w2 * 4); return n; }; for (const a of [undo, redo]) a.forEach((im, i) => { a[i] = pad(im); }); if (adjFrom) adjFrom = pad(adjFrom); },
     // a shape dragged out on the 3D model: the texels under points along the drag, joined where they sit next to each other
     trace(points, reach) { if (!img) return; fresh = false; img.data.set(base.data); touched.clear(); let prev = null;
-      for (const p of points) { if (!p) { prev = null; continue; } if (prev && Math.abs(prev.x - p.x) + Math.abs(prev.y - p.y) <= reach) line(prev, p); else dot(p.x, p.y); prev = p; }
+      const run = () => { prev = null; for (const p of points) { if (!p) { prev = null; continue; } if (prev && Math.abs(prev.x - p.x) + Math.abs(prev.y - p.y) <= reach) line(prev, p); else dot(p.x, p.y); prev = p; } };
+      run(); mirrored(run);   /* Symmetry on the model: the traced shape on the other side too */
       show(); },
     write(fn) { undo.push(copy()); if (undo.length > 120) undo.shift(); redo.length = 0; const d = ctx.getImageData(0, 0, W, H); fn(d.data, W, H); ctx.putImageData(d, 0, 0); onChange(true); },   // copy-paste and box paint areas
     replace(source) { undo.push(copy()); redo.length = 0; ctx.clearRect(0, 0, W, H); ctx.drawImage(source, 0, 0, W, H); onChange(true); },

@@ -318,7 +318,7 @@ export function stage(canvas, Controls) {
   (function loop(now) { requestAnimationFrame(loop); stepCam(now); const dt = Math.min(0.1, (now - last) / 1000 || 0); anim.update(dt); mountAnim.playing = anim.playing; mountAnim.update(dt); travel(dt); float(dt, now); for (const h of helpers) h.update(); dropHeld(); facing(); last = now; renderer.render(scene, cam); })(last);
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   // the texel of `image` under a screen point, for painting straight on the model
-  function texel(image) { for (const h of ray.intersectObject(figure, true)) { if (!h.uv || !h.object.visible || h.object.material?.map?.image !== image) continue;
+  function texel(image, ok) { for (const h of ray.intersectObject(figure, true)) { if (!h.uv || !h.object.visible || h.object.material?.map?.image !== image || (ok && !ok(h.object))) continue;
       return { x: Math.min(image.width - 1, Math.max(0, Math.floor(h.uv.x * image.width))), y: Math.min(image.height - 1, Math.max(0, Math.floor((1 - h.uv.y) * image.height))), at: h.point.clone() }; }
     return null; }
   // the brush outline on the model: a square of brush-size texels, snapped to the texel grid of the face under the pointer
@@ -348,17 +348,21 @@ export function stage(canvas, Controls) {
     ray.ray.origin.x *= -1; ray.ray.direction.x *= -1; const m = texel(image), want = p.at.clone(); want.x *= -1; p.m = m && m.at.distanceTo(want) < 1.0 ? m : null; return p; }   /* no surface right at the mirrored spot: no mirrored dab */   // the same ray flipped left to right lands on the matching spot of the other side
   // the texel on the other side of the body that matches texel (tx, ty): find it on the model, flip the point left to right, look back at the surface there
   function twinTexel(image, tx, ty) { if (!figure) return null; figure.updateMatrixWorld(true); const u = (tx + 0.5) / image.width, v = 1 - (ty + 0.5) / image.height;
-    const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), P = new THREE.Vector3(), N = new THREE.Vector3(); let found = false;
+    const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), P = new THREE.Vector3(), N = new THREE.Vector3(); let found = false, src = null;
     figure.traverse(o => { if (found || !o.isMesh || !o.visible || (o.userData.realMat || o.material)?.map?.image !== image) return; const g = o.geometry, pos = g.attributes.position, uv = g.attributes.uv; if (!uv) return;
       const idx = g.index ? g.index.array : null, n = idx ? idx.length : pos.count;
       for (let t = 0; t < n && !found; t += 3) { const i0 = idx ? idx[t] : t, i1 = idx ? idx[t + 1] : t + 1, i2 = idx ? idx[t + 2] : t + 2;
         const x0 = uv.getX(i0), y0 = uv.getY(i0), x1 = uv.getX(i1), y1 = uv.getY(i1), x2 = uv.getX(i2), y2 = uv.getY(i2), d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2); if (Math.abs(d) < 1e-12) continue;
         const a = ((y1 - y2) * (u - x2) + (x2 - x1) * (v - y2)) / d, b = ((y2 - y0) * (u - x2) + (x0 - x2) * (v - y2)) / d, c = 1 - a - b; if (a < -1e-6 || b < -1e-6 || c < -1e-6) continue;
         A.fromBufferAttribute(pos, i0).applyMatrix4(o.matrixWorld); B.fromBufferAttribute(pos, i1).applyMatrix4(o.matrixWorld); C.fromBufferAttribute(pos, i2).applyMatrix4(o.matrixWorld);
-        P.set(0, 0, 0).addScaledVector(A, a).addScaledVector(B, b).addScaledVector(C, c); N.subVectors(B, A).cross(new THREE.Vector3().subVectors(C, A)).normalize(); found = true; } });
+        P.set(0, 0, 0).addScaledVector(A, a).addScaledVector(B, b).addScaledVector(C, c); N.subVectors(B, A).cross(new THREE.Vector3().subVectors(C, A)).normalize(); found = true; src = o; } });
     if (!found) return null; P.x *= -1; N.x *= -1; const near = ray.near, far = ray.far; ray.near = 0; ray.far = 1e6;
-    ray.ray.origin.copy(P).addScaledVector(N, 0.05); ray.ray.direction.copy(N).negate(); let hit = texel(image); if (hit && hit.at.distanceTo(P) > 1.0) hit = null;
-    if (!hit) { ray.ray.origin.copy(P).addScaledVector(N, -0.05); ray.ray.direction.copy(N); hit = texel(image); if (hit && hit.at.distanceTo(P) > 1.0) hit = null; }   /* a mirrored mesh winds the other way; nothing right there: no twin */
+    const sb = new THREE.Box3().setFromObject(src), want = new THREE.Box3(new THREE.Vector3(-sb.max.x, sb.min.y, sb.min.z), new THREE.Vector3(-sb.min.x, sb.max.y, sb.max.z)), ob = new THREE.Box3();
+    const err = o => { ob.setFromObject(o); return Math.max(ob.min.distanceTo(want.min), ob.max.distanceTo(want.max)); }; let best = Infinity; figure.traverse(o => { if (o.isMesh && o.visible && (o.userData.realMat || o.material)?.map?.image === image) best = Math.min(best, err(o)); });
+    const ok = o => best < 1.5 && err(o) <= best + 0.05;   // only the part's own mirror partner (or itself, if it sits in the middle): never another part that happens to be near the flipped spot
+
+    ray.ray.origin.copy(P).addScaledVector(N, 0.05); ray.ray.direction.copy(N).negate(); let hit = texel(image, ok); if (hit && hit.at.distanceTo(P) > 0.2) hit = null;
+    if (!hit) { ray.ray.origin.copy(P).addScaledVector(N, -0.05); ray.ray.direction.copy(N); hit = texel(image, ok); if (hit && hit.at.distanceTo(P) > 0.2) hit = null; }   /* a mirrored mesh winds the other way; nothing right there: no twin */
     ray.near = near; ray.far = far; return hit; }
   // while painting, the left button paints and the right button turns the view
   let painting = false, plantClear = 0;   // plants keep further away while an item is edited, or when a move sits or lies on the ground
