@@ -19,7 +19,7 @@ async function put(r) { if (!r.skin) throw new Error('That is not a skin.'); awa
 const write = async r => { await put(r); await mirror(); return r; };
 
 export async function saveCustom(name, skin, id) {
-  if (!id && (await list()).custom.length >= CUSTOM_MAX) throw new Error(`Your wardrobe is full (${CUSTOM_MAX} skins). Delete one first.`);
+  if (!id && (await list()).custom.length >= CUSTOM_MAX) throw new Error(`My skins is full (${CUSTOM_MAX})`);
   return write(record(id || crypto.randomUUID(), 'custom', name, skin));
 }
 export const saveGame = (slot, name, skin) => write(record(gameId(slot), 'game', name, skin, slot));

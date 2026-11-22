@@ -12,7 +12,7 @@ import { SUPPORT_URL, MOD_URL } from './config.js';
 const modLink = cls => /^https:\/\/(www\.)?curseforge\.com\/hytale\/[a-z-]+\/[a-z0-9-]{2,80}$/.test(MOD_URL) ? el('a', { class: 'btn ' + cls, href: MOD_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Get the mod' }) : null;
 // the footer's support link: only a Ko-fi page, and only when one is set
 if (/^https:\/\/ko-fi\.com\/[A-Za-z0-9_]{2,60}$/.test(SUPPORT_URL)) { const a = document.getElementById('support'); if (a) { a.href = SUPPORT_URL; a.hidden = false; document.getElementById('supportdot').hidden = false; } }
-import { rules, sanitize, cleanName, parse, nice, LABEL, GROUPS, REQUIRED } from './skin.js';
+import { rules, sanitize, cleanName, clip, parse, nice, LABEL, GROUPS, REQUIRED } from './skin.js';
 
 const $ = id => document.getElementById(id);
 // Every element is made here with textContent and properties: no HTML strings anywhere, so nothing typed, imported or looked up can inject markup.
@@ -246,7 +246,7 @@ function viewInset() {   // the character is centred above the buttons at the bo
   st.inset(bh, emOn ? sr.right - em.getBoundingClientRect().left + 4 : 0); if (!viewInset.ro) { viewInset.ro = new ResizeObserver(() => viewInset()); viewInset.ro.observe(stg); } }
 function render() { if (pressing) { renderLater = true; return; } jobGen++; plate(); drawEmotes(); drawStageBtns(); drawGameSwitch(); outlineBox(); viewInset();
   if (!!ED !== $('app').classList.contains('ws')) scrollTo(0, 0);   // opening or closing the Creator workspace starts at the top of the page
-  $('app').classList.toggle('ws', !!ED); $('app').classList.toggle('ws-tex', !!ED); /* the texture panel is always there in the Creator */ if (ED) return renderWorkspace(); const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
+  $('app').classList.toggle('ws', !!ED); $('app').classList.toggle('ws-tex', !!ED); /* the texture panel is always there in the Creator */ if (ED) { const fa = document.activeElement, fk = fa && fa !== document.body && fa.closest?.('#app') ? (fa.dataset?.fk || [fa.tagName, fa.textContent, fa.title || fa.getAttribute('aria-label') || ''].join('|')) : null, pb_ = ED.box_, sl = pb_?.scrollLeft, stp = pb_?.scrollTop; const r_ = renderWorkspace(); if (pb_ && ED.box_ === pb_) { pb_.scrollLeft = sl; pb_.scrollTop = stp; }   /* the zoomed texture view stays where it was */ if (fk && !document.activeElement?.closest?.('#app')) { const m = [...document.querySelectorAll('#app button, #app input, #app select')].find(x => (x.dataset?.fk || [x.tagName, x.textContent, x.title || x.getAttribute('aria-label') || ''].join('|')) === fk); m?.focus(); } return r_; }   /* keyboard focus stays on the control after the panel redraws */ const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
   p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, creator: panelCreator, help: panelHelp }[tab])());
   if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; } }
 // our own small symbols for the category rail (drawn here, not taken from the game)
@@ -481,13 +481,13 @@ const toGame = guard(async rec => { rec = liveRec(rec);
 const moveOut = guard(async rec => { rec = liveRec(rec); const n = await store.saveCustom(rec.name, rec.skin); await movePub(rec.id, n && n.id); await store.remove(rec.id); await refreshWard(); say('Moved to My skins'); });
 const liveRec = rec => { const w = [...WARD.game, ...WARD.custom].find(r => r && r.id === rec.id) || rec; return cur && cur.id === rec.id ? { ...w, skin: cur.skin } : w; };   // the skin as it is now, not as the card was drawn
 const renameSkin = guard(async rec => { rec = liveRec(rec);
-  const name = el('input', { type: 'text', value: rec.name || '', maxLength: 40, placeholder: 'Skin name', autofocus: true });
+  const name = el('input', { type: 'text', value: rec.name || '', maxLength: 120, placeholder: 'Skin name', autofocus: true });
   const asked = ask('Rename skin', [el('label', { text: 'Name' }), name], [{ label: 'Cancel', value: '' }, { label: 'Rename', value: 'yes', primary: true }]); requestAnimationFrame(() => { name.focus(); name.select(); }); if (await asked !== 'yes') return;
   const n = cleanName(name.value); if (!n || n === rec.name) return;
   const r = rec.kind === 'game' ? await store.saveGame(rec.slot, n, rec.skin) : await store.saveCustom(n, rec.skin, rec.id);
   if (cur.id === rec.id) { cur.name = r.name; cur.auto = false; keepDraft(); }
   await refreshWard(); if (PUBMAP[r.id] && canPublish() && !hasCustom(r.skin)) publish(r, true); });
-const duplicate = guard(async rec => { rec = liveRec(rec); const used = new Set(WARD.custom.map(r => r.name)), stem = String(rec.name).replace(/ copy( \d+)?$/, ''); let n = ''; for (let k = 1; k < 1000; k++) { const suf = ' copy' + (k > 1 ? ' ' + k : ''); let t = ''; for (const ch of stem) { if (t.length + ch.length > 40 - suf.length) break; t += ch; } n = cleanName(t + suf);   /* never cuts an emoji */ if (!used.has(n)) break; } await store.saveCustom(n, rec.skin); await refreshWard(); });   /* the number always fits in 40 characters */
+const duplicate = guard(async rec => { rec = liveRec(rec); const used = new Set(WARD.custom.map(r => r.name)), stem = String(rec.name).replace(/ copy( \d+)?$/, ''); let n = ''; for (let k = 1; k < 1000; k++) { const suf = ' copy' + (k > 1 ? ' ' + k : ''); n = cleanName(clip(stem, 40 - suf.length) + suf);   /* never cuts an emoji, even multi-part ones */ if (!used.has(n)) break; } await store.saveCustom(n, rec.skin); await refreshWard(); });   /* the number always fits in 40 characters */
 const removeSkin = guard(async rec => { if (PUBMAP[rec.id] && canPublish()) await unpublish(rec, true); await store.remove(rec.id); await refreshWard(); if (cur.id === rec.id) { Object.assign(cur, { id: null, kind: null, slot: null, name: '', auto: false }); keepDraft(); plate(); }   /* the look on screen is no longer that skin */   /* deleted at once, with Undo, instead of asking first */
   sayUndo(`Deleted "${rec.name}"`, guard(async () => { if (rec.kind !== 'game' && WARD.custom.length >= store.CUSTOM_MAX) throw new Error(`My skins is full (${store.CUSTOM_MAX})`); await store.saveCustom(rec.name, rec.skin, rec.id); await refreshWard();
     if (!cur.id && JSON.stringify(cur.skin) === JSON.stringify(R.fit(rec.skin))) { Object.assign(cur, { id: rec.id, kind: 'custom', slot: null, name: rec.name }); keepDraft(); plate(); } })); });   /* the look on screen is that skin again */
@@ -501,7 +501,7 @@ async function save() { cur.random = false; if (!cur.id) return saveAs();
   await guard(async () => { const r = cur.kind === 'game' ? await store.saveGame(cur.slot, cur.name, cur.skin) : await store.saveCustom(cur.name, cur.skin, cur.id); dirty = false; await refreshWard(); say(`Saved "${r.name}"`);
     if (PUBMAP[r.id] && canPublish() && !hasCustom(r.skin)) publish(r, true); })(); }
 async function saveAs() { cur.random = false;
-  const name = el('input', { type: 'text', value: cur.name || '', maxLength: 40, placeholder: 'Skin name', autofocus: true });
+  const name = el('input', { type: 'text', value: cur.name || '', maxLength: 120, placeholder: 'Skin name', autofocus: true });
   const where = el('select', {}, el('option', { value: 'custom', text: `My skins (${WARD.custom.length} / ${store.CUSTOM_MAX})` }), WARD.game.map((r, i) => el('option', { value: String(i), text: `In-game slot ${i + 1}${r ? ', replaces "' + r.name + '"' : ' (empty)'}` })));
   const v = await ask('Save skin', [el('label', { text: 'Name' }), name, el('label', { text: 'Save to' }), where], [{ label: 'Cancel', value: '' }, { label: 'Save', value: 'yes', primary: true }]);
   if (v !== 'yes') return; const n = cleanName(name.value) || cur.name || 'My skin';   /* a blank name keeps the current one */
@@ -650,7 +650,7 @@ function panelLookup() {
 
 function panelHelp() {
   const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.filter(p => p !== '').map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
-  const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const r = await store.importAll(await readJsonFile(f, 40_000_000)); await reloadAssets(); await refreshWard(); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}` + (r.items ? `, ${r.items} item${r.items === 1 ? '' : 's'}` : '') + (r.skipped || r.itemsSkipped ? `; ${r.skipped + r.itemsSkipped} skipped (full)` : ''), !!(r.skipped || r.itemsSkipped)); }) });
+  const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const r = await store.importAll(await readJsonFile(f, 40_000_000)); await reloadAssets(); await refreshWard(); if (!r.added && !r.items && !r.skipped && !r.itemsSkipped) return say('Everything in that backup is already here'); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}` + (r.items ? `, ${r.items} item${r.items === 1 ? '' : 's'}` : '') + (r.skipped || r.itemsSkipped ? `; ${r.skipped + r.itemsSkipped} skipped (full)` : ''), !!(r.skipped || r.itemsSkipped)); }) });
   const steps = [['Wardrobe', 'pick a slot, click items to try them on.'], ['Locker', 'your saved skins.'], ['Animations', "the game's moves on your skin."],
     ['Creator', 'make your own items from any item.'], ['Players', 'look someone up by username.']];
   return [head('Help'), el('div', { class: 'pbody prose' },
@@ -711,10 +711,10 @@ async function makeAsset1(f, val) {
 }
 const makePainter = (c, a) => createPainter(c, final => { fig.refreshCustom(a.id); if (final) { queueAssetSave(); recordPaint(); if (ED && !ED.replaying) render(); } }, () => render());
 // a texture with no free room grows downwards (twice as tall, up to 256): the old paint stays where it was, the new rows are empty
-function growWider() { const c = ED.canvas; if (c.width * 2 > 256) return false; ED.painter.grow(c.height, c.width * 2); ED.asset = { ...ED.asset, w: c.width }; ED.n = ++edN; requestAnimationFrame(() => { if (ED) { fitTexture(); render(); } }); return true; }
+function growWider() { const c = ED.canvas; if (c.width * 2 > 256) return false; ED.painter.grow(c.height, c.width * 2); ED.asset = { ...ED.asset, w: c.width }; ED.n = ++edN; requestAnimationFrame(() => { if (ED) { if (!ED.userZoom) fitTexture(); render(); } }); return true; }
 function growTexture() {
   const c = ED.canvas; if (c.height * 2 > 256) return false;
-  ED.painter.grow(c.height * 2); ED.asset = { ...ED.asset, h: c.height }; ED.n = ++edN; requestAnimationFrame(() => { if (ED) { fitTexture(); render(); } }); return true;
+  ED.painter.grow(c.height * 2); ED.asset = { ...ED.asset, h: c.height }; ED.n = ++edN; requestAnimationFrame(() => { if (ED) { if (!ED.userZoom) fitTexture(); render(); } }); return true;
 }
 async function openAsset(a) { say('');
   if (ED) await closeAsset(true);
@@ -727,7 +727,7 @@ async function openAsset(a) { say('');
   { const k = STEPS.get(a.id); if (k && ED.painter.takeSteps(k.paint)) { ED.hist = k.hist; ED.fut = k.fut; ED.asset = { ...ED.asset, w: c.width, h: c.height }; } if (k && k.mode === 'shape') ED.reopenShape = true; }
   ED.painter.faceAt = (x, y) => ED && ED.rects.find(r => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h);   // Fill > Whole side: which side was clicked
   if (ED.rects.length) { const m = new Uint8Array(c.width * c.height); for (const r of ED.rects) for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(c.height, Math.ceil(r.y + r.h)); y++) for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(c.width, Math.ceil(r.x + r.w)); x++) m[y * c.width + x] = 1; ED.painter.mask = m; }
-  ED.palette = ED.painter.palette(); ED.ovl = el('canvas', { className: 'limits' }); requestAnimationFrame(() => { fitTexture(); render(); }); if (ED.reopenShape) { ED.reopenShape = false; setMode('shape').catch(e => console.warn(e)); }
+  ED.palette = ED.painter.palette(); ED.ovl = el('canvas', { className: 'limits' }); requestAnimationFrame(() => { fitTexture(); render(); }); setTimeout(() => { if (ED && !ED.userZoom) { const z = ED.zoom; fitTexture(); if (ED.zoom !== z) render(); } }, 150);   /* also when no frame comes (background tab) */ if (ED.reopenShape) { ED.reopenShape = false; setMode('shape').catch(e => console.warn(e)); }
   const flatPx = e => { const r = c.getBoundingClientRect(); return { x: Math.min(c.width - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * c.width))), y: Math.min(c.height - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * c.height))) }; };
   const flatPxM = e => { const p = flatPx(e); if (ED && ED.mirror && st) { const m = st.twinTexel(ED.canvas, p.x, p.y); if (m && (m.x !== p.x || m.y !== p.y)) p.m = m; } return p; };   /* Symmetry on the flat texture: the matching texel on the other side */
   bindPaint(c, flatPxM, 1e9); bindSelect(c, flatPx);
@@ -770,7 +770,7 @@ let beforeEdit = null;   // the outfit before an item went on for editing: Done 
 const STEPS = new Map();   // undo history per custom item, kept for this visit so reopening an item can still undo
 function closeAsset(quiet, keep = false) { return (closeAsset.last = closeAsset1(quiet, keep)); }   // the last close is kept, so a delete can wait for its save
 async function closeAsset1(quiet, keep = false) {
-  if (!ED) return; if (ED.adjOpen && ED.adjCancel) ED.adjCancel();   /* Done with Adjust open drops the preview first */ const before = ED.before, fld = ED.asset.field, edited = ED.asset.id; keepBrush(); if (ED.float) placeFloat(); STEPS.set(ED.asset.id, { hist: ED.hist, fut: ED.fut, paint: ED.painter.keepSteps(), mode: ED.mode }); tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); if (queueAssetSave.pending || ED.saved === false) await flushAsset().catch(() => {}); else clearTimeout(queueAssetSave.t);
+  if (!ED) return; $('app').classList.remove('ws-wide');   /* the panel width goes back with the editor */ if (ED.adjOpen && ED.adjCancel) ED.adjCancel();   /* Done with Adjust open drops the preview first */ const before = ED.before, fld = ED.asset.field, edited = ED.asset.id; keepBrush(); if (ED.float) placeFloat(); STEPS.delete(ED.asset.id); STEPS.set(ED.asset.id, { hist: ED.hist, fut: ED.fut, paint: ED.painter.keepSteps(), mode: ED.mode }); while (STEPS.size > 4) STEPS.delete(STEPS.keys().next().value);   /* undo history is kept for the last few items only (each can hold tens of MB) */ tour(99); if ($('viewhint')) $('viewhint').hidden = true; st.cursor(null); await checkReplica(); if (queueAssetSave.pending || ED.saved === false) await flushAsset().catch(() => {}); else clearTimeout(queueAssetSave.t);
   if (ED && ED.saved === false && ED.fails) { rescue(); say('Could not save', true); return; }   /* a failing save keeps the editor open (and a rescue copy) instead of dropping the work */
   ED = null;   /* nothing changed: nothing is re-saved */ if ($('viewhint')) $('viewhint').hidden = true; registerAssets(); const mark = editMark; editMark = null;
   if (before) { const fs = [...(keep ? [] : [fld]), ...(HIDE[fld] || [])], s = restoreFrom(cur.skin, before, fs);
@@ -982,13 +982,22 @@ function anyItem() {   // or start from any free item in the game, worn or not
   const slotBtn = el('button', { type: 'button', class: 'anypick', text: LABEL[slot.value], 'aria-label': 'Item type' }), slotMenu = el('div', { class: 'anymenu', role: 'listbox', hidden: true });
   const slotItem = f => { const items = oneEach(CAT.items[f]).filter(ok), want = (anyItem.picks || {})[f] || parse(cur.skin[f]).id; return items.find(e => e.Id === want) || items[0] || null; };
   const showSlot = f => setPic(itemThumb(f, slotItem(f), undefined, undefined, true));
-  const slotClose = () => { if (slotMenu.hidden) return; slotMenu.hidden = true; slotMenu.remove(); draw(at); document.removeEventListener('pointerdown', slotAway, true); };
-  slotBtn.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !slotMenu.hidden) { ev.preventDefault(); ev.stopPropagation(); slotClose(); } });   // Escape closes the type menu
+  const slotClose = () => { if (slotMenu.hidden) return; slotMenu.hidden = true; slotMenu.remove(); draw(at); document.removeEventListener('pointerdown', slotAway, true); removeEventListener('scroll', slotClose, true); slotBtn.setAttribute('aria-expanded', 'false'); };
+  let si = -1; slotBtn.setAttribute('aria-haspopup', 'listbox'); slotBtn.setAttribute('aria-expanded', 'false');
+  slotBtn.addEventListener('keydown', ev => { const opts = [...slotMenu.children], k = ev.key;   // the type menu works by keyboard: arrows move, Enter picks, Escape closes
+    if (k === 'Escape' && !slotMenu.hidden) { ev.preventDefault(); ev.stopPropagation(); slotClose(); return; }
+    if (k === 'Tab') { slotClose(); return; }
+    if ((k === 'Home' || k === 'End') && !slotMenu.hidden) { ev.preventDefault(); si = k === 'Home' ? 0 : opts.length - 1; opts.forEach((o, i) => { o.classList.toggle('on', i === si); o.setAttribute('aria-selected', String(i === si)); }); opts[si]?.scrollIntoView({ block: 'nearest' }); showSlot(slots[si]); return; }
+    if (k === 'ArrowDown' || k === 'ArrowUp') { ev.preventDefault(); if (slotMenu.hidden) { slotBtn.click(); si = Math.max(0, slots.indexOf(slot.value)); } else si = (si + (k === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+      opts.forEach((o, i) => { o.classList.toggle('on', i === si); o.setAttribute('aria-selected', String(i === si)); }); opts[si]?.scrollIntoView({ block: 'nearest' }); showSlot(slots[si]); return; }
+    if ((k === 'Enter' || k === ' ') && !slotMenu.hidden && si >= 0) { ev.preventDefault(); opts[si]?.click(); slotBtn.focus(); } });
   const slotAway = ev => { if (!slotMenu.contains(ev.target) && ev.target !== slotBtn) slotClose(); };
   slotMenu.replaceChildren(...slots.map(f => el('div', { role: 'option', class: 'anyopt', text: LABEL[f], onpointerenter: () => showSlot(f), onclick: () => { slot.value = f; slotClose(); slot.onchange(); } })));
   slotMenu.onpointerleave = () => draw(at);
   slotBtn.onclick = () => { if (!slotMenu.hidden) return slotClose(); document.querySelectorAll('body > .anymenu').forEach(x => x.remove()); document.body.append(slotMenu); const r = slotBtn.getBoundingClientRect();
-    Object.assign(slotMenu.style, { left: r.left + 'px', width: Math.max(r.width, 180) + 'px', top: r.bottom + 2 + 'px', maxHeight: Math.min(420, innerHeight - r.bottom - 12) + 'px', bottom: '' }); slotMenu.hidden = false; document.addEventListener('pointerdown', slotAway, true); };
+    const below = innerHeight - r.bottom - 12, above = r.top - 12, up = below < 200 && above > below;   /* opens upward when there is no room below */
+    Object.assign(slotMenu.style, up ? { left: r.left + 'px', width: Math.max(r.width, 180) + 'px', top: '', bottom: innerHeight - r.top + 2 + 'px', maxHeight: Math.min(420, above) + 'px' } : { left: r.left + 'px', width: Math.max(r.width, 180) + 'px', top: r.bottom + 2 + 'px', maxHeight: Math.min(420, below) + 'px', bottom: '' });
+    slotMenu.hidden = false; slotBtn.setAttribute('aria-expanded', 'true'); si = slots.indexOf(slot.value); [...slotMenu.children].forEach((o, i) => o.classList.toggle('on', i === si)); slotMenu.children[si]?.scrollIntoView({ block: 'nearest' }); document.addEventListener('pointerdown', slotAway, true); setTimeout(() => addEventListener('scroll', slotClose, true), 0); };
   find_.onkeydown = ev => { if (ev.key === 'ArrowDown' && list.length) { ev.preventDefault(); item.focus(); item.onkeydown(ev); } };
   return [el('h3', { text: 'Any item' }), el('div', { class: 'row anyitem' }, pic, el('div', { class: 'anycol' }, el('div', { class: 'row' }, el('div', { class: 'anywrap' }, slotBtn), find_), el('div', { class: 'anywrap' }, item, menu)), edit)];
 }
@@ -1004,12 +1013,15 @@ function assetCard(a) {
 }
 addEventListener('keydown', e => { if (e.key !== 'Escape') return; const open_ = [...document.querySelectorAll('.cardacts')].filter(x => !x.hidden); if (!open_.length) return; open_.forEach(x => x.hidden = true); document.querySelectorAll('.cardmenu').forEach(x => x.setAttribute('aria-expanded', 'false')); e.stopPropagation(); });   // Escape closes an open card menu wherever focus is
 function showKeys() {   // the shortcut list (?), as in other editors
-  const rows = [['B', 'Brush'], ['E', 'Eraser'], ['F', 'Fill'], ['P', 'Whole part'], ['I / hold Alt', 'Pick colour'], ['H', 'Replace colour'], ['M', 'Select area'], ['L / U / Q', 'Line / Rectangle / Filled'], ['O / D / N', 'Lighten / Darken / Noise'], ['[ ]', 'Brush size'],
-    ['G / S / R', 'Move / Resize / Turn'], ['A', 'Add part'], ['Ctrl+D', 'Duplicate'], ['Shift+M', 'Mirror'], ['Delete', 'Delete part'], ['F2', 'Rename part'], ['Arrows', 'Nudge'], ['1 2 3 5 7', 'Views'],
-    ['Ctrl+C / X / V', 'Copy / Cut / Paste'], ['Ctrl+Z / Y', 'Undo / Redo'], ['Ctrl+S', 'Save now'], ['Esc', 'Cancel']];
-  ask('Shortcuts', el('table', { class: 'keys' }, rows.map(([k, v]) => el('tr', {}, el('td', {}, el('kbd', { text: k })), el('td', { text: v })))), [{ label: 'OK', value: 'ok', primary: true }]); }
+  const groups = [['Paint', [['B', 'Paint'], ['E', 'Erase'], ['F', 'Fill'], ['P', 'Whole part'], ['I / hold Alt', 'Pick'], ['H', 'Replace'], ['L / U / Q', 'Line / Rectangle / Filled'], ['O / D / N', 'Lighten / Darken / Noise'], ['[ ]', 'Brush size'],
+      ['M', 'Select'], ['Ctrl+A', 'Select all'], ['Ctrl+C / X / V', 'Copy / Cut / Paste'], ['Arrows, Shift+arrows', 'Move a paste'], ['Enter', 'Place a paste'], ['Delete', 'Clear selection']]],
+    ['Shape', [['G / S / R', 'Move / Resize / Turn'], ['A', 'Add'], ['Ctrl+D', 'Duplicate'], ['Shift+M', 'Mirror'], ['Delete / X', 'Delete part'], ['F2', 'Rename part'], ['Arrows, Shift+arrows', 'Nudge']]],
+    ['General', [['Ctrl+Z / Y', 'Undo / Redo'], ['Ctrl+S', 'Save now'], ['1 2 3 5 7', 'Views'], ['Ctrl+0', 'Fit texture'], ['Esc', 'Cancel'], ['?', 'Shortcuts']]]];
+  const t = el('table', { class: 'keys' }, groups.flatMap(([g, rows]) => [el('tr', {}, el('th', { colSpan: 2, text: g })), ...rows.map(([k, v]) => el('tr', {}, el('td', {}, el('kbd', { text: k })), el('td', { text: v })))]));
+  ask('Shortcuts', t, [{ label: 'Close', value: 'ok', primary: true }]).then(() => { try { document.activeElement?.blur?.(); } catch { /* fine */ } }); }
 function cardMenu(acts) {   // a card's actions in a ⋯ menu, as in file browsers
-  const m = el('div', { class: 'cardacts', hidden: true, onkeydown: e => { if (e.key === 'Escape') { e.stopPropagation(); m.hidden = true; b.setAttribute('aria-expanded', 'false'); b.focus(); } } }, acts);
+  const m = el('div', { class: 'cardacts', role: 'menu', hidden: true, onkeydown: e => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') { e.preventDefault(); e.stopPropagation(); const bs = [...m.querySelectorAll('button:not(:disabled)')], i = bs.indexOf(document.activeElement), n = bs.length; const j = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; bs[j]?.focus(); return; }   /* arrows move through the menu */
+    if (e.key === 'Escape') { e.stopPropagation(); m.hidden = true; b.setAttribute('aria-expanded', 'false'); b.focus(); } } }, acts);
   m.addEventListener('click', e => { if (e.target.closest('button')) { m.hidden = true; b.setAttribute('aria-expanded', 'false'); } });   // picking an action closes the menu
   m.addEventListener('focusout', e => { if (!m.contains(e.relatedTarget) && e.relatedTarget !== b) { m.hidden = true; b.setAttribute('aria-expanded', 'false'); } });
   const b = el('button', { class: 'cardmenu', text: '⋯', 'aria-label': 'More', 'aria-expanded': 'false', onclick: e => { e.stopPropagation(); const open_ = m.hidden; document.querySelectorAll('.cardacts').forEach(x => x.hidden = true); document.querySelectorAll('.cardmenu').forEach(x => x.setAttribute('aria-expanded', 'false')); m.hidden = !open_; b.setAttribute('aria-expanded', String(open_)); if (open_) m.querySelector('button')?.focus();
@@ -1052,7 +1064,7 @@ function limits(c) {
     for (const rs of spots.values()) { const r = rs[0]; if (!(r.w * z > 34 && r.h * z > 14)) continue; const uniq = a => [...new Set(a)];
       const parts = uniq(rs.map(q => partName(q.node))), faces = uniq(rs.map(q => q.face)).join('/');
       const opts = parts.length > 1 ? [parts.join(' + '), parts[0] + ' +' + (parts.length - 1)] : (ED.rects.filter(q => q.node === r.node).length === 1 ? [parts[0], faces] : [many ? parts[0] + ' · ' + faces : faces, faces]);   /* parts painted alike: name them once and say so, no repeated sides */
-      const t = opts.find(v => x.measureText(v).width <= r.w * z - 6); if (t) x.fillText(t, r.x * z + 3, r.y * z + 11); } }
+      const t = opts.find(v => x.measureText(v).width <= r.w * z - 6); if (t) { const fs = x.fillStyle, tw = x.measureText(t).width; x.fillStyle = 'rgba(8, 14, 24, 0.78)'; x.fillRect(r.x * z + 1, r.y * z + 1, tw + 4, 13); x.fillStyle = fs; x.fillText(t, r.x * z + 3, r.y * z + 11); }   /* a dark pill keeps labels readable on light paint */ } }
   return o;
 }
 // ---------------------------------------------------------------- shapes: an asset's own copy of its item's 3D model
@@ -1175,8 +1187,8 @@ function paintSide() {
     el('div', { class: 'swlabel', text: 'Basic' }), swatchRow(BASIC), el('div', { class: 'swlabel', text: 'In this item' }), swatchRow(ED.palette),
     (() => { const r = [el('div', { class: 'swlabel', text: 'Recent' }), swatchRow(RECENT.length ? RECENT : ['#000000'])]; if (!RECENT.length) r.forEach(x => { x.style.visibility = 'hidden'; x.setAttribute('aria-hidden', 'true'); }); return r; })(),   /* the row keeps its place, so buttons below don't jump */
     el('button', { class: 'btn ghost wide', text: 'Tint item', onclick: () => tintAll(P.color) }),
-    ['brush', 'erase', 'light', 'dark', 'noise', 'line', 'box'].includes(P.tool) ? [el('div', { class: 'wshead', text: 'Brush' }),   /* only tools that use them show size and strength */
-      slider('Size', 1, 8, 1, () => P.size, v => { P.size = v; }, v => v), ['brush', 'line', 'box'].includes(P.tool) ? slider('Strength', 10, 100, 10, () => Math.round(P.opacity * 100), v => { P.opacity = v / 100; }, v => v + '%') : null] : null,
+    (() => { const vis = (e, on) => { if (!on && e) { e.style.visibility = 'hidden'; e.setAttribute('aria-hidden', 'true'); e.querySelectorAll?.('input, button').forEach(i => { i.disabled = true; i.tabIndex = -1; }); } return e; }, useSize = ['brush', 'erase', 'light', 'dark', 'noise', 'line', 'box'].includes(P.tool), useStr = ['brush', 'line', 'box'].includes(P.tool);
+      return [vis(el('div', { class: 'wshead', text: 'Brush' }), useSize), vis(slider('Size', 1, 8, 1, () => P.size, v => { P.size = v; }, v => v), useSize), vis(slider('Strength', 10, 100, 10, () => Math.round(P.opacity * 100), v => { P.opacity = v / 100; }, v => v + '%'), useStr)]; })(),   /* the section keeps its place for every tool, so nothing below jumps; unused controls are hidden */
     P.tool === 'fill' ? [el('div', { class: 'swlabel', text: 'Fill' }), el('div', { class: 'seg', role: 'radiogroup' }, ...[['area', 'Area', ''], ['side', 'Face', ''], ['every', 'Colour', '']]
       .map(([m, t, why]) => el('button', { class: (P.fillMode || 'area') === m ? 'on' : '', role: 'radio', 'aria-checked': String((P.fillMode || 'area') === m), text: t, onclick: () => { P.fillMode = m; render(); viewHint(); } }))),
       P.fillMode !== 'side' ? slider('Tolerance', 0, 100, 4, () => P.tolerance, v => { P.tolerance = v; }, v => v + '%') : null] : null,
@@ -1189,27 +1201,35 @@ function paintSide() {
       : el('button', { class: 'btn ghost wide', text: 'Adjust colours…', onclick: () => { ED.adjOpen = true; render(); } })];
 }
 // boxes get readable names: the player's own, else one made from the game's node name ("L-ArmCostume" -> "Left arm", new boxes -> "Box 2")
-function boxLabel(node) {
+function boxLabel(node) {   // names come from one pass per model change (it was a name lookup per part per part: slow at 64 parts)
+  const key = ED.model, lk = JSON.stringify(ED.asset.labels || null), memo = boxLabel.memo;
+  if (memo && memo.model === key && memo.lk === lk && memo.n === ED.shapeN && memo.map.has(node)) return memo.map.get(node);
+  if (ED.model && !(memo && memo.model === key && memo.lk === lk && memo.n === ED.shapeN)) { boxLabel.memo = { model: key, lk, n: ED.shapeN, map: new Map() }; const map = boxLabel.memo.map; for (const b of boxesOf(ED.model)) map.set(b.node, boxLabel1(b.node)); if (map.has(node)) return map.get(node); }
+  return boxLabel1(node); }
+function boxLabel1(node) {
   const own = ED.asset.labels && ED.asset.labels[node.name]; if (own) return own;
   if (/^Box_/.test(node.name)) { const all = boxesOf(ED.model).filter(b => /^Box_/.test(b.node.name)); return 'Box ' + (all.findIndex(b => b.node === node) + 1); }
   const raw = n => { n = String(n).replace(/~\d+$/, ''); const m = /^(.*?)-+C(\d+)$/i.exec(n), base = (m ? m[1] : n).replace(/Costume$/, '').replace(/([A-Za-z])(\d+)$/, '$1 $2').replace(/^L-/, 'Left ').replace(/^R-/, 'Right ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ')
       .replace(/\bbot\b/ig, 'bottom').replace(/\bacc\b/ig, 'accessory').replace(/\bc (\d+)\b/ig, 'part $1').replace(/\s+/g, ' ').trim().toLowerCase();
     const t = base ? base[0].toUpperCase() + base.slice(1) : n; return m ? `${t}, piece ${+m[2] + 1}` : t; };   // "ChestPart--C1" -> "Chest part, piece 2"
-  const s = raw(node.name), same = (ED.model ? boxesOf(ED.model) : []).filter(b => !/^Box_/.test(b.node.name) && !(ED.asset.labels || {})[b.node.name] && raw(b.node.name) === s);
+  const s = raw(node.name), bs = ED.model ? (boxLabel.bs && boxLabel.bs.model === ED.model && boxLabel.bs.n === ED.shapeN ? boxLabel.bs.list : (boxLabel.bs = { model: ED.model, n: ED.shapeN, list: boxesOf(ED.model) }).list) : [], same = bs.filter(b => !/^Box_/.test(b.node.name) && !(ED.asset.labels || {})[b.node.name] && raw(b.node.name) === s);
   return same.length > 1 ? `${s} (${same.findIndex(b => b.node === node) + 1})` : s;   // two parts with one name get numbers
 }
 function renameBox(btn, node) {
   const inp = el('input', { type: 'text', value: boxLabel(node), maxLength: 30, class: 'rename' });
-  let ended = false; const done = keep => { if (ended) return; ended = true; if (keep && cleanName(inp.value).slice(0, 30) === boxLabel(node)) keep = false;   /* unchanged: no step */
+  let ended = false; const done = keep => { if (ended) return; ended = true; if (keep && cleanName(inp.value).slice(0, 30) === boxLabel(node)) keep = false;
+    if (keep) { const want = cleanName(inp.value).slice(0, 30), taken = new Set(boxesOf(ED.model).filter(b => b.node !== node).map(b => boxLabel(b.node))); if (want && taken.has(want)) { let k = 2; while (taken.has(want.slice(0, 27) + ' ' + k)) k++; inp.value = want.slice(0, 27) + ' ' + k; } }   /* a name another part has gets a number; the other part keeps its name */   /* unchanged: no step */
     if (keep) { const v = cleanName(inp.value).slice(0, 30), was = JSON.stringify(ED.asset.labels || null); ED.asset = { ...ED.asset, labels: { ...(ED.asset.labels || {}), [node.name]: v || undefined } }; if (!v) delete ED.asset.labels[node.name]; if (JSON.stringify(ED.asset.labels || null) !== was) { ED.hist.push({ k: 'l', other: was }); ED.fut = []; capHist(); } queueAssetSave(); } render(); };   /* a rename is an undo step */
   inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); }; inp.onblur = () => done(true);
   btn.replaceWith(inp); inp.focus(); inp.select();
 }
 // the texture view: the wheel zooms, right- or middle-drag pans; in Shape mode a click picks the box that owns that area
 function fitTexture() { if (!ED) return; if (!fitTexture.ro && window.ResizeObserver) { fitTexture.ro = new ResizeObserver(() => { if (ED && !ED.userZoom) { const z = ED.zoom; fitTexture(); if (ED.zoom !== z) render(); } }); fitTexture.ro.observe($('wsleft')); }   /* refits when the panel changes size, unless zoomed by hand */
-  const w = $('wsleft').clientWidth - 26; ED.zoom = Math.max(1, Math.min(24, Math.floor(w / ED.canvas.width))); }
+  const pb = ED.box_, w = pb && pb.clientWidth > 60 ? pb.clientWidth - 8 : $('wsleft').clientWidth - 26, h = pb && pb.clientHeight > 60 ? pb.clientHeight - 8 : Infinity; ED.zoom = Math.max(ZOOMS[0], Math.min(24, Math.floor(Math.min(w / ED.canvas.width, h / ED.canvas.height) * 100) / 100)); }   /* fits width and height exactly (any zoom, not only whole steps) */
+const ZOOMS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24];   // zoom steps, as in image editors
+const zoomStep = (z, d) => d > 0 ? (ZOOMS.find(v => v > z + 1e-6) ?? 24) : ([...ZOOMS].reverse().find(v => v < z - 1e-6) ?? ZOOMS[0]);
 function bindTexView(box) {
-  box.addEventListener('wheel', e => { if (!ED) return; e.preventDefault(); const z = Math.max(1, Math.min(24, ED.zoom + (e.deltaY < 0 ? 1 : -1))); if (z === ED.zoom) return; ED.userZoom = true;
+  box.addEventListener('wheel', e => { if (!ED) return; e.preventDefault(); const z = zoomStep(ED.zoom, e.deltaY < 0 ? 1 : -1); if (z === ED.zoom) return; ED.userZoom = true;
     const cv = () => box.querySelector('canvas'), r0 = cv()?.getBoundingClientRect(), tx = r0 ? (e.clientX - r0.left) / r0.width : 0, ty = r0 ? (e.clientY - r0.top) / r0.height : 0;
     ED.zoom = z; render(); const r1 = cv()?.getBoundingClientRect(); if (r0 && r1) { box.scrollLeft += r1.left + tx * r1.width - e.clientX; box.scrollTop += r1.top + ty * r1.height - e.clientY; } }, { passive: false });   /* the texel under the cursor stays under it */
   box.addEventListener('contextmenu', e => e.preventDefault());
@@ -1308,7 +1328,7 @@ function shapeSide() {
       ax = ['x', 'y', 'z'].reduce((a, c) => Math.abs(out[c]) > Math.abs(out[a]) ? c : a, 'x'); sg = Math.sign(out[ax]) || 1; }
     shapeEdit(() => { const [o_, k_] = pos; o_[k_] = { x: 0, y: 0, z: 0, ...o_[k_], [ax]: Math.round(((o_[k_]?.[ax] ?? 0) + d * sg) * 2) / 2 }; }); };
   return [el('div', { class: 'wshead row' }, el('span', { class: 'grow', text: 'Parts' }),
-      el('button', { class: 'iconbtn', text: '+', title: 'Add part (A)', 'aria-label': 'New part', onclick: startPlacing }), el('button', { class: 'iconbtn', text: '⧉', title: 'Add item…', 'aria-label': 'Add item', onclick: guard(combinePick) })),
+      el('button', { class: 'iconbtn', text: '+', title: 'Add part (A)', 'aria-label': 'Add part', onclick: startPlacing }), el('button', { class: 'iconbtn', text: '⧉', title: 'Add item…', 'aria-label': 'Add item', onclick: guard(combinePick) })),
     el('div', { class: 'outliner' }, boxes.map((x, k) => { const name = boxLabel(x.node), same = boxes.filter(y => boxLabel(y.node) === name), nth = same.length > 1 ? ' ' + (same.findIndex(y => y.node === x.node) + 1) : '';
       return el('div', { class: 'partrow' + (k === i ? ' on' : '') }, el('button', { class: k === i ? 'on' : '', text: name + nth, onclick: e => { const now = Date.now(), again = ED.box === k && now - (ED.pickAt || 0) < 450; ED.pickAt = now; if (again) return renameBox(e.currentTarget, x.node); ED.box = k; render(); placeGizmo(); st.showMesh(st.findMesh(o => o.material?.map?.image === ED.canvas && o.userData.nodeName === x.node.name)); },
         onmouseenter: () => st.highlight(o => o.material?.map?.image === ED.canvas && o.userData.nodeName === x.node.name), onmouseleave: () => outlineBox() }),
@@ -1349,7 +1369,7 @@ function renderWorkspace() {
   const P = ED.painter, a = ED.asset, c = ED.canvas, mode = ED.mode || 'paint'; ED.shapeOpen = mode === 'shape';
   const tools = mode === 'paint' ? PAINT_TOOLS : SHAPE_TOOLS, active = mode === 'paint' ? P.tool : ED.stool || 'select';
   $('wstop').replaceChildren(...[
-    el('input', { type: 'text', class: 'wsname', value: a.name, maxLength: 40, 'aria-label': 'Name', onkeydown: e => { if (e.key === 'Enter') e.target.blur(); else if (e.key === 'Escape') { e.target.value = ED.asset.name; e.target.blur(); } }, onchange: e => { const v = cleanName(e.target.value); if (v && gameNamed(v)) { e.target.value = ED.asset.name; return say('A game item has that name', true); } say(''); ED.asset = { ...ED.asset, name: v || a.name }; e.target.value = ED.asset.name; queueAssetSave(); } }),
+    el('input', { type: 'text', class: 'wsname', value: a.name, maxLength: 120, 'aria-label': 'Name', onkeydown: e => { if (e.key === 'Enter') e.target.blur(); else if (e.key === 'Escape') { e.target.value = ED.asset.name; e.target.blur(); } }, onchange: e => { const v = cleanName(e.target.value); if (v && gameNamed(v)) { e.target.value = ED.asset.name; return say('A game item has that name', true); } say(''); ED.asset = { ...ED.asset, name: v || a.name }; e.target.value = ED.asset.name; queueAssetSave(); } }),
     el('span', { id: 'wssaved', class: 'wssaved', text: ED.saved === false ? 'Saving…' : 'Saved' }),
     el('span', { class: 'grow' }), a.flag ? el('button', { class: 'tag none', text: 'Site only', title: FLAG_WHY(a.flag), onclick: () => say(FLAG_WHY(a.flag), true) }) : null,
     el('button', { class: 'btn icon', text: '↶', title: 'Undo (Ctrl+Z)', disabled: !ED.hist.length, onclick: () => wsUndo(false) }),
@@ -1361,12 +1381,12 @@ function renderWorkspace() {
   const paintIds = ['brush', 'erase', 'fill', 'pick'], extra = PAINT_TOOLS.filter(t => !paintIds.includes(t[0]));
   const NAMES = { brush: 'Paint', erase: 'Erase', fill: 'Fill', pick: 'Pick', move: 'Move', resize: 'Resize', rotate: 'Turn' };
   const btn = (kind, [id, label, key, ic]) => { const on = ED.mode === kind && (kind === 'paint' ? P.tool : ED.stool) === id;
-    return el('button', { class: 'wstool' + (on ? ' on' : ''), title: label + (key ? ` (${key})` : ''), onclick: () => pickAny(kind, id) }, el('span', {}, toolIcon(id) || ic), el('b', { text: NAMES[id] || SHORT[id] || label })); };
+    return el('button', { class: 'wstool' + (on ? ' on' : ''), title: (NAMES[id] || SHORT[id] || label) + (key ? ` (${key})` : ''), onclick: () => pickAny(kind, id) }, el('span', {}, toolIcon(id) || ic), el('b', { text: NAMES[id] || SHORT[id] || label })); };
   const stg = $('view').parentElement; if ($('wstools').parentElement !== stg) stg.appendChild($('wstools'));   // the toolbar floats in the view, under the character
   $('wstools').replaceChildren(
     el('div', { class: 'wsgroup2' }, ...PAINT_TOOLS.filter(t => paintIds.includes(t[0])).sort((a, b) => paintIds.indexOf(a[0]) - paintIds.indexOf(b[0])).map(t => btn('paint', t)),
       ED.moreTools ? el('div', { class: 'wsextra' }, ...extra.map(t => btn('paint', t))) : null,
-      el('button', { class: 'wstool' + (!ED.moreTools && extra.some(t => t[0] === ED.painter.tool) ? ' on' : ''), 'aria-label': ED.moreTools ? 'Fewer tools' : 'More tools', onclick: () => { ED.moreTools = !ED.moreTools; render(); } }, el('span', {}, toolIcon(ED.moreTools ? 'less' : 'more')), el('b', { text: ED.moreTools ? 'Less' : 'More' }))),
+      el('button', { data: { fk: 'moretools' }, class: 'wstool' + (ED.mode !== 'shape' && !ED.moreTools && extra.some(t => t[0] === ED.painter.tool) ? ' on' : ''), 'aria-label': ED.moreTools ? 'Fewer tools' : 'More tools', onclick: () => { ED.moreTools = !ED.moreTools; render(); } }, el('span', {}, toolIcon(ED.moreTools ? 'less' : 'more')), el('b', { text: ED.moreTools ? 'Less' : 'More' }))),
     el('div', { class: 'wsgroup2' }, ...SHAPE_TOOLS.map(t => btn('shape', t)),
       el('button', { class: 'wstool', title: 'Add part (A)', onclick: guard(async () => { if (ED.mode !== 'shape') await setMode('shape'); startPlacing(); }) }, el('span', {}, toolIcon('add')), el('b', { text: 'Add' }))));
   c.style.width = c.width * ED.zoom + 'px';
@@ -1376,8 +1396,8 @@ function renderWorkspace() {
   $('wsleft').replaceChildren(...[el('div', { class: 'wshead row' }, el('span', { text: 'Texture', class: 'grow' }),
       el('button', { class: 'chip' + (ED.wide ? ' on' : ''), text: ED.wide ? 'Smaller' : 'Bigger', onclick: e => { ED.wide = !ED.wide; ED.userZoom = false; e.currentTarget.textContent = ED.wide ? 'Smaller' : 'Bigger'; e.currentTarget.classList.toggle('on', ED.wide); $('app').classList.toggle('ws-wide', ED.wide); requestAnimationFrame(() => { fitTexture(); render(); }); } })),
     ED.box_,
-    el('div', { class: 'row' }, el('button', { class: 'btn icon', text: '−', title: 'Zoom out', disabled: ED.zoom <= 1, onclick: () => { ED.userZoom = true; ED.zoom = Math.max(1, ED.zoom - 1); render(); } }), el('button', { class: 'btn icon', text: '+', title: 'Zoom in', disabled: ED.zoom >= 24, onclick: () => { ED.userZoom = true; ED.zoom = Math.min(24, ED.zoom + 1); render(); } }),
-      ED.rects.length ? el('button', { class: 'chip' + (P.inside ? '' : ' on'), text: 'Paint outside', 'aria-pressed': String(!P.inside), onclick: () => { P.inside = !P.inside; render(); } }) : null),
+    el('div', { class: 'row' }, el('button', { class: 'btn icon', text: '−', title: 'Zoom out', disabled: ED.zoom <= ZOOMS[0], onclick: () => { ED.userZoom = true; ED.zoom = zoomStep(ED.zoom, -1); render(); } }), el('button', { data: { fk: 'zoompct' }, class: 'btn ghost zoompct', text: Math.round(ED.zoom * 100) + '%', title: 'Fit (Ctrl+0)', onclick: () => { ED.userZoom = false; fitTexture(); render(); } }), el('button', { class: 'btn icon', text: '+', title: 'Zoom in', disabled: ED.zoom >= 24, onclick: () => { ED.userZoom = true; ED.zoom = zoomStep(ED.zoom, 1); render(); } }),
+      ED.rects.length && ED.mode !== 'shape' ? el('button', { class: 'chip' + (P.inside ? '' : ' on'), text: 'Paint outside', 'aria-pressed': String(!P.inside), onclick: () => { P.inside = !P.inside; render(); } }) : null),
     ].filter(Boolean));
   $('wsright').replaceChildren(...(mode === 'paint' ? paintSide() : shapeSide()).flat(Infinity).filter(Boolean)); $('wsright').querySelector('.partrow.on')?.scrollIntoView({ block: 'nearest' });
   viewHint();
@@ -1409,6 +1429,7 @@ addEventListener('keydown', e => {
   else if (ctrl && k === 's') { flushNow(); if (ED.saved === false) queueAssetSave(); }   /* everything saves by itself; Ctrl+S just saves now */
   else if (ctrl && k === 'd' && ED.mode !== 'shape') { }   /* no bookmark dialog while painting */
   else if (e.key === '?') showKeys();
+  else if (ctrl && k === '0') { ED.userZoom = false; fitTexture(); render(); }   /* Ctrl+0 fits the texture */
   else if (k === 'escape' && ED.moreTools) { ED.moreTools = false; render(); }
   else if (ED.mode === 'shape' && !ctrl && k.startsWith('arrow') && curBox()) { const sh = curBox().node.shape, d = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, 1], arrowdown: [0, -1] }[k];
     shapeEdit(() => { const o = { x: 0, y: 0, z: 0, ...sh.offset }; if (e.shiftKey) o.z += d[1] || -d[0]; else { o.x += d[0]; o.y += d[1]; } sh.offset = o; }); }
@@ -1424,8 +1445,8 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { if (ED && e.key === 'Alt' && ED.altFrom) { const t = ED.altFrom; ED.altFrom = null; if (ED.mode !== 'shape' && !ED.float) pickTool(t); e.preventDefault(); } }, true);   // holding Alt picks colours, letting go goes back
 addEventListener('blur', () => { if (ED && ED.altFrom) { const t = ED.altFrom; ED.altFrom = null; if (ED.mode !== 'shape') pickTool(t); } });
 // ---- brush outline, area selection and copy-paste on the flat texture
-const brushSize = () => { const t = ED.painter.tool; return SHAPES.has(t) || ONCE.has(t) || t === 'select' ? 1 : ED.painter.size; };
-function sizeOvl() { const o = ED.ovl, z = ED.zoom, c = ED.canvas; if (o.width !== c.width * z || o.height !== c.height * z) { o.width = c.width * z; o.height = c.height * z; o.style.width = c.width * z + 'px'; } drawOvl(); return o; }
+const brushSize = () => { const t = ED.painter.tool; return t === 'line' || t === 'box' ? ED.painter.size : SHAPES.has(t) || ONCE.has(t) || t === 'select' ? 1 : ED.painter.size; };
+function sizeOvl() { const o = ED.ovl, z = ED.zoom, c = ED.canvas, W = Math.round(c.width * z), H = Math.round(c.height * z); if (o.width !== W || o.height !== H) { o.width = W; o.height = H; o.style.width = W + 'px'; } drawOvl(); return o; }
 function drawOvl() {
   if (!ED || !ED.ovl) return; const o = ED.ovl, z = ED.zoom, x = o.getContext('2d'); x.clearRect(0, 0, o.width, o.height);
   const box = (r, col, dash) => { for (const [c, w] of [['rgba(0,0,0,.7)', 3], [col, 1]]) { x.setLineDash(dash && w === 1 ? [4, 3] : []); x.strokeStyle = c; x.lineWidth = w; x.strokeRect(r.x * z + 0.5, r.y * z + 0.5, r.w * z - 1, r.h * z - 1); } x.setLineDash([]); };
@@ -1459,7 +1480,7 @@ function pasteClip() {
 function keepFloatOn(x, y) { const f = ED.float, W = ED.canvas.width, H = ED.canvas.height; f.x = Math.max(1 - f.img.width, Math.min(W - 1, x)); f.y = Math.max(1 - f.img.height, Math.min(H - 1, y)); }   // at least one texel of a paste stays on the texture
 function placeFloat() {   // stamps the pasted piece where it sits (see-through texels stay as they were; Inside only still holds)
   const f = ED.float; if (!f) return; ED.float = null; const P = ED.painter, w = f.img.width, h = f.img.height, s = f.img.data;
-  { const C = ED.canvas, cur_ = C.getContext('2d').getImageData(0, 0, C.width, C.height).data; let diff = false; for (let j = 0; j < h && !diff; j++) for (let i = 0; i < w; i++) { const X = f.x + i, Y = f.y + j, a = (j * w + i) * 4; if (X < 0 || Y < 0 || X >= C.width || Y >= C.height || !s[a + 3]) continue; const k = (Y * C.width + X) * 4; if (cur_[k] !== s[a] || cur_[k + 1] !== s[a + 1] || cur_[k + 2] !== s[a + 2] || cur_[k + 3] !== s[a + 3]) { diff = true; break; } } if (!diff) { ED.sel = { x: Math.max(0, f.x), y: Math.max(0, f.y), w: Math.min(w, C.width), h: Math.min(h, C.height) }; return; } }   /* placed where it already was: no step */
+  { const C = ED.canvas, cur_ = C.getContext('2d').getImageData(0, 0, C.width, C.height).data; let diff = false; for (let j = 0; j < h && !diff; j++) for (let i = 0; i < w; i++) { const X = f.x + i, Y = f.y + j, a = (j * w + i) * 4; if (X < 0 || Y < 0 || X >= C.width || Y >= C.height || !s[a + 3]) continue; if (P.inside && P.mask && !P.mask[Y * C.width + X]) continue; const k = (Y * C.width + X) * 4; if (cur_[k] !== s[a] || cur_[k + 1] !== s[a + 1] || cur_[k + 2] !== s[a + 2] || cur_[k + 3] !== s[a + 3]) { diff = true; break; } } if (!diff) { ED.sel = { x: Math.max(0, f.x), y: Math.max(0, f.y), w: Math.min(w, C.width), h: Math.min(h, C.height) }; return; } }   /* placed where it already was: no step */
   P.write((d, W, H) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const X = f.x + i, Y = f.y + j, a = (j * w + i) * 4; if (X < 0 || Y < 0 || X >= W || Y >= H || !s[a + 3]) continue;
     const k = Y * W + X; if (P.inside && P.mask && !P.mask[k]) continue; d.set(s.subarray(a, a + 4), k * 4); } });
   { const W = ED.canvas.width, H = ED.canvas.height, x0 = Math.max(0, f.x), y0 = Math.max(0, f.y); ED.sel = { x: x0, y: y0, w: Math.max(1, Math.min(W, f.x + w) - x0), h: Math.max(1, Math.min(H, f.y + h) - y0) }; }
