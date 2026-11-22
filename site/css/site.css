@@ -133,6 +133,9 @@ main { min-height: 0; }
 .gamesteps li { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; }
 .gamesteps li > div { display: grid; } .gamesteps li small { color: var(--dim); }
 .gamesteps .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: #2e4a6e; font-weight: 700; font-size: 13px; }
+.gamesteps li > .row { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.gamesteps .linkbtn { background: none; border: 0; padding: 0; min-height: 0; color: var(--dim); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.gamesteps .linkbtn:hover, .gamesteps .linkbtn:focus-visible { color: var(--gold); }
 .gamesteps li.done .num { background: #2e7a4a; } .gamesteps li.done b { color: var(--dim); }
 button.tag { cursor: help; border: 0; font: inherit; }
 .swatches button { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #0a121d; padding: 0; box-shadow: 0 0 0 1px #ffffff22; }
@@ -497,3 +500,5 @@ table.keys th { text-align: left; font: 700 11px Lexend, sans-serif; letter-spac
 .bar .btn.icon:disabled { color: #8b9bb0; }
 @media (max-width: 1440px) { .bar { gap: 6px; } .bar .btn { padding-left: 10px; padding-right: 10px; font-size: 12px; } .bar .sep { display: none; } }
 .anyopt.paid { opacity: .5; cursor: default; display: flex; justify-content: space-between; gap: 8px; } .anyopt.paid small { color: #c9a24a; }
+
+.modhow { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 6px; }

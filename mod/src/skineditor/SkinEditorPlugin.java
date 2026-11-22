@@ -62,7 +62,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
         "undertop", "overtop", "shoes", "headAccessory", "faceAccessory", "earAccessory", "skinFeature", "gloves", "cape" };
     static final Set<String> SLOTS = Set.of(FIELDS);
     static final String LIVE = "SkinEditor_Live";
-    static final String VERSION = "1.1.0";
+    static final String VERSION = "1.2.0";
     static final Pattern WORD = Pattern.compile("^[A-Za-z0-9_ -]{1,64}$");
     static final Map<String, String> GENERIC = Map.of("Short", "GenericShort", "Medium", "GenericMedium", "Long", "GenericLong");   // Cosmetics/CharacterCreator/HaircutFallbacks.json
 
@@ -95,25 +95,51 @@ public final class SkinEditorPlugin extends JavaPlugin {
         try { locate(); ensureLivePack(); syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not prepare: " + e); }
         tick = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "SkinEditor"); t.setDaemon(true); return t; });
         tick.scheduleWithFixedDelay(this::step, 2, 1, TimeUnit.SECONDS);
+        // the website saves straight into the skins folder through this (no folder picking): this computer only, the Skin Editor site only
+        try { boolean dev = Files.exists(getDataDirectory().resolve("dev-origins"));
+            bridge = new SkinBridge(() -> skinsDir, VERSION, dev, msg -> getLogger().atInfo().log("[SkinEditor] " + msg)); bridge.start();
+        } catch (Throwable e) { getLogger().atWarning().log("[SkinEditor] website bridge off: " + e); }
     }
+
+    private SkinBridge bridge;
+    @Override
+    protected void shutdown() { if (bridge != null) bridge.stop(); if (tick != null) tick.shutdownNow(); }
 
     private void locate() {
         modsDir = getDataDirectory().toAbsolutePath().getParent();                      // <save>/mods
         Path save = modsDir.getParent(), saves = save == null ? null : save.getParent();
         userData = saves == null ? null : saves.getParent();                              // UserData (Saves/<world>/mods)
-        Path home = Path.of(System.getProperty("user.home"));
-        skinsDir = home.resolve("Documents").resolve("Hytale Skins");
-        Path oneDrive = home.resolve("OneDrive").resolve("Documents");
-        boolean found = false;
-        for (Path p : List.of(skinsDir, oneDrive.resolve("Hytale Skins"))) if (Files.isDirectory(p)) { skinsDir = p; found = true; break; }
-        if (!found) {   // make the folder the website saves to, so it is always the same place (Documents, or OneDrive's Documents when Windows keeps it there)
-            if (Files.isDirectory(oneDrive) && !Files.isDirectory(home.resolve("Documents"))) skinsDir = oneDrive.resolve("Hytale Skins");
-            try { Files.createDirectories(skinsDir); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not make " + skinsDir + ": " + e); }
-        }
+        chooseFolder(true);
+    }
+
+    /** Windows' own Documents folder (the one a browser's folder picker opens in): often OneDrive's Documents */
+    private static Path knownDocuments() {
+        try { Process pr = new ProcessBuilder("reg", "query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders", "/v", "Personal").redirectErrorStream(true).start();
+            String out = new String(pr.getInputStream().readAllBytes()); pr.waitFor();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("Personal\\s+REG_\\w+\\s+(.+)").matcher(out); if (!m.find()) return null;
+            String v = m.group(1).trim(); for (String k : List.of("USERPROFILE", "OneDrive", "HOMEDRIVE", "HOMEPATH")) { String e = System.getenv(k); if (e != null) v = v.replace("%" + k + "%", e); }
+            return v.contains("%") ? null : Path.of(v);
+        } catch (Exception e) { return null; } }
+
+    private static long lastUsed(Path dir) {   // the newest change in the folder or its first level (where the site writes)
+        long t = 0; try { t = Files.getLastModifiedTime(dir).toMillis(); try (var s = Files.list(dir)) { for (Path p : (Iterable<Path>) s::iterator) t = Math.max(t, Files.getLastModifiedTime(p).toMillis()); } } catch (Exception e) { /* gone */ } return t; }
+
+    /** The skins folder: of every "Hytale Skins" that exists (Windows' Documents, the home Documents, OneDrive's Documents), the one the site used last;
+     *  if none exists yet, one is made in Windows' Documents, where the browser's folder picker opens. Checked again every 10 seconds. */
+    private void chooseFolder(boolean create) {
+        Path home = Path.of(System.getProperty("user.home")), known = knownDocuments();
+        java.util.LinkedHashSet<Path> docs = new java.util.LinkedHashSet<>(); if (known != null) docs.add(known); docs.add(home.resolve("Documents")); docs.add(home.resolve("OneDrive").resolve("Documents"));
+        Path best = null; long bestT = -1;
+        for (Path d : docs) { Path p = d.resolve("Hytale Skins"); if (!Files.isDirectory(p)) continue; long t = lastUsed(p); if (t > bestT) { best = p; bestT = t; } }
+        if (best == null) { if (!create) return; Path base = docs.stream().filter(Files::isDirectory).findFirst().orElse(home.resolve("Documents")); best = base.resolve("Hytale Skins");
+            try { Files.createDirectories(best); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not make " + best + ": " + e); } }
+        if (!best.equals(skinsDir)) { if (skinsDir != null) getLogger().atInfo().log("[SkinEditor] skins folder is now " + best); skinsDir = best; markedOn = null; }
     }
 
     // ------------------------------------------------------------------ once a second
+    private int steps = 0;
     private void step() {
+        if (++steps % 10 == 0) chooseFolder(false);   // follow the folder the site actually writes to
         markFolder();
         try { syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] sync: " + e); }
         try {

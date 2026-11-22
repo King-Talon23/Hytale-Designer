@@ -82,7 +82,7 @@ export async function modSeen() {
     return j && j.format === 'skin-editor-sync' && /^\d{4}-\d{2}-\d{2}$/.test(j.seen) ? { version: String(j.version || '').slice(0, 20), seen: j.seen } : null; } catch { return null; }
 }
 // the connected skins folder (or one of its subfolders), for a file picker to open in; null when none is connected
-export async function skinsFolder(sub) { if (!dir) return null; if (!sub) return dir; try { return await dir.getDirectoryHandle(sub); } catch { return dir; } }
+export async function skinsFolder(sub) { if (!dir || dir.bridge) return null; if (!sub) return dir; try { return await dir.getDirectoryHandle(sub); } catch { return dir; } }
 export let lockedOf = () => false;   // set by the page: repaints of edition and reward items, which the mod will not wear
 export const setLockedOf = f => { lockedOf = f; };
 export let keepOwnOf = () => [];   // set by the page: slots holding paid items, which the mod keeps as the player's own
@@ -90,6 +90,8 @@ export const setKeepOwnOf = f => { keepOwnOf = f; };
 let dir = null; const written = new Map(), known = new Set();
 const safe = n => { let t = String(n).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^[. ]+|[. ]+$/g, '').slice(0, 60) || 'Unnamed'; return /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(t) ? '_' + t : t; };
 export async function folderState() {
+  if (dir?.bridge) return { state: 'on', name: FOLDER_NAME, via: 'mod', mod: await modSeen() };
+  if (bridgeWanted) return { state: 'wait', name: FOLDER_NAME, via: 'mod', mod: { version: '', seen: '', offline: true } };   // through the mod, and the game is not running
   if (!folderSupported) return { state: 'none' };
   const h = await db.get('meta', 'folder'); if (!h) return { state: 'none' };
   const on = dir && (await h.queryPermission({ mode: 'readwrite' })) === 'granted';
@@ -98,17 +100,49 @@ export async function folderState() {
 // the skins folder is always Documents/Hytale Skins, where the Skin Editor Sync mod looks: picking Documents makes (or finds) it there,
 // picking the Hytale Skins folder itself is fine, and any other folder is turned down so the mod never misses the skins
 export const FOLDER_NAME = 'Hytale Skins';
+// ---- the mod as the folder: with Hytale running, the Skin Editor Sync mod (1.2+) answers on this computer (127.0.0.1) and writes into
+// Documents/Hytale Skins itself, so no folder has to be picked and any browser works. It looks like a folder to the code below.
+const BRIDGE_PORTS = [47815, 47816, 47817]; let bridgeBase = null, bridgeWanted = false, bridgeTimer = 0;
+async function findBridge() { for (const p of BRIDGE_PORTS) { try { const r = await fetch(`http://127.0.0.1:${p}/v1/hello`, { signal: AbortSignal.timeout(1500), credentials: 'omit' }), j = await r.json();
+  if (j && j.app === 'skin-editor-sync') { bridgeBase = `http://127.0.0.1:${p}`; return j; } } catch { /* not this port */ } } bridgeBase = null; return null; }
+const bget = async (path, q) => { const r = await fetch(`${bridgeBase}${path}?${new URLSearchParams(q)}`, { credentials: 'omit' }); if (r.status === 404) throw new DOMException('Not found', 'NotFoundError'); if (!r.ok) throw new Error('The mod did not answer'); return r; };
+function bridgeFile(path, name) { return { kind: 'file', name,
+  async getFile() { return new File([await (await bget('/v1/file', { path })).blob()], name); },
+  async createWritable() { const parts = []; return { write: async d => { parts.push(d); }, close: async () => { const r = await fetch(`${bridgeBase}/v1/file?${new URLSearchParams({ path })}`, { method: 'PUT', body: new Blob(parts), credentials: 'omit' }); if (!r.ok) throw new Error('The mod could not save ' + name); } }; } }; }
+function bridgeDir(sub) { const at = n => sub ? sub + '/' + n : n; return { kind: 'directory', name: sub || FOLDER_NAME, bridge: true,
+  async getDirectoryHandle(n) { return bridgeDir(n); },
+  async getFileHandle(n, o) { if (!o?.create) await bget('/v1/file', { path: at(n) }); return bridgeFile(at(n), n); },
+  async removeEntry(n) { await fetch(`${bridgeBase}/v1/file?${new URLSearchParams({ path: at(n) })}`, { method: 'DELETE', credentials: 'omit' }); },
+  async *entries() { for (const x of await (await bget('/v1/list', { dir: sub })).json()) yield [x.name, bridgeFile(at(x.name), x.name)]; },
+  async queryPermission() { return 'granted'; }, async requestPermission() { return 'granted'; } }; }
+const changed = () => self.dispatchEvent(new Event('skinsfolder'));
+function watchBridge() { clearInterval(bridgeTimer); if (!bridgeWanted) return; bridgeTimer = setInterval(async () => {   /* the game starts and stops: follow it */
+  if (dir && !dir.bridge) return; const ok = !!(await findBridge());
+  if (ok && !dir) { dir = bridgeDir(); written.clear(); known.clear(); lastWearing = null; try { await attach(); } catch (e) { console.warn(e); } changed(); }
+  else if (!ok && dir?.bridge) { dir = null; changed(); } }, 15000); }
+// after "Get the mod" the site looks for the mod by itself (every 15 s) and connects as soon as Hytale runs; nobody else is ever probed
+let autoTimer = 0;
+export async function wantMod() { await db.put('meta', 'wantmod', true); autoConnect(); }
+async function autoConnect() { clearInterval(autoTimer); if (!(await db.get('meta', 'wantmod'))) return;
+  const tryNow = async () => { if (dir || bridgeWanted) { clearInterval(autoTimer); return; } if (!(await findBridge())) return; clearInterval(autoTimer);
+    try { const r = await connectMod(); self.dispatchEvent(new CustomEvent('skinsfolder', { detail: { auto: true, imported: r?.imported || 0 } })); } catch (e) { console.warn(e); } };
+  autoTimer = setInterval(tryNow, 15000); tryNow(); }
+export async function connectMod() { const j = await findBridge(); if (!j) throw new Error('Start Hytale with the Skin Editor Sync mod (1.2 or newer) turned on, then try again.');
+  bridgeWanted = true; await db.put('meta', 'bridge', true); await db.del('meta', 'folder'); dir = bridgeDir(); written.clear(); known.clear(); lastWearing = null; watchBridge(); return attach(); }
+
 export async function chooseFolder() { const h = await self.showDirectoryPicker({ id: 'skins', mode: 'readwrite', startIn: 'documents' });
   if (h.name === FOLDER_NAME) return useFolder(h);
   if (/^(Documents|Documenten|Dokumente|Documentos|Documenti|My Documents)$/i.test(h.name)) return useFolder(await h.getDirectoryHandle(FOLDER_NAME, { create: true }));
   throw new Error(`Pick your Documents folder (the site makes "${FOLDER_NAME}" in it), or the "${FOLDER_NAME}" folder itself. The mod only looks there.`); }
-export async function useFolder(h) { await db.put('meta', 'folder', h); dir = h; written.clear(); known.clear(); lastWearing = null; return attach(); }
+export async function useFolder(h) { bridgeWanted = false; clearInterval(bridgeTimer); await db.del('meta', 'bridge'); await db.put('meta', 'folder', h); dir = h; written.clear(); known.clear(); lastWearing = null; return attach(); }
 export async function resumeFolder(ask) {
+  if (!(await db.get('meta', 'bridge')) && !(await db.get('meta', 'folder'))) autoConnect();   // waiting for the mod they downloaded
+  if (await db.get('meta', 'bridge')) { bridgeWanted = true; watchBridge(); if (!(await findBridge())) return null; dir = bridgeDir(); written.clear(); known.clear(); return attach(); }
   if (!folderSupported) return null; const h = await db.get('meta', 'folder'); if (!h) return null;
   let p = await h.queryPermission({ mode: 'readwrite' }); if (p !== 'granted' && ask) p = await h.requestPermission({ mode: 'readwrite' });
   if (p !== 'granted') return null; dir = h; written.clear(); known.clear(); return attach();
 }
-export async function forgetFolder() { dir = null; await db.del('meta', 'folder'); }
+export async function forgetFolder() { dir = null; bridgeWanted = false; clearInterval(bridgeTimer); clearInterval(autoTimer); await db.del('meta', 'wantmod'); await db.del('meta', 'folder'); await db.del('meta', 'bridge'); }
 async function attach() {   // bring in skins the folder has and this browser does not, then write everything out
   const cur = await list(); let imported = 0, room = CUSTOM_MAX - cur.custom.length;
   const have = new Set(cur.custom.map(r => r.name + '|' + JSON.stringify(r.skin)));

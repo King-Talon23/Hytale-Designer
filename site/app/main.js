@@ -10,7 +10,10 @@ import { icon as catIcon } from './icons.js';
 import { toolIcon } from './toolicons.js';
 import { createAnimate } from './animate.js';
 import { SUPPORT_URL, MOD_URL } from './config.js';
-const modLink = cls => /^https:\/\/(www\.)?curseforge\.com\/hytale\/[a-z-]+\/[a-z0-9-]{2,80}$/.test(MOD_URL) ? el('a', { class: 'btn ' + cls, href: MOD_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Get the mod' }) : null;
+const modLink = cls => /^https:\/\/(www\.)?curseforge\.com\/hytale\/[a-z-]+\/[a-z0-9-]{2,80}$/.test(MOD_URL) ? el('button', { class: 'btn ' + cls, text: 'Get the mod', onclick: () => { store.wantMod().catch(() => {}); getModHelp(); } }) : null;   // from now on the site connects to the mod by itself once Hytale runs
+function getModHelp() {   // the in-game mod browser first (no web link can open it), CurseForge as the other way
+  ask('Get the Skin Editor Sync mod', [el('ol', { class: 'modhow' }, el('li', { text: 'In Hytale, open Mods from the main menu.' }), el('li', { text: 'Go to Browse and search "Skin Editor Sync".' }), el('li', { text: 'Install it, then start your world.' })),
+    el('p', { class: 'dim', text: 'This page connects to it by itself once the game is running. ' }, el('a', { href: MOD_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Or download it from CurseForge' }))], [{ label: 'OK', value: '', primary: true }]); }
 // the footer's support link: only a Ko-fi page, and only when one is set
 if (/^https:\/\/ko-fi\.com\/[A-Za-z0-9_]{2,60}$/.test(SUPPORT_URL)) { const a = document.getElementById('support'); if (a) { a.href = SUPPORT_URL; a.hidden = false; document.getElementById('supportdot').hidden = false; } }
 import { rules, sanitize, cleanName, clip, parse, nice, LABEL, GROUPS, REQUIRED } from './skin.js';
@@ -149,6 +152,7 @@ function open(rec, asNew, look) {   // put a skin on the stage: a wardrobe recor
 function setSkin(s, random = false) { cur.random = random; cur.skin = s; autosave(); pushWearing(); hist = hist.slice(0, hpos + 1); hist.push(JSON.stringify(s)); if (hist.length > 200) hist.shift(); hpos = hist.length - 1; dirty = true; keepDraft(); rebuild(); render(); }
 function step(d) { const p = hpos + d; if (p < 0 || p >= hist.length) return; hpos = p; { const h = JSON.parse(hist[p]), f2 = R.fit(h); for (const k of Object.keys(h)) if (typeof h[k] === 'string' && h[k].startsWith('Custom_') && !f2[k] && cur.skin[k]) f2[k] = cur.skin[k]; cur.skin = f2; } dirty = true;   /* a deleted item's slot keeps what is worn now, never empty */   /* a deleted item never comes back through undo */ autosave(); pushWearing(); keepDraft(); rebuild(); render(); }
 // the companion mod dresses you in game from "<skins folder>/Wearing.json"
+self.addEventListener('skinsfolder', async e => { if (e.detail?.auto) say(e.detail.imported ? `Connected to the mod, ${e.detail.imported} skin${e.detail.imported > 1 ? 's' : ''} brought in` : 'Connected to the mod: your skins now save to Documents\\Hytale Skins'); FOLDER = await store.folderState(); await reloadAssets().catch(() => {}); await refreshWard().catch(() => {}); pushWearing(); render(); });   // the game started or stopped (mod connection)
 function pushWearing() { clearTimeout(pushWearing.t); pushWearing.t = setTimeout(async () => {
   if (FOLDER.state !== 'on') return;
   try { await store.writeWearing(SHOWGAME ? { on: true, name: cur.name || 'New skin', keepOwn: store.keepOwnOf(cur.skin), skin: cur.skin } : { on: false }); } catch (e) { console.warn(e); } }, 400); }
@@ -518,10 +522,11 @@ function accountRow() { if (!auth.enabled) return null;
     PUB.signedIn ? el('button', { class: 'btn ghost danger', text: 'Delete my published data', onclick: forgetMe }) : null);
 }
 function folderRow() {
-  if (!store.folderSupported) return el('p', { class: 'note', text: 'Saving to a folder needs Chrome or Edge.' });
   if (FOLDER.state === 'none') return null;   // the numbered steps above cover choosing one
   const after = async r => { FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); pushWearing(); if (r) say(r.imported ? `Folder connected, ${r.imported} skin${r.imported > 1 ? 's' : ''} brought in` : 'Folder connected'); };
   const btn = (t, fn, c = 'ghost') => el('button', { class: 'btn ' + c, text: t, onclick: guard(fn) });
+  if (FOLDER.via === 'mod') return el('div', { class: 'folder ' + (FOLDER.state === 'on' ? 'on' : 'ask') }, el('div', {}, el('b', { text: FOLDER.state === 'on' ? 'Saving through the mod to Documents\\Hytale Skins' : 'Waiting for Hytale: saves go across when the game runs' })),
+    store.folderSupported ? btn('Use a folder instead', async () => after(await store.chooseFolder())) : null, btn('Stop', async () => { await store.forgetFolder(); await after(); }));
   const [title, text] = FOLDER.state === 'on' ? ['Saving to folder: ' + FOLDER.name, 'Every skin and custom asset is a small file in this folder and updates as you edit.']
     : FOLDER.state === 'ask' ? ['Folder paused: ' + FOLDER.name, 'Your browser needs your OK again before it can write to the folder. Until then, changes are kept in the browser.']
     : ['Save skins to a folder', 'Pick your Documents folder and the site makes a "Hytale Skins" folder in it, the one the mod reads. Each skin becomes a small file there.'];
@@ -531,11 +536,12 @@ function folderRow() {
          btn('Stop', async () => { await store.forgetFolder(); await after(); })]);
 }
 function gameSteps() {   // the path to wearing your skins in Hytale, in order
-  if (!store.folderSupported) return null; const linked = FOLDER.state === 'on', all = linked && SHOWGAME && !!FOLDER.mod;
+  const linked = FOLDER.state === 'on' || FOLDER.state === 'wait', all = FOLDER.state === 'on' && SHOWGAME && !!FOLDER.mod;
   const row = (n, done, title, text, action) => el('li', { class: done ? 'done' : '' }, el('span', { class: 'num', text: done ? '✓' : n }), el('b', { text: title }), done ? null : action);
   return el('details', { class: 'gamesteps', open: !all }, el('summary', { text: all ? 'In game: ready' : 'Play in Hytale' }), el('ol', {},
     row(1, !!FOLDER.mod, 'Skin Editor Sync mod', '', modLink('ghost')),
-    row(2, linked, 'Skins folder', '', linked ? null : el('button', { class: 'btn ghost', text: FOLDER.state === 'ask' ? 'Reconnect folder' : 'Choose folder', onclick: guard(async () => { FOLDER.state === 'ask' ? await store.resumeFolder(true) : await store.chooseFolder(); FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); pushWearing(); }) })),
+    row(2, linked, 'Skins folder', '', linked ? null : el('span', { class: 'row' }, el('button', { class: 'btn primary', text: 'Connect to the mod', title: 'Hytale must be running with the mod', onclick: guard(async () => { const r = await store.connectMod(); FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); pushWearing(); say(r && r.imported ? 'Connected, ' + r.imported + ' skin' + (r.imported > 1 ? 's' : '') + ' brought in' : 'Connected to the mod'); }) }),
+      store.folderSupported ? el('button', { class: FOLDER.state === 'ask' ? 'btn ghost' : 'linkbtn', text: FOLDER.state === 'ask' ? 'Reconnect folder' : 'or pick a folder', title: 'Saves without the game running (Chrome and Edge)', onclick: guard(async () => { FOLDER.state === 'ask' ? await store.resumeFolder(true) : await store.chooseFolder(); FOLDER = await store.folderState(); await reloadAssets(); await refreshWard(); pushWearing(); }) }) : null)),
     row(3, linked && SHOWGAME, 'In game', '', el('button', { class: 'btn ghost', text: 'Turn on', disabled: !linked, onclick: () => { if (!SHOWGAME) $('ingame').onclick(); } }))));
 }
 function panelWardrobe() {
