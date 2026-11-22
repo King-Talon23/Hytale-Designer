@@ -23,7 +23,7 @@ export function createPainter(canvas, onChange, onPick) {
     else if (t === 'noise') { if (!d[i + 3]) return; const n = (Math.random() - 0.5) * 26; for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] + n); }
     else { const [r, g, b] = rgb(P.color), a = d[i + 3] ? P.opacity : 1; d[i] = clamp(d[i] * (1 - a) + r * a); d[i + 1] = clamp(d[i + 1] * (1 - a) + g * a); d[i + 2] = clamp(d[i + 2] * (1 - a) + b * a); d[i + 3] = 255; }
   }
-  function dot(x, y) { const s = P.size, o = Math.floor((s - 1) / 2); for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) px(x - o + dx, y - o + dy); }
+  function dot(x, y) { const s = P.size, o = Math.floor((s - 1) / 2), ox = P.mir ? s - 1 - o : o;   /* a mirrored dab grows the other way across (left/right) only */ for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) px(x - ox + dx, y - o + dy); }
   function line(a, b) { let x = a.x, y = a.y; const dx = Math.abs(b.x - x), dy = -Math.abs(b.y - y), sx = x < b.x ? 1 : -1, sy = y < b.y ? 1 : -1; let e = dx + dy;
     for (let n = 0; n < 4096; n++) { dot(x, y); if (x === b.x && y === b.y) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x += sx; } if (e2 <= dx) { e += dx; y += sy; } } }
   function box(a, b, filled) { const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);

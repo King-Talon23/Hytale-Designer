@@ -319,7 +319,7 @@ export function stage(canvas, Controls) {
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   // the texel of `image` under a screen point, for painting straight on the model
   function texel(image) { for (const h of ray.intersectObject(figure, true)) { if (!h.uv || !h.object.visible || h.object.material?.map?.image !== image) continue;
-      return { x: Math.min(image.width - 1, Math.max(0, Math.floor(h.uv.x * image.width))), y: Math.min(image.height - 1, Math.max(0, Math.floor((1 - h.uv.y) * image.height))) }; }
+      return { x: Math.min(image.width - 1, Math.max(0, Math.floor(h.uv.x * image.width))), y: Math.min(image.height - 1, Math.max(0, Math.floor((1 - h.uv.y) * image.height))), at: h.point.clone() }; }
     return null; }
   // the brush outline on the model: a square of brush-size texels, snapped to the texel grid of the face under the pointer
   const curs = [0xffffff, 0xf4c452].map(col => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3));
@@ -345,7 +345,7 @@ export function stage(canvas, Controls) {
   }
   function pick(cx, cy, image, mirror) { if (!figure) return null; const r = canvas.getBoundingClientRect(); ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, cam);
     const p = texel(image); if (!p || !mirror) return p;
-    ray.ray.origin.x *= -1; ray.ray.direction.x *= -1; p.m = texel(image); return p; }   // the same ray flipped left to right lands on the matching spot of the other side
+    ray.ray.origin.x *= -1; ray.ray.direction.x *= -1; const m = texel(image), want = p.at.clone(); want.x *= -1; p.m = m && m.at.distanceTo(want) < 1.0 ? m : null; return p; }   /* no surface right at the mirrored spot: no mirrored dab */   // the same ray flipped left to right lands on the matching spot of the other side
   // the texel on the other side of the body that matches texel (tx, ty): find it on the model, flip the point left to right, look back at the surface there
   function twinTexel(image, tx, ty) { if (!figure) return null; figure.updateMatrixWorld(true); const u = (tx + 0.5) / image.width, v = 1 - (ty + 0.5) / image.height;
     const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), P = new THREE.Vector3(), N = new THREE.Vector3(); let found = false;
@@ -357,12 +357,12 @@ export function stage(canvas, Controls) {
         A.fromBufferAttribute(pos, i0).applyMatrix4(o.matrixWorld); B.fromBufferAttribute(pos, i1).applyMatrix4(o.matrixWorld); C.fromBufferAttribute(pos, i2).applyMatrix4(o.matrixWorld);
         P.set(0, 0, 0).addScaledVector(A, a).addScaledVector(B, b).addScaledVector(C, c); N.subVectors(B, A).cross(new THREE.Vector3().subVectors(C, A)).normalize(); found = true; } });
     if (!found) return null; P.x *= -1; N.x *= -1; const near = ray.near, far = ray.far; ray.near = 0; ray.far = 1e6;
-    ray.ray.origin.copy(P).addScaledVector(N, 0.05); ray.ray.direction.copy(N).negate(); let hit = texel(image);
-    if (!hit) { ray.ray.origin.copy(P).addScaledVector(N, -0.05); ray.ray.direction.copy(N); hit = texel(image); }   /* a mirrored mesh winds the other way */
+    ray.ray.origin.copy(P).addScaledVector(N, 0.05); ray.ray.direction.copy(N).negate(); let hit = texel(image); if (hit && hit.at.distanceTo(P) > 1.0) hit = null;
+    if (!hit) { ray.ray.origin.copy(P).addScaledVector(N, -0.05); ray.ray.direction.copy(N); hit = texel(image); if (hit && hit.at.distanceTo(P) > 1.0) hit = null; }   /* a mirrored mesh winds the other way; nothing right there: no twin */
     ray.near = near; ray.far = far; return hit; }
   // while painting, the left button paints and the right button turns the view
   let painting = false, plantClear = 0;   // plants keep further away while an item is edited, or when a move sits or lies on the ground
-  function paintMode(on) { painting = !!on; ctl.zoomToCursor = !!on;   /* while editing, the wheel zooms toward the pointer (small parts stay in view); unclose() re-centres after */ ctl.maxPolarAngle = on ? Math.PI * 0.97 : Math.PI * 0.55; ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE; ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE; ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE; canvas.style.cursor = on ? 'crosshair' : ''; }
+  function paintMode(on) { painting = !!on; ctl.zoomToCursor = false;   /* the wheel zooms toward the middle, so the item stays centred (zoom-to-pointer moved the target and the character drifted off-screen) */ ctl.maxPolarAngle = on ? Math.PI * 0.97 : Math.PI * 0.55; ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE; ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE; ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE; canvas.style.cursor = on ? 'crosshair' : ''; }
   // the box under a screen point (first hit that passes the filter), and outlines around the boxes a filter picks
   // the picked box glows (its own copy of the material, lit gold) as well as getting an outline
   let lit = []; const glow = new Map();

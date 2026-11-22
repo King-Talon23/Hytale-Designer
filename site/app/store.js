@@ -22,7 +22,11 @@ export async function saveCustom(name, skin, id) {
   if (!id && (await list()).custom.length >= CUSTOM_MAX) throw new Error(`My skins is full (${CUSTOM_MAX})`);
   return write(record(id || crypto.randomUUID(), 'custom', name, skin));
 }
-export const saveGame = (slot, name, skin) => write(record(gameId(slot), 'game', name, skin, slot));
+export const hasCustomItem = skin => Object.values(skin || {}).some(v => typeof v === 'string' && v.startsWith('Custom_'));
+export async function uniqueName(name, exceptId) { const used = new Set((await list()).custom.filter(r => r.id !== exceptId).map(r => r.name)), base = cleanName(name) || 'My skin'; if (!used.has(base)) return base; const stem = base.replace(/ \d+$/, ''); for (let k = 2; k < 1000; k++) { const n = cleanName(stem.slice(0, 36) + ' ' + k); if (!used.has(n)) return n; } return base; }   // a taken name gets a number
+export async function saveGame(slot, name, skin) {   // an in-game slot never holds custom items: such a look is kept in My skins instead (and that record is returned)
+  if (hasCustomItem(skin)) return saveCustom(await uniqueName(name), skin);
+  return write(record(gameId(slot), 'game', name, skin, slot)); }
 export const remove = async id => { await db.del('skins', id); await mirror(); };
 
 // Put a custom skin into an in-game slot. Whatever was in the slot takes the custom skin's place, so nothing is lost.
@@ -30,7 +34,7 @@ export async function swap(customId, slot) {
   const { game, custom } = await list(), c = custom.find(r => r.id === customId); if (!c) throw new Error('That skin is gone.');
   const old = game[slot];
   await put(record(gameId(slot), 'game', c.name, c.skin, slot));
-  if (old) await put(record(c.id, 'custom', old.name, old.skin)); else await db.del('skins', c.id);
+  if (old) await put(record(c.id, 'custom', await uniqueName(old.name, c.id), old.skin)); else await db.del('skins', c.id);   /* the skin that moves out keeps a unique name */
   await mirror();
 }
 
@@ -51,9 +55,9 @@ export async function importAll(data) {   // adds to what is there; never overwr
   if (!data || data.format !== 'skin-editor-backup' || !Array.isArray(data.custom)) throw new Error('That file is not a Skin Editor backup.');
   const cur = await list(); let added = 0, skipped = 0, room = CUSTOM_MAX - cur.custom.length;
   const had = new Set((await assets.list()).map(a => a.id)), offered = Array.isArray(data.assets) ? data.assets.filter(m => m && !had.has(m.id)).length : 0, items = await unpackAssets(data.assets);   /* items already here are not 'skipped' */   // items first, so restored skins that wear them find them
-  const same = new Set(cur.custom.map(r => r.name + '|' + JSON.stringify(r.skin)));   // restoring the same backup twice does not double up
-  for (const r of data.custom.slice(0, 500)) { const s = sanitize(r?.skin); if (!s) continue; const k = cleanName(r.name) + '|' + JSON.stringify(s); if (same.has(k)) continue; if (room <= 0) { skipped++; continue; } await saveCustom(r.name, s); same.add(k); room--; added++; }
-  for (let i = 0; i < GAME_SLOTS; i++) { const r = data.game?.[i], s = sanitize(r?.skin); if (s && !cur.game[i]) { await saveGame(i, r.name, s); added++; } }
+  const same = new Set(cur.custom.map(r => r.name + '|' + JSON.stringify(r.skin))), names = new Set(cur.custom.map(r => r.name));   // restoring the same backup twice does not double up
+  for (const r of data.custom.slice(0, 500)) { const s = sanitize(r?.skin); if (!s) continue; const k = cleanName(r.name) + '|' + JSON.stringify(s); if (same.has(k)) continue; if (room <= 0) { skipped++; continue; } let nm = cleanName(r.name) || 'My skin', q = 2; while (names.has(nm)) nm = cleanName(String(cleanName(r.name) || 'My skin').slice(0, 36) + ' ' + q++); await saveCustom(nm, s); names.add(nm); same.add(k); room--; added++; }   /* a taken name gets a number */
+  for (let i = 0; i < GAME_SLOTS; i++) { const r = data.game?.[i], s = sanitize(r?.skin); if (s && !cur.game[i]) { if (hasCustomItem(s)) { const sk = JSON.stringify(s); if ((await list()).custom.some(c => JSON.stringify(c.skin) === sk)) continue; if (room <= 0) { skipped++; continue; } room--; } await saveGame(i, r.name, s); added++; } }   /* custom looks go to My skins (saveGame), once */   /* in-game slots never get custom items */
   return { added, items, skipped, itemsSkipped: Math.max(0, offered - items) };   /* skins and items counted apart */
 }
 
@@ -109,8 +113,8 @@ async function attach() {   // bring in skins the folder has and this browser do
     for await (const [name, h] of d.entries()) { if (h.kind !== 'file' || !/\.json$/i.test(name) || ++n > 300) continue;
       try { const f = await h.getFile(); if (f.size > 200000) continue; const j = JSON.parse(await f.text()), sk = sanitize(j && j.skin); if (!sk) continue;
         known.add(SUB[kind] + '/' + name); const nm = cleanName(j.name || name.replace(/\.json$/i, ''));
-        if (kind === 'custom') { const key = nm + '|' + JSON.stringify(sk); if (have.has(key) || room <= 0) continue; have.add(key); await put(record(crypto.randomUUID(), 'custom', nm, sk)); room--; imported++; }
-        else { const i = Number.isInteger(j.slot) ? j.slot : -1; if (i < 0 || i >= GAME_SLOTS || cur.game[i]) continue; cur.game[i] = await put(record(gameId(i), 'game', nm, sk, i)); imported++; }
+        if (kind === 'custom') { const key = nm + '|' + JSON.stringify(sk); if (have.has(key) || room <= 0) continue; have.add(key); await put(record(crypto.randomUUID(), 'custom', await uniqueName(nm), sk)); room--; imported++; }
+        else { const i = Number.isInteger(j.slot) ? j.slot : -1; if (i < 0 || i >= GAME_SLOTS || cur.game[i]) continue; if (hasCustomItem(sk)) { if (room > 0) { await put(record(crypto.randomUUID(), 'custom', await uniqueName(nm), sk)); room--; imported++; } continue; } cur.game[i] = await put(record(gameId(i), 'game', nm, sk, i)); imported++; }
       } catch { /* not one of ours */ } } }
   try { const d = await dir.getDirectoryHandle(ASSET_DIR, { create: true }), have = new Set((await assets.list()).map(a => a.id)); let n = 0;
     for await (const [name, h] of d.entries()) { if (h.kind !== 'file' || !/\.json$/i.test(name) || ++n > 200) continue;
