@@ -490,3 +490,5 @@ table.keys th { text-align: left; font: 700 11px Lexend, sans-serif; letter-spac
 .animlib { display: flex; flex-direction: column; gap: 4px; } .animrow { display: flex; gap: 6px; align-items: center; }
 .animopen { flex: 1; display: flex; justify-content: space-between; align-items: center; background: #15263c; border: 1px solid #22364f; border-radius: 3px; color: #e8eef6; padding: 6px 10px; cursor: pointer; }
 .animopen:hover { border-color: var(--gold); }
+.animopen { min-width: 0; gap: 8px; } .animopen b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .animopen small { flex: none; }
+.tlwrap { max-height: 300px; overflow-y: auto; margin: 4px 0 10px; } .tlwrap .timeline { margin: 0; }

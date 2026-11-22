@@ -149,8 +149,8 @@ async function doMirror() {
     // animations: "<name> (<id>).blockyanim", read by the mod and turned into emotes in game
     const nd = await dir.getDirectoryHandle(ANIM_DIR, { create: true }), keepA = new Set();
     for (const k of (await db.keys('meta')).filter(k => String(k).startsWith('anim:'))) { const r = await db.get('meta', k); if (!r || !r.a) continue;
-      const name = `${safe(r.name)} (${r.id}).blockyanim`, path = ANIM_DIR + '/' + name, text = anim.write(r.a); keepA.add(path); if (written.get(path) === text) continue;
+      if (!/^[0-9a-f-]{8,40}$/i.test(String(r.id))) continue; const name = `${safe(String(r.name).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '')).slice(0, 60).trim() || 'Animation'} (${r.id}).blockyanim`, path = ANIM_DIR + '/' + name,   /* the name the mod reads back: no line breaks, 60 at most, the id in brackets */ text = anim.write(r.a); keepA.add(path); if (written.get(path) === text) continue;
       const w = await (await nd.getFileHandle(name, { create: true })).createWritable(); await w.write(text); await w.close(); written.set(path, text); known.add(path); }
-    for (const path of [...known]) if (path.startsWith(ANIM_DIR + '/') && !keepA.has(path)) { try { await nd.removeEntry(path.slice(ANIM_DIR.length + 1)); } catch { /* already gone */ } known.delete(path); written.delete(path); }
+    const keepLow = new Set([...keepA].map(x => x.toLowerCase())); for (const path of [...known]) if (path.startsWith(ANIM_DIR + '/') && !keepA.has(path)) { if (keepLow.has(path.toLowerCase())) { known.delete(path); written.delete(path); continue; }   /* a rename that only changed case: on Windows it is the same file */ try { await nd.removeEntry(path.slice(ANIM_DIR.length + 1)); } catch { /* already gone */ } known.delete(path); written.delete(path); }
   } catch (e) { console.error(e); throw new Error('Could not write to your skins folder. Your skins are still saved in this browser.'); }
 }

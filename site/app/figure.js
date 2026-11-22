@@ -118,7 +118,7 @@ export function dispose(root) { root?.traverse(o => o.geometry?.dispose()); }
 const q0 = new THREE.Quaternion(), q1 = new THREE.Quaternion();
 function span(keys, T, dur, loop) {   // the two keyframes around T and how far between them
   const n = keys.length; if (!n) return null; if (n === 1) return [keys[0], keys[0], 0];
-  if (T <= keys[0].time || T >= keys[n - 1].time) {
+  if (T < keys[0].time || T > keys[n - 1].time) {   // a frame exactly on the first or last key is that key
     if (!loop) return T <= keys[0].time ? [keys[0], keys[0], 0] : [keys[n - 1], keys[n - 1], 0];
     const a = keys[n - 1], b = keys[0], gap = b.time + dur - a.time; return [a, b, gap > 0 ? ((T >= a.time ? T : T + dur) - a.time) / gap : 0];
   }
@@ -439,7 +439,7 @@ export function stage(canvas, Controls) {
     const q = g.userData.rest.q.clone().invert().multiply(local), p = g.parent.worldToLocal(handle.position.clone()).sub(g.userData.rest.p); return { q: { x: q.x, y: q.y, z: q.z, w: q.w }, p: { x: p.x, y: p.y, z: p.z } }; }
   function boneChange(end) { const d = boneDelta(); bz.onChange(bz.mode === 'rotate' ? { orientation: d.q } : { position: d.p }, end); }
   function boneGizmo(o) {   // o: { g (the bone's group), mode: 'rotate' | 'move', onChange(delta, end) } or null
-    bz = o || null; if (!o) { if (!gz) tc.detach(); return; } gz = null; const g = o.g; g.updateMatrixWorld(true);
+    bz = o || null; if (!o) { if (!gz) tc.detach(); tc.setSize(0.85); return; } gz = null; const g = o.g; g.updateMatrixWorld(true); tc.setSize(0.55);   /* smaller than the box gizmo: the turn ball must not cover the whole body, so other bones can be clicked */
     handle.position.copy(g.getWorldPosition(new THREE.Vector3())); handle.quaternion.copy(g.getWorldQuaternion(new THREE.Quaternion())); handle.scale.set(1, 1, 1);
     tc.setMode(o.mode === 'move' ? 'translate' : 'rotate'); tc.setSpace('local'); tc.setRotationSnap(null); tc.setTranslationSnap(null); tc.attach(handle);
   }
