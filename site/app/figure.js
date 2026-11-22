@@ -413,15 +413,26 @@ export function stage(canvas, Controls) {
   const handle = new THREE.Object3D(); scene.add(handle);
   let gz = null, start = null; const damp = v => new THREE.Vector3(1 + (v.x - 1) * 0.4, 1 + (v.y - 1) * 0.4, 1 + (v.z - 1) * 0.4);   // the resize cubes are gentler than the raw scale
   tc.addEventListener('dragging-changed', e => { ctl.enabled = !e.value; });
-  tc.addEventListener('objectChange', () => { if (!gz) return; const g = gz.mesh.parent;
+  tc.addEventListener('objectChange', () => { if (bz) return boneChange(false); if (!gz) return; const g = gz.mesh.parent;
     if (gz.mode === 'move') gz.mesh.position.copy(handle.position.clone().sub(start.p).applyQuaternion(start.q.clone().invert()));
     else if (gz.mode === 'resize') { const k = damp(handle.scale), c = start.c; gz.mesh.scale.copy(k); gz.mesh.position.set(start.mp.x + c.x * (1 - k.x), start.mp.y + c.y * (1 - k.y), start.mp.z + c.z * (1 - k.z)); }   /* grows about its middle, as the result does */
     else g.quaternion.copy(g.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(handle.quaternion)); });
-  tc.addEventListener('mouseUp', () => { if (!gz) return; const g = gz.mesh.parent;
+  tc.addEventListener('mouseUp', () => { if (bz) return boneChange(true); if (!gz) return; const g = gz.mesh.parent;
     gz.onEnd({ move: handle.position.clone().sub(start.p).applyQuaternion(start.q.clone().invert()), scale: damp(handle.scale),
       turn: g.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(handle.quaternion) }); });
+  // the Animate tab's gizmo: turns or moves one bone about its pivot and reports the change as an animation delta (from the rest pose)
+  let bz = null;
+  function boneDelta() { const g = bz.g, pq = g.parent.getWorldQuaternion(new THREE.Quaternion()), local = pq.clone().invert().multiply(handle.quaternion);
+    const q = g.userData.rest.q.clone().invert().multiply(local), p = g.parent.worldToLocal(handle.position.clone()).sub(g.userData.rest.p); return { q: { x: q.x, y: q.y, z: q.z, w: q.w }, p: { x: p.x, y: p.y, z: p.z } }; }
+  function boneChange(end) { const d = boneDelta(); bz.onChange(bz.mode === 'rotate' ? { orientation: d.q } : { position: d.p }, end); }
+  function boneGizmo(o) {   // o: { g (the bone's group), mode: 'rotate' | 'move', onChange(delta, end) } or null
+    bz = o || null; if (!o) { if (!gz) tc.detach(); return; } gz = null; const g = o.g; g.updateMatrixWorld(true);
+    handle.position.copy(g.getWorldPosition(new THREE.Vector3())); handle.quaternion.copy(g.getWorldQuaternion(new THREE.Quaternion())); handle.scale.set(1, 1, 1);
+    tc.setMode(o.mode === 'move' ? 'translate' : 'rotate'); tc.setSpace('local'); tc.setRotationSnap(null); tc.setTranslationSnap(null); tc.attach(handle);
+  }
   function gizmo(o) {
-    gz = o; if (!o) { tc.detach(); return; }
+    if (o) { bz = null; tc.setRotationSnap(THREE.MathUtils.degToRad(5)); tc.setTranslationSnap(0.5); }
+    gz = o; if (!o) { if (!bz) tc.detach(); return; }
     const g = o.mesh.parent; g.updateMatrixWorld(true);
     handle.position.copy(o.mode === 'rotate' ? g.getWorldPosition(new THREE.Vector3()) : new THREE.Box3().setFromObject(o.mesh).getCenter(new THREE.Vector3()));
     handle.quaternion.copy(g.getWorldQuaternion(new THREE.Quaternion())); handle.scale.set(1, 1, 1);
@@ -506,7 +517,7 @@ export function stage(canvas, Controls) {
   const refit = () => glideCam(refitNow);
   const refitNow = () => { if (!autoFit || lifted || mountRoot) return; const off = cam.position.clone().sub(ctl.target); off.setLength(fitLen()); cam.position.copy(ctl.target).add(off); ctl.update(); };
   let grabbed = null; ctl.addEventListener('start', () => { tw = null; grabbed = cam.position.clone(); }); ctl.addEventListener('end', () => { if (grabbed && cam.position.distanceTo(grabbed) > 2) autoFit = false; grabbed = null; });   // once the player really zooms or turns the view, it stays theirs (a click is not a turn)
-  const api = { twinTexel, inset: (px, right = 0) => { px = Math.max(0, Math.round(px || 0)); right = Math.max(0, Math.round(right || 0)); if (px !== inset || right !== insetR) { inset = px; insetR = right; fit(); refit(); } }, plantClear: r => { plantClear = r || 0; }, isolate: img => { isoImage = img || null; applyIsolate(); drawHL(); }, anim, mountAnim, mount, props, lift, scenery, onFacing: cb => { faceCb = cb; faced = ''; }, wall: v => { wallOn = v || null; }, keepBehind: on => { ctl.minAzimuthAngle = on ? Math.PI - 1.1 : -Infinity; ctl.maxAzimuthAngle = on ? -Math.PI + 1.1 : Infinity; ctl.update(); }, hover: (h, now) => { if (h === null) return; hoverTo = Math.max(0, h || 0); if (now) { hoverAt = hoverTo; seatAt(); } }, shadow: on => { disc.visible = on !== false; }, pitch: deg => { pitchTo = (deg || 0) * Math.PI / 180; }, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
+  const api = { boneGizmo, twinTexel, inset: (px, right = 0) => { px = Math.max(0, Math.round(px || 0)); right = Math.max(0, Math.round(right || 0)); if (px !== inset || right !== insetR) { inset = px; insetR = right; fit(); refit(); } }, plantClear: r => { plantClear = r || 0; }, isolate: img => { isoImage = img || null; applyIsolate(); drawHL(); }, anim, mountAnim, mount, props, lift, scenery, onFacing: cb => { faceCb = cb; faced = ''; }, wall: v => { wallOn = v || null; }, keepBehind: on => { ctl.minAzimuthAngle = on ? Math.PI - 1.1 : -Infinity; ctl.maxAzimuthAngle = on ? -Math.PI + 1.1 : Infinity; ctl.update(); }, hover: (h, now) => { if (h === null) return; hoverTo = Math.max(0, h || 0); if (now) { hoverAt = hoverTo; seatAt(); } }, shadow: on => { disc.visible = on !== false; }, pitch: deg => { pitchTo = (deg || 0) * Math.PI / 180; }, pick, pickMesh, paintMode, gizmo, cursor, afterShow: null,
     gizmoBusy: (cx, cy) => { if (cx != null && tc.object && !tc.dragging) { const r = canvas.getBoundingClientRect(); tc.pointerHover({ x: ((cx - r.left) / r.width) * 2 - 1, y: -((cy - r.top) / r.height) * 2 + 1, button: 0 }); } return tc.dragging || tc.axis !== null; },   // a press right on the gizmo (ring, arrow, handle) is the gizmo's, even with no hover before it
     // where a click lands on a box: the point and the face's outward direction, in the box's own part (node) space
     pickHit(cx, cy, keep) { if (!figure) return null; aim(cx, cy); for (const h of ray.intersectObject(figure, true)) if (h.object.visible && keep(h.object)) {

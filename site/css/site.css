@@ -477,3 +477,16 @@ table.keys th { text-align: left; font: 700 11px Lexend, sans-serif; letter-spac
 .transport .tframe { font: 600 12px var(--b); color: #c9d6e6; min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 .stbtn .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
 .shotwrap { position: relative; } .shotmenu { left: 0; white-space: nowrap; }
+/* Animate tab */
+.animedit .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.animedit .wsname { flex: 1; min-width: 120px; }
+.timeline { display: block; width: 100%; border: 1px solid #22364f; border-radius: 3px; margin: 4px 0 10px; cursor: pointer; touch-action: none; }
+.bonebox { border: 1px solid #22364f; border-radius: 3px; padding: 8px; margin-bottom: 10px; background: #0f1d30; }
+.bonebox .xyzrow { display: flex; gap: 6px; align-items: center; margin: 4px 0; } .bonebox .xyzrow > span { width: 38px; }
+.axf { display: inline-flex; align-items: center; gap: 4px; } .axf input { width: 62px; }
+.bonelist { display: flex; flex-direction: column; max-height: 260px; overflow: auto; border: 1px solid #22364f; border-radius: 3px; }
+.bonerow { text-align: left; background: none; border: 0; border-bottom: 1px solid #16263b; color: #c9d6e6; padding: 3px 6px; font: 12px var(--b); cursor: pointer; }
+.bonerow.keyed { color: #9fd0ff; } .bonerow.on { background: #1d3352; color: #f4c452; } .bonerow:hover { background: #15263c; }
+.animlib { display: flex; flex-direction: column; gap: 4px; } .animrow { display: flex; gap: 6px; align-items: center; }
+.animopen { flex: 1; display: flex; justify-content: space-between; align-items: center; background: #15263c; border: 1px solid #22364f; border-radius: 3px; color: #e8eef6; padding: 6px 10px; cursor: pointer; }
+.animopen:hover { border-color: var(--gold); }

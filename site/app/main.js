@@ -8,6 +8,7 @@ import * as assets from './assets.js';
 import { createPainter, SHAPES, ONCE } from './paint.js';
 import { icon as catIcon } from './icons.js';
 import { toolIcon } from './toolicons.js';
+import { createAnimate } from './animate.js';
 import { SUPPORT_URL, MOD_URL } from './config.js';
 const modLink = cls => /^https:\/\/(www\.)?curseforge\.com\/hytale\/[a-z-]+\/[a-z0-9-]{2,80}$/.test(MOD_URL) ? el('a', { class: 'btn ' + cls, href: MOD_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Get the mod' }) : null;
 // the footer's support link: only a Ko-fi page, and only when one is set
@@ -109,6 +110,8 @@ async function startApp() {
   META = await game.status(); CAT = await game.catalog(); R = rules(CAT); setConn(META); ASSETS = await assets.list().catch(() => []); registerAssets(); await applyRescue().catch(e => console.warn(e)); await loadLock(); await loadEmotes(); SHOWGAME = !!(await db.get('meta', 'showInGame').catch(() => false));
   $('connect').hidden = true; $('app').hidden = false;
   if (!st) { st = fig.stage($('view'), OrbitControls);
+    ANIMATE = createAnimate({ el, st, render, say, ask, head, cat: () => CAT, nice, tab: () => tab });   // the Animate tab
+    $('view').addEventListener('pointerdown', e => { if (tab !== 'animate' || !ANIMATE.active() || e.button !== 0 || st.gizmoBusy(e.clientX, e.clientY)) return; ANIMATE.pickAt(e.clientX, e.clientY); });
     if (location.hostname.endsWith('localhost')) { window.__st = st; window.__dbg = { combineWith: (...a) => combineWith(...a), combinePick: () => combinePick(), cat: () => CAT, ed: () => ED, sizeOf: sh => sizeOf(sh), colourPart: n => colourPart(n), geoTwin: n => geoTwin(n), boxes: () => boxesOf(ED.model).map(b => b.node.name) }; }   // local tests only
     st.onMissing = () => say('Missing game files for this move', true); st.onFacing(f => { const t = $('facing') || $('view').parentElement.appendChild(el('div', { id: 'facing', class: 'facing' })); t.textContent = 'Facing you: ' + f; }); bindPaint($('view'), e => ED && !ED.shapeOpen && ED.painter.tool !== 'select' ? st.pick(e.clientX, e.clientY, ED.canvas, ED.mirror) : null, 10, true);
     $('view').addEventListener('pointermove', e => { if (!ED) return; partHover(e); const p = ED.shapeOpen || ED.painter.tool === 'select' ? st.cursor(null) : st.cursor(e.clientX, e.clientY, ED.canvas, brushSize(), ED.mirror);
@@ -235,7 +238,9 @@ function animThumb(g, n) { const s = R.fit(cur.skin);
 const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.stringify(s), async () => fig.snapshot(await fig.build(s, R), 'full')); };
 
 // ---------------------------------------------------------------- panels
+let ANIMATE = null;
 function setTab(t) { if (t !== 'editor' && picking) leavePicker();
+  if (t !== tab && tab === 'animate' && ANIMATE) { ANIMATE.leave(); if (R) playAnim('Default', 'Idle', 0.5); }   // leaving Animate saves and puts the idle back
   // opening or leaving the Animations tab stops whatever move is playing (and drops what it holds)
   if (t !== tab && (t === 'animations' || tab === 'animations') && R && !(playing.group === 'Default' && playing.name === 'Idle')) playAnim('Default', 'Idle', 0.5);
   if (t !== tab && (t === 'animations' || tab === 'animations') && st) st.unclose();   /* in and out of Animations the view returns to the front framing (a move's own camera stays behind) */   // moves are watched whole, from the front, not from a Wardrobe close-up
@@ -258,7 +263,7 @@ function render() { if (pressing) { renderLater = true; return; } jobGen++; plat
   if (!!ED !== $('app').classList.contains('ws')) scrollTo(0, 0);   // opening or closing the Creator workspace starts at the top of the page
   $('app').classList.toggle('ws', !!ED); $('app').classList.toggle('ws-tex', !!ED); /* the texture panel is always there in the Creator */ if (ED && document.querySelector('input.rename:not([data-done])')) return;   /* a part being renamed: the redraw waits (the click that opened it redraws a moment later) */
   if (ED) { const fa = document.activeElement, fk = fa && fa !== document.body && fa.closest?.('#app') ? (fa.dataset?.fk || [fa.tagName, fa.textContent, fa.title || fa.getAttribute('aria-label') || ''].join('|')) : null, pb_ = ED.box_, sl = pb_?.scrollLeft, stp = pb_?.scrollTop; const r_ = renderWorkspace(); if (pb_ && ED.box_ === pb_) { pb_.scrollLeft = sl; pb_.scrollTop = stp; }   /* the zoomed texture view stays where it was */ if (fk && !document.activeElement?.closest?.('#app')) { const m = [...document.querySelectorAll('#app button, #app input, #app select')].find(x => (x.dataset?.fk || [x.tagName, x.textContent, x.title || x.getAttribute('aria-label') || ''].join('|')) === fk); m?.focus(); } return r_; }   /* keyboard focus stays on the control after the panel redraws */ const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
-  p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, lookup: panelLookup, creator: panelCreator, help: panelHelp }[tab])());
+  p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, animate: () => ANIMATE.panel(), lookup: panelLookup, creator: panelCreator, help: panelHelp }[tab])());
   if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; } }
 // our own small symbols for the category rail (drawn here, not taken from the game)
 const ICON = { Head: 'M6 3h12v13H6zM9 8v3h2V8zM13 8v3h2V8zM9 17h6v4H9z', Body: 'M9 2h6v6H9zM7 9h10v8H7zM3 9h3v8H3zM18 9h3v8h-3zM8 18h3v4H8zM13 18h3v4h-3z',
@@ -409,7 +414,7 @@ function drawEmotes() { const box = $('emotes'); if (!box || !EMOTES) return; bo
 
 // the animation transport on the stage (Animations tab): play/pause, step a frame, scrub to any frame
 function drawTransport() {
-  const stg = $('view').parentElement; let bar = $('transport'); const show = tab === 'animations' && !ED && !!st.anim.anim;
+  const stg = $('view').parentElement; let bar = $('transport'); const show = (tab === 'animations' || (tab === 'animate' && ANIMATE?.active())) && !ED && !!st.anim.anim;
   if (!show) { if (bar) bar.hidden = true; return; }
   if (!bar) {
     const A = () => st.anim, frames = () => Math.max(1, Math.round(A().duration)), seek = f => { const a = A(); a.playing = false; a.blend = 1; a.held = 0; a.t = Math.max(0, Math.min(frames(), f)); a.apply(); sync(); };
