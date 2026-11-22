@@ -121,15 +121,23 @@ export function createAnimate(ctx) {
   function timeline() {
     const rows = [...new Set([...(AN.bone ? [AN.bone] : []), ...Object.keys(AN.a.nodeAnimations)])], RH = 18, TOP = 18, LW = 92;
     const cv = el('canvas', { class: 'timeline', height: TOP + Math.max(1, rows.length) * RH + 2, tabIndex: 0, 'aria-label': 'Timeline' });
-    let W = 0, drag = null; const fx = f => LW + (f / AN.a.duration) * (W - LW - 8), xf = x => Math.round(((x - LW) / (W - LW - 8)) * AN.a.duration);
+    let W = 0, drag = null;   // the view: frames v0..v1 (the wheel zooms about the pointer, Shift+wheel pans, the playhead stays in view)
+    const view = () => { const n = AN.a.duration, v = AN.view || [0, n]; let [a0, a1] = v; a1 = Math.min(n, a1); a0 = Math.max(0, Math.min(a0, a1 - 4)); if (a1 - a0 < 4) a1 = Math.min(n, a0 + 4); return [a0, a1]; };
+    const fx = f => { const [a0, a1] = view(); return LW + ((f - a0) / (a1 - a0 || 1)) * (W - LW - 8); }, xf = x => { const [a0, a1] = view(); return Math.round(a0 + ((x - LW) / (W - LW - 8)) * (a1 - a0)); };
+    cv.onwheel = e => { e.preventDefault(); const n = AN.a.duration, [a0, a1] = view(), span = a1 - a0, r0 = cv.getBoundingClientRect();
+      if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) { const d = (e.shiftKey ? e.deltaY : e.deltaX) / 400 * span, b0 = Math.max(0, Math.min(n - span, a0 + d)); AN.view = [b0, b0 + span]; }
+      else { const at = Math.max(a0, Math.min(a1, a0 + ((e.clientX - r0.left - LW) / (W - LW - 8)) * span)), k = Math.exp(e.deltaY / 500), ns = Math.max(8, Math.min(n, span * k)), t = (at - a0) / (span || 1);
+        let b0 = at - ns * t; b0 = Math.max(0, Math.min(n - ns, b0)); AN.view = ns >= n ? null : [b0, b0 + ns]; }
+      draw(); };
     function draw() { if (!AN) return; W = cv.clientWidth || 300; cv.width = W; const c = cv.getContext('2d'), n = AN.a.duration, now = frame();
       c.fillStyle = '#0d1a2b'; c.fillRect(0, 0, W, cv.height); c.font = '11px system-ui'; c.textBaseline = 'middle';
-      const per = (W - LW - 8) / n, stepF = [1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1200].find(s => s * per >= 34) || 1200;   /* labels at least 34 px apart */ for (let f = 0; f <= n; f += stepF) { const x = fx(f); c.fillStyle = '#2a3d58'; c.fillRect(x, TOP, 1, cv.height - TOP); c.fillStyle = '#8aa0ba'; c.fillText(String(f), x + 2, TOP / 2); }
+      { const [a0, a1] = view(); if (AN.view && !drag && (now < a0 || now > a1)) { const span = a1 - a0, b0 = Math.max(0, Math.min(n - span, now - span / 2)); AN.view = [b0, b0 + span]; } }   /* the playhead never leaves the view */
+      const [v0, v1] = view(), per = (W - LW - 8) / (v1 - v0 || 1), stepF = [1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1200].find(s => s * per >= 34) || 1200;   /* labels at least 34 px apart */ for (let f = Math.ceil(v0 / stepF) * stepF; f <= v1; f += stepF) { const x = fx(f); c.fillStyle = '#2a3d58'; c.fillRect(x, TOP, 1, cv.height - TOP); c.fillStyle = '#8aa0ba'; c.fillText(String(f), x + 2, TOP / 2); }
       rows.forEach((b, i) => { const y = TOP + i * RH; c.fillStyle = b === AN.bone ? '#1d3352' : i % 2 ? '#101f33' : '#0f1d30'; c.fillRect(0, y, W, RH); c.fillStyle = b === AN.bone ? '#f4c452' : '#c9d6e6'; c.fillText(b.length > 13 ? b.slice(0, 12) + '…' : b, 4, y + RH / 2);
-        for (const t of A.keyTimes(AN.a, b)) { const x = fx(t), cy = y + RH / 2; c.save(); c.translate(x, cy); c.rotate(Math.PI / 4); c.fillStyle = t === now ? '#f4c452' : '#9fd0ff'; c.fillRect(-4, -4, 8, 8); c.restore(); } });
-      const ck = AN.checks; if (ck) { const mark = (f, col) => { c.fillStyle = col; c.fillRect(fx(f) - 1, TOP - 5, 3, 5); };
+        for (const t of A.keyTimes(AN.a, b)) { if (t < v0 || t > v1) continue; const x = fx(t), cy = y + RH / 2; c.save(); c.translate(x, cy); c.rotate(Math.PI / 4); c.fillStyle = t === now ? '#f4c452' : '#9fd0ff'; c.fillRect(-4, -4, 8, 8); c.restore(); } });
+      const ck = AN.checks; if (ck) { const mark = (f, col) => { if (f < v0 || f > v1) return; c.fillStyle = col; c.fillRect(fx(f) - 1, TOP - 5, 3, 5); };
         ck.clips.forEach(f => mark(f, '#ff9a3c')); ck.pops.forEach(f => mark(f, '#ff4d5e')); if (ck.seam) { c.fillStyle = '#ff4d5e'; c.fillRect(fx(n) - 4, 0, 4, TOP); } }
-      const px = fx(now); c.fillStyle = '#f4c452'; c.fillRect(px - 1, 0, 2, cv.height); }
+      if (now >= v0 && now <= v1) { const px = fx(now); c.fillStyle = '#f4c452'; c.fillRect(px - 1, 0, 2, cv.height); } }
     const at = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     cv.onpointerdown = e => { const p = at(e), row = Math.floor((p.y - TOP) / RH), bone = p.y >= TOP ? rows[row] : null; if (p.x < LW) { if (bone) { AN.bone = bone; placeGizmo(); render(); } return; }
       const f = Math.max(0, Math.min(AN.a.duration, xf(p.x))), hit = bone && A.keyTimes(AN.a, bone).find(t => Math.abs(fx(t) - p.x) <= 6);

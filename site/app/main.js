@@ -143,7 +143,7 @@ function open(rec, asNew, look) {   // put a skin on the stage: a wardrobe recor
   if (flush.stuck && dirty) { ask('Not saved', el('p', { text: `My skins is full (${store.CUSTOM_MAX}), so this look isn't saved.` }), [{ label: 'Cancel', value: '' }, { label: 'Discard', value: 'yes', danger: true }]).then(v => { if (v === 'yes') { flush.stuck = false; dirty = false; open(rec, asNew, look); } }); return; }   /* never drops an unsaved look without asking */
   flush();
   cur = asNew ? { id: null, kind: null, slot: null, name: cleanName(rec.name), skin: R.fit(rec.skin) } : { id: rec.id, kind: rec.kind, slot: rec.slot ?? null, name: rec.name, skin: R.fit(rec.skin) };
-  hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = !!asNew; keepDraft(); rebuild(); plate(); if (!look) pushWearing();
+  hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = !!asNew && !look; keepDraft();   /* just looking at someone's skin is not a change to save */ rebuild(); plate(); if (!look) pushWearing();
 }
 function setSkin(s, random = false) { cur.random = random; cur.skin = s; autosave(); pushWearing(); hist = hist.slice(0, hpos + 1); hist.push(JSON.stringify(s)); if (hist.length > 200) hist.shift(); hpos = hist.length - 1; dirty = true; keepDraft(); rebuild(); render(); }
 function step(d) { const p = hpos + d; if (p < 0 || p >= hist.length) return; hpos = p; { const h = JSON.parse(hist[p]), f2 = R.fit(h); for (const k of Object.keys(h)) if (typeof h[k] === 'string' && h[k].startsWith('Custom_') && !f2[k] && cur.skin[k]) f2[k] = cur.skin[k]; cur.skin = f2; } dirty = true;   /* a deleted item's slot keeps what is worn now, never empty */   /* a deleted item never comes back through undo */ autosave(); pushWearing(); keepDraft(); rebuild(); render(); }
@@ -294,7 +294,7 @@ async function loadLock() {
   const m = await db.get('meta', 'locker').catch(() => null), all = game.FIELDS.flatMap(f => R.ITEMS[f].filter(e => !e.custom).map(e => favKey(f, e)));
   LOCK.favs = new Set(m?.favs || []); LOCK.recent = m && m.recent && typeof m.recent === 'object' ? m.recent : {}; LOCK.seen = m ? new Set(m.seen || []) : new Set(all); if (!m) saveLock();   // on a first visit nothing counts as new
 }
-function leavePicker() { if (seenSlot) { for (const e of R.ITEMS[seenSlot]) if (!e.custom) LOCK.seen.add(favKey(seenSlot, e)); saveLock(); seenSlot = null; } picking = false; }
+function leavePicker() { if (peek.part !== undefined) peek();   /* a hover preview never outlives the picker (leaving by keyboard sends no pointerleave) */ if (seenSlot) { for (const e of R.ITEMS[seenSlot]) if (!e.custom) LOCK.seen.add(favKey(seenSlot, e)); saveLock(); seenSlot = null; } picking = false; }
 function variantName(it, v) { const nk = it?.Variants?.[v]?.NameKey; return (nk && CAT.names[nk]) || nice(v); }
 function lookCard(r, kind) { return el('button', { class: 'look ' + kind + (cur.id === r.id ? ' on' : ''), title: r.name, onclick: () => open(r) }, portrait(r.skin)); }
 function panelEditor() { return picking ? panelPicker() : panelLocker(); }
@@ -316,7 +316,7 @@ function panelPicker() {
   const counts = { recent: recentIds.length, fav: all.filter(e => LOCK.favs.has(favKey(f, e))).length, new: all.filter(e => isNew(f, e)).length, mine: all.filter(e => e.custom).length }; if ((lockFilter === 'mine' && !counts.mine) || (lockFilter === 'new' && !counts.new)) lockFilter = 'all';   /* a filter that emptied goes back to All */
   const chip = (id, label) => el('button', { class: 'chip' + (lockFilter === id ? ' on' : ''), text: label, onclick: () => { lockFilter = id; sortBox.hidden = id !== 'all'; drawCards(); for (const c of bar.querySelectorAll('.chip[data-f]')) c.classList.toggle('on', c.dataset.f === id); }, data: { f: id } });
   const sortBox = el('select', { class: 'sort', 'aria-label': 'Order', hidden: lockFilter !== 'all', onchange: e => { lockSort = e.target.value; drawCards(); } },
-    [['up', 'Standard first'], ['down', 'Event first']].map(([v, t]) => el('option', { value: v, text: t, selected: v === lockSort })));
+    [['up', 'Standard first'], ['down', 'Rarest first']].map(([v, t]) => el('option', { value: v, text: t, selected: v === lockSort })));
   const bar = el('div', { class: 'options lockbar' }, chip('all', 'All'), chip('fav', counts.fav ? `★ Favourites ${counts.fav}` : '☆ Favourites'), counts.recent > 1 ? chip('recent', 'Recent') : null, counts.new ? chip('new', `New ${counts.new}`) : null,
     tiersHere.length > 1 ? tiersHere.map(t => chip('t' + t, TIERS[t])) : null, counts.mine ? chip('mine', 'Custom') : null,
     sortBox);
@@ -457,7 +457,7 @@ const forgetMe = guard(async () => {
   await api('/me', 'DELETE'); PUBMAP = {}; await savePubMap(); await auth.signOut(); ACCOUNT = null; PUB = { on: PUB.on, signedIn: false }; say('Your published data was deleted'); render(); });
 
 function card(rec, kind, i) {
-  if (!rec) return el('div', { class: 'skin empty ' + kind }, el('div', { class: 'pic' }, el('span', { text: '+' })), el('b', { text: 'Slot ' + (i + 1) }), el('small', { text: 'Empty' }));
+  if (!rec) return el('div', { class: 'skin empty ' + kind, role: 'button', tabIndex: 0, 'aria-label': `Save to slot ${i + 1}`, onclick: () => saveAs(i), onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); saveAs(i); } } }, el('div', { class: 'pic' }, el('span', { text: '+' })), el('b', { text: 'Slot ' + (i + 1) }), el('small', { text: 'Empty' }));   // the + saves the look you have on into this slot
   const act = (label, fn, cls) => el('button', { class: 'mini ' + (cls || ''), text: label, onclick: e => { e.stopPropagation(); fn(); } });
   const acts = kind === 'game' ? [act('Set in game', () => checklist(rec)), act('Rename', () => renameSkin(rec)), act('Move out', () => moveOut(rec)), pubButton(rec), locked('Send to game', 'sending this skin to your in-game preset', 'mini')]
     : kind === 'custom' ? [hasCustom(rec.skin) ? null : act('Send to game', () => toGame(rec)), act('Rename', () => renameSkin(rec)), act('Copy', () => duplicate(rec)), pubButton(rec), act('Export', guard(() => exportSkin(rec))), act('Delete', () => removeSkin(rec), 'danger')]
@@ -543,9 +543,9 @@ function checklist(rec) { rec = liveRec(rec);
 async function save() { cur.random = false; if (!cur.id) return saveAs();
   await guard(async () => { const r = cur.kind === 'game' ? await store.saveGame(cur.slot, cur.name, cur.skin) : await store.saveCustom(cur.name, cur.skin, cur.id); dirty = false; const moved = r.kind !== cur.kind; if (moved) { Object.assign(cur, { id: r.id, kind: r.kind, slot: null, name: r.name, auto: false }); keepDraft(); } await refreshWard(); plate(); say(moved ? "Custom items can't go in game slots: saved to My skins" : `Saved "${r.name}"`);
     if (PUBMAP[r.id] && canPublish() && !hasCustom(r.skin)) publish(r, true); })(); }
-async function saveAs() { cur.random = false;
+async function saveAs(slot) { cur.random = false; if (typeof slot !== 'number') slot = null;
   const name = el('input', { type: 'text', value: cur.name || '', maxLength: 120, placeholder: 'Skin name', autofocus: true });
-  const where = el('select', {}, el('option', { value: 'custom', text: `My skins (${WARD.custom.length} / ${store.CUSTOM_MAX})` }), WARD.game.map((r, i) => el('option', { value: String(i), text: `In-game slot ${i + 1}${r ? ', replaces "' + r.name + '"' : ' (empty)'}` })));
+  const where = el('select', {}, el('option', { value: 'custom', text: `My skins (${WARD.custom.length} / ${store.CUSTOM_MAX})` }), WARD.game.map((r, i) => el('option', { value: String(i), selected: i === slot, text: `In-game slot ${i + 1}${r ? ', replaces "' + r.name + '"' : ' (empty)'}` })));
   const v = await ask('Save skin', [el('label', { text: 'Name' }), name, el('label', { text: 'Save to' }), where], [{ label: 'Cancel', value: '' }, { label: 'Save', value: 'yes', primary: true }]);
   if (v !== 'yes') return; let n = cleanName(name.value) || cur.name || 'My skin';   /* a blank name keeps the current one */
   if (where.value === 'custom') { const autoId = cur.auto && cur.kind === 'custom' ? cur.id : null, used = new Set(WARD.custom.filter(r => r.id !== autoId).map(r => r.name)); if (used.has(n)) { const stem = n; let k = 2; while (used.has(cleanName(clip(stem, 37) + ' ' + k))) k++; n = cleanName(clip(stem, 37) + ' ' + k); } }   /* Save as never makes two skins with one name */
@@ -647,9 +647,9 @@ function panelAnimations() {
 }
 
 // other players' skins
-let lookupMsg = '', shown = null;   // shown: the last player found, with the skins they published on this site
+let lookupMsg = '', lookupQ = '', shown = null;   // shown: the last player found, with the skins they published on this site
 const lookup = guard(async name => {
-  name = name.trim(); if (!/^[A-Za-z0-9_-]{2,36}$/.test(name)) { lookupMsg = 'Enter a username'; return render(); }
+  name = name.trim(); lookupQ = name; if (!/^[A-Za-z0-9_-]{2,36}$/.test(name)) { lookupMsg = 'Enter a username'; return render(); }
   lookupMsg = 'Looking…'; render();
   try {
     const r = await fetch('https://playerdb.co/api/player/hytale/' + encodeURIComponent(name), { credentials: 'omit', referrerPolicy: 'no-referrer' });
@@ -663,6 +663,7 @@ async function loadPublished(name, id) {
   if (!/^[0-9a-f-]{32,36}$/i.test(id || '')) { shown = null; return; }
   const me = shown = { name, uuid: id, skins: null }; render();
   try { const r = await fetch('/api/players/' + encodeURIComponent(id) + '/skins', { credentials: 'omit', cache: 'no-store' }), j = r.ok ? await r.json() : null;
+    if (!r.ok && r.status !== 404) me.failed = true; if (r.status === 404 && !j) me.failed = true;   /* the skins service missing is not 'no skins' */
     me.skins = (Array.isArray(j?.skins) ? j.skins : []).map(k => ({ id: 'pub_' + String(k.id).slice(0, 24), name: cleanName(k.name) || 'Skin', skin: sanitize(k.skin) })).filter(k => k.skin).slice(0, 45);
   } catch { me.skins = []; me.failed = true; }
   if (shown === me) render();
@@ -681,7 +682,7 @@ async function pickSkinFiles(fallback) {
     importSkinFiles(await Promise.all(hs.map(h => h.getFile()))); } catch (e) { if (e.name !== 'AbortError') say(e.message, true); }
 }
 function panelLookup() {
-  const input = el('input', { type: 'text', placeholder: 'Username or UUID', maxLength: 36, autocomplete: 'off', spellcheck: false });
+  const input = el('input', { type: 'text', placeholder: 'Username or UUID', maxLength: 36, autocomplete: 'off', spellcheck: false, value: lookupQ });   // the name you looked up stays in the box
   const form = el('form', { class: 'row', onsubmit: e => { e.preventDefault(); lookup(input.value); } }, input, el('button', { class: 'btn primary', text: 'Find' }));
   const file = el('input', { type: 'file', accept: '.json,.skin,application/json', multiple: true, hidden: true, onchange: e => { importSkinFiles(e.target.files); e.target.value = ''; } });
   return [head('Players'), el('div', { class: 'pbody' },
@@ -1016,11 +1017,12 @@ function anyItem() {   // or start from any free item in the game, worn or not
   const away = ev => { if (!menu.contains(ev.target) && ev.target !== item) close(); };
   const drift = ev => { if (!menu.contains(ev.target)) close(); };   // the list floats over the page, so it closes when the page under it scrolls
   const close = () => { if (menu.hidden) return; menu.hidden = true; if (item.isConnected) item.after(menu); else menu.remove(); item.setAttribute('aria-expanded', 'false'); peek(at); document.removeEventListener('pointerdown', away, true); removeEventListener('scroll', drift, true); removeEventListener('resize', close); };
-  const place = () => { const r = item.getBoundingClientRect(), below = innerHeight - r.bottom - 8, above = r.top - 8, up = below < 220 && above > below, h = Math.min(320, up ? above : below);
-    Object.assign(menu.style, { left: r.left + 'px', width: r.width + 'px', maxHeight: h + 'px', top: up ? '' : r.bottom + 2 + 'px', bottom: up ? innerHeight - r.top + 2 + 'px' : '' }); };
+  const edge = () => Math.min(innerHeight, document.querySelector('.panel')?.getBoundingClientRect().bottom || innerHeight);   // the panel's own bottom, above the footer
+  const place = () => { const r = item.getBoundingClientRect(), below = edge() - r.bottom - 8, above = r.top - 8, up = below < 220 && above > below, h = Math.min(320, up ? above : below);
+    Object.assign(menu.style, { left: r.left + 'px', width: r.width + 'px', maxHeight: Math.max(80, h) + 'px', top: up ? '' : r.bottom + 2 + 'px', bottom: up ? innerHeight - r.top + 2 + 'px' : '' }); };
   const open = () => { if (!list.length || !menu.hidden) return; document.querySelectorAll('body > .anymenu').forEach(x => x.remove()); document.body.append(menu); place(); menu.hidden = false; item.setAttribute('aria-expanded', 'true'); mark(at);
     document.addEventListener('pointerdown', away, true); addEventListener('scroll', drift, true); addEventListener('resize', close); };
-  const choose = i => { at = i; if (list[i] && list[i][2]) { (anyItem.picks ||= {})[list[i][1]] = list[i][2].Id; anyItem.slot = list[i][1]; if (slot.value !== list[i][1]) { slot.value = list[i][1]; slotBtn.textContent = LABEL[slot.value]; } } keepAny(); label(); close(); clearTimeout(hov); draw(at); };
+  const choose = i => { if (list[i]?.[3]) return; at = i; if (list[i] && list[i][2]) { (anyItem.picks ||= {})[list[i][1]] = list[i][2].Id; anyItem.slot = list[i][1]; if (slot.value !== list[i][1]) { slot.value = list[i][1]; slotBtn.textContent = LABEL[slot.value]; } } keepAny(); label(); close(); clearTimeout(hov); draw(at); };
   item.onclick = () => menu.hidden ? open() : close();
   item.onkeydown = ev => { const k = ev.key, n = list.length; if (!n) return;
     if (k === 'ArrowDown' || k === 'ArrowUp') { ev.preventDefault(); if (menu.hidden) open(); const i = Math.max(0, Math.min(n - 1, act + (k === 'ArrowDown' ? 1 : -1))); mark(i); peek(i); }
@@ -1032,12 +1034,13 @@ function anyItem() {   // or start from any free item in the game, worn or not
   menu.onclick = ev => { const o = ev.target.closest('[role=option]'); if (o) { choose(+o.dataset.i); item.focus(); } };
   const fill = () => { const q = find_.value.trim().toLowerCase(), from = q ? slots : [slot.value];   // a search looks in every slot
     const rank = r => { if (!q || !r[2]) return 0; const nm = itemName(r[2]).toLowerCase(), w = nm.split(/\s+/); return nm === q ? 0 : nm.startsWith(q) ? 1 : w[0] === q || w.includes(q) && w.indexOf(q) === 0 ? 1 : nm.split(/\s+/).some(x => x === q) ? 2 : 3; };
-    list = from.flatMap(f => oneEach(CAT.items[f]).filter(e => ok(e) && !isTmp(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e])).sort((a, b) => rank(a) - rank(b) || a[0].localeCompare(b[0]));   // a search puts exact names first, then names that start with it
+    const paidOk = e => !e.custom && paidLocked(e) && !isTmp(e) && !/^\s*\[?tmp\]?/i.test(itemName(e));   /* paid items are listed, greyed: they can't be copied */
+    list = from.flatMap(f => oneEach(CAT.items[f]).filter(e => (ok(e) || paidOk(e)) && !isTmp(e) && (!q || itemName(e).toLowerCase().includes(q))).map(e => [itemName(e) + (q ? ` (${LABEL[f]})` : ''), f, e, paidLocked(e)])).sort((a, b) => (a[3] - b[3]) || rank(a) - rank(b) || a[0].localeCompare(b[0]));   // a search puts exact names first, then names that start with it
       // None: the picture shows the slot empty; wearing nothing there starts on a random item
-    menu.replaceChildren(...list.map(([n], i) => el('div', { role: 'option', class: 'anyopt', text: n, data: { i }, 'aria-selected': 'false' })));
-    const worn = !q && parse(cur.skin[slot.value]).id, kept = (anyItem.picks ||= {})[slot.value], at0 = id => list.findIndex(r => r[2] && r[2].Id === id); at = q ? (list.length ? 0 : -1) : kept ? at0(kept) : -1; if (!q && at < 0) at = at0(worn);   // the item shown last time stays, so the picker doesn't jump around between visits
+    menu.replaceChildren(...list.map(([n, , , paid], i) => el('div', { role: 'option', class: 'anyopt' + (paid ? ' paid' : ''), 'aria-disabled': paid ? 'true' : null, data: { i }, 'aria-selected': 'false' }, el('span', { text: n }), paid ? el('small', { text: 'Paid' }) : null)));
+    const worn = !q && parse(cur.skin[slot.value]).id, kept = (anyItem.picks ||= {})[slot.value], at0 = id => list.findIndex(r => r[2] && !r[3] && r[2].Id === id), free = list.findIndex(r => !r[3]); at = q ? free : kept ? at0(kept) : -1; if (!q && at < 0) at = at0(worn);   // the item shown last time stays, so the picker doesn't jump around between visits
     if (!q && at < 0 && (anyItem.rand ||= {})[slot.value]) at = at0(anyItem.rand[slot.value]);
-    if (!q && at < 0 && list.length) { at = Math.floor(Math.random() * list.length); anyItem.rand[slot.value] = list[at][2].Id; } if (!q && at >= 0 && list[at][2]) anyItem.picks[slot.value] = list[at][2].Id;   // whatever is shown first stays shown (wearing something new doesn't swap it)
+    if (!q && at < 0 && free >= 0) { const frees = list.map((r, i) => r[3] ? -1 : i).filter(i => i >= 0); at = frees[Math.floor(Math.random() * frees.length)]; anyItem.rand[slot.value] = list[at][2].Id; } if (!q && at >= 0 && list[at][2]) anyItem.picks[slot.value] = list[at][2].Id;   // whatever is shown first stays shown (wearing something new doesn't swap it)
     act = Math.max(0, at); label(); item.disabled = !list.length; close(); clearTimeout(hov); draw(at); };
   slot.value = slots.includes(anyItem.slot) ? anyItem.slot : slots.includes('overtop') ? 'overtop' : slots[0]; fill(); slot.onchange = () => { anyItem.slot = slot.value; keepAny(); find_.value = ''; fill(); slotBtn.textContent = LABEL[slot.value]; }; find_.oninput = fill;
   const slotBtn = el('button', { type: 'button', class: 'anypick', text: LABEL[slot.value], 'aria-label': 'Item type' }), slotMenu = el('div', { class: 'anymenu', role: 'listbox', hidden: true });
@@ -1057,7 +1060,7 @@ function anyItem() {   // or start from any free item in the game, worn or not
   slotMenu.replaceChildren(...slots.map(f => el('div', { role: 'option', class: 'anyopt', text: LABEL[f], onpointerenter: () => showSlot(f), onclick: () => { slot.value = f; slotClose(); slot.onchange(); } })));
   slotMenu.onpointerleave = () => draw(at);
   slotBtn.onclick = () => { if (!slotMenu.hidden) return slotClose(); document.querySelectorAll('body > .anymenu').forEach(x => x.remove()); document.body.append(slotMenu); const r = slotBtn.getBoundingClientRect();
-    const below = innerHeight - r.bottom - 12, above = r.top - 12, up = below < 200 && above > below;   /* opens upward when there is no room below */
+    const below = edge() - r.bottom - 12, above = r.top - 12, up = below < 200 && above > below;   /* opens upward when there is no room below the panel */
     Object.assign(slotMenu.style, up ? { left: r.left + 'px', width: Math.max(r.width, 180) + 'px', top: '', bottom: innerHeight - r.top + 2 + 'px', maxHeight: Math.min(420, above) + 'px' } : { left: r.left + 'px', width: Math.max(r.width, 180) + 'px', top: r.bottom + 2 + 'px', maxHeight: Math.min(420, below) + 'px', bottom: '' });
     slotMenu.hidden = false; slotBtn.setAttribute('aria-expanded', 'true'); si = slots.indexOf(slot.value); [...slotMenu.children].forEach((o, i) => { o.classList.toggle('on', i === si); o.setAttribute('aria-selected', String(i === si)); }); slotMenu.children[si]?.scrollIntoView({ block: 'nearest' }); document.addEventListener('pointerdown', slotAway, true); setTimeout(() => addEventListener('scroll', slotScroll, true), 0); };
   find_.onkeydown = ev => { if (ev.key === 'ArrowDown' && list.length) { ev.preventDefault(); item.focus(); item.onkeydown(ev); } };
@@ -1171,15 +1174,15 @@ const SHAPE_TOOLS = [['move', 'Move', 'G', '✥'], ['resize', 'Resize', 'S', '�
 const paintsIn = e => e.k === 'p' ? 1 : e.k === 'g' ? e.parts.reduce((n, x) => n + paintsIn(x), 0) : 0;
 const capHist = () => { if (ED.noCap) return; let n = ED.hist.reduce((a, x) => a + paintsIn(x), 0); while (ED.hist.length && (ED.hist.length > 90 || n > 110)) n -= paintsIn(ED.hist.shift()); };   /* counts the paint steps inside groups too */   /* below the painter's own step limit, so every undo still has its paint */
 const recordPaint = () => { if (ED && !ED.replaying) { ED.hist.push({ k: 'p' }); ED.fut = []; capHist(); } };
-function recordShape(before) { ED.hist.push({ k: 's', other: before, lab: JSON.stringify(ED.asset.labels || null) }); ED.fut = []; capHist(); }   // part names go back with the shape
+function recordShape(before, sel) { ED.hist.push({ k: 's', other: before, lab: JSON.stringify(ED.asset.labels || null), sel }); ED.fut = []; capHist(); }   // sel: the part selected before the change, picked again on undo   // part names go back with the shape
 function sizeTo([w, h]) { const c = ED.canvas; if (c.width === w && c.height === h) return; ED.painter.grow(h, w); ED.asset = { ...ED.asset, w, h }; ED.n = ++edN; requestAnimationFrame(() => { if (ED) { if (!ED.userZoom) fitTexture(); render(); } }); }
 function undoEntry(e, redo) {
   if (e.k === 'l') { const now = JSON.stringify(ED.asset.labels || null); ED.asset = { ...ED.asset, labels: JSON.parse(e.other) || undefined }; queueAssetSave(); return { k: 'l', other: now }; }
   if (e.k === 'p') { ED.replaying = true; redo ? ED.painter.redo() : ED.painter.undo(); ED.replaying = false; return e; }
   if (e.k === 'g') { if (e.splitWas !== undefined) { const v = redo ? !!e.splitNow : e.splitWas; ED.splitDone = v; ED.asset = { ...ED.asset, split: v }; if (e.sz && redo) sizeTo(e.sz[1]); const parts = e.parts.slice().reverse().map(x => undoEntry(x, redo)); if (e.sz && !redo) sizeTo(e.sz[0]); return { k: 'g', splitWas: e.splitWas, splitNow: e.splitNow, sz: e.sz, parts }; }   /* the texture shrinks back to its size before the step (and grows again on redo) */
     if (e.setup) { ED.splitDone = !!redo; ED.asset = { ...ED.asset, split: !!redo }; } return { k: 'g', setup: e.setup, parts: e.parts.slice().reverse().map(x => undoEntry(x, redo)) }; }   /* undoing the split makes the next Shape visit split again */
-  const now = JSON.stringify(ED.model), keep = boxesOf(ED.model)[ED.box || 0]?.node.name; { if (e.lab !== undefined) { const nowLab = JSON.stringify(ED.asset.labels || null); ED.asset = { ...ED.asset, labels: JSON.parse(e.lab) || undefined }; e = { ...e, labNow: nowLab }; } } const namesNow = new Set(boxesOf(ED.model).map(x => x.node.name)); ED.model = JSON.parse(e.other); { const back = boxesOf(ED.model).findIndex(x => !namesNow.has(x.node.name)); if (back >= 0) { ED.box = back; ED.reshaped = true; return { k: 's', other: now, lab: e.labNow }; } }   /* a part that comes back is picked */
-  { const bs = boxesOf(ED.model), i = bs.findIndex(x => x.node.name === keep); ED.box = i >= 0 ? i : Math.min(ED.box || 0, bs.length - 1); } ED.reshaped = true; return { k: 's', other: now, lab: e.labNow };
+  const now = JSON.stringify(ED.model), keep = (!redo && e.sel) || boxesOf(ED.model)[ED.box || 0]?.node.name, selNow = boxesOf(ED.model)[ED.box || 0]?.node.name; { if (e.lab !== undefined) { const nowLab = JSON.stringify(ED.asset.labels || null); ED.asset = { ...ED.asset, labels: JSON.parse(e.lab) || undefined }; e = { ...e, labNow: nowLab }; } } const namesNow = new Set(boxesOf(ED.model).map(x => x.node.name)); ED.model = JSON.parse(e.other); { const back = boxesOf(ED.model).findIndex(x => !namesNow.has(x.node.name)); if (back >= 0) { ED.box = back; ED.reshaped = true; return { k: 's', other: now, lab: e.labNow }; } }   /* a part that comes back is picked */
+  { const bs = boxesOf(ED.model), i = bs.findIndex(x => x.node.name === keep); ED.box = i >= 0 ? i : Math.min(ED.box || 0, bs.length - 1); } ED.reshaped = true; return { k: 's', other: now, lab: e.labNow, sel: selNow };
 }
 function wsUndo(redo) {
   if (!ED) return; if (ED.adjOpen) { if (!redo && ED.adjCancel) ED.adjCancel(); return; } say('');   /* inside Adjust colours, undo cancels the adjustment */
@@ -1189,7 +1192,7 @@ function wsUndo(redo) {
   ED.palette = ED.painter.palette(); render();
 }
 function shapeEdit(fn) {   // with Symmetry on, the box's twin on the other side follows the change
-  const before = JSON.stringify(ED.model), b0 = curBox(), tw = symTwin(); fn();
+  const before = JSON.stringify(ED.model), b0 = curBox(), tw = symTwin(); shapeEdit.sel = b0?.node.name; fn();
   if (tw && b0 && b0.node !== tw && boxesOf(ED.model).some(x => x.node === b0.node) && boxesOf(ED.model).some(x => x.node === tw)) mirrorNode(b0.node, tw);
   finishShape(before); }
 async function setMode(m) { if (ED.adjOpen && ED.adjCancel) ED.adjCancel(); if (ED.placing) { ED.placing = false; say(''); }   /* leaving Paint drops an unapplied colour adjustment */
@@ -1208,8 +1211,8 @@ function placeGizmo() {
     else { const k = v => Math.round(v * 1e6) / 1e6; b.node.orientation = { x: k(turn.x), y: k(turn.y), z: k(turn.z), w: k(turn.w) }; } }) });
 }
 // a number you can type, or drag left and right on its letter, like Blender and Blockbench
-function scrub(label, get, set, step = 1, min = -64, max = 64) {
-  const clamp = v => Math.max(min, Math.min(max, Math.round(v / step) * step));
+function scrub(label, get, set, step = 1, min = -64, max = 64, prec = step) {   // prec: how finely a typed value is kept (turns keep 0.01)
+  const clamp = v => Math.max(min, Math.min(max, Math.round(v / prec) * prec));
   const shown = () => Math.round(get() * 100) / 100;
   const inp = el('input', { type: 'number', class: 'scrubin', step, min, max, value: shown(), onchange: e => { const t = e.target.value.trim(); if (t === '' || !Number.isFinite(Number(t))) { e.target.value = shown(); return; } const v = clamp(Number(t)); if (Math.abs(v - get()) < 1e-9) { e.target.value = shown(); return; } shapeEdit(() => set(v)); } });   /* no change, no step */   /* an emptied field goes back to its value */
   inp.onkeydown = e => { if (e.key !== 'Tab' && e.key !== 'Enter') return; const all = [...document.querySelectorAll('input.scrubin')], to = all.indexOf(inp) + (e.key === 'Tab' ? (e.shiftKey ? -1 : 1) : 0); if (e.key === 'Tab' && (to < 0 || to >= all.length)) return;
@@ -1273,7 +1276,7 @@ function boxLabel(node) {   // names come from one pass per model change (it was
 function boxLabel1(node) {
   const own = ED.asset.labels && ED.asset.labels[node.name]; if (own) return own;
   if (/^Box_/.test(node.name)) { const all = boxesOf(ED.model).filter(b => /^Box_/.test(b.node.name)); return 'Box ' + (all.findIndex(b => b.node === node) + 1); }
-  const raw = n => { n = String(n).replace(/(~|_)\d+$/, '');   /* merge suffixes (~2, _2) are not part of the name */ const m = /^(.*?)-+C(\d+)$/i.exec(n), base = (m ? m[1] : n).replace(/Costume$/, '').replace(/([A-Za-z])(\d+)$/, '$1 $2').replace(/^L-/, 'Left ').replace(/^R-/, 'Right ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ')
+  const raw = n => { n = String(n).replace(/(~|_)\d+$/, '');   /* merge suffixes (~2, _2) are not part of the name */ const m = /^(.*?)-+C(\d+)$/i.exec(n), base = (m ? m[1] : n).replace(/Costume$/, '').replace(/([A-Za-z])(\d+)$/, '$1 $2').replace(/^L-/, 'Left ').replace(/^R-/, 'Right ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ').replace(/\s+([lr])$/i, (x, c) => c.toLowerCase() === 'l' ? ' left' : ' right').replace(/^\s*([lr])\s+/i, (x, c) => c.toLowerCase() === 'l' ? 'Left ' : 'Right ')
       .replace(/\bbot\b/ig, 'bottom').replace(/\bacc\b/ig, 'accessory').replace(/\bc (\d+)\b/ig, 'part $1').replace(/\s+/g, ' ').trim().toLowerCase();
     const t = base ? base[0].toUpperCase() + base.slice(1) : n; return m ? `${t}, piece ${+m[2] + 1}` : t; };   // "ChestPart--C1" -> "Chest part, piece 2"
   const s = raw(node.name), bs = ED.model ? (boxLabel.bs && boxLabel.bs.model === ED.model && boxLabel.bs.n === ED.shapeN ? boxLabel.bs.list : (boxLabel.bs = { model: ED.model, n: ED.shapeN, list: boxesOf(ED.model) }).list) : [], same = bs.filter(b => !/^Box_/.test(b.node.name) && !(ED.asset.labels || {})[b.node.name] && raw(b.node.name) === s);
@@ -1377,7 +1380,7 @@ function bakeOffset(n) { const o = n.shape?.offset; if (!o || !(o.x || o.y || o.
 function finishShape(before) {
   for (const b of boxesOf(ED.model)) if (/^Box_/.test(b.node.name)) bakeOffset(b.node);
   for (const b of boxesOf(ED.model)) { const p = b.node.position; for (const o of [p, b.node.shape?.offset]) if (o) for (const k of ['x', 'y', 'z']) if (typeof o[k] === 'number') o[k] = Math.max(-64, Math.min(64, o[k])); }   /* every move path (gizmo, drag, Bring forward) keeps the same ±64 limit as the fields */
-  const paints = tidyResized(before); recordShape(before);
+  const paints = tidyResized(before); recordShape(before, shapeEdit.sel);
   if (paints.length) { ED.painter.write((d, W, H) => paints.forEach(p => p(d, W, H))); ED.hist.push({ k: 'g', parts: ED.hist.splice(-2) }); }
   shapeChanged();
 }
@@ -1388,9 +1391,11 @@ function shapeSide() {
   const axisField = (lab, obj, key, ax, min, max, step = 1) => scrub(lab, () => obj[key]?.[ax] ?? 0, v => { obj[key] = { x: 0, y: 0, z: 0, ...obj[key], [ax]: v }; }, step, min, max);
   const wrap = v => { const w = ((v + 180) % 360 + 360) % 360 - 180; return w === -180 ? 180 : w; }, turnNow = () => { const c = ED.turns?.get(b.node), q = b.node.orientation || {}, t = c && toQuat(...c);
     return t && Math.abs(Math.abs(t.x * (q.x ?? 0) + t.y * (q.y ?? 0) + t.z * (q.z ?? 0) + t.w * (q.w ?? 1)) - 1) < 1e-4 && Math.max(...['x', 'y', 'z', 'w'].map(k => Math.min(Math.abs((t[k] ?? 0) - (q[k] ?? (k === 'w' ? 1 : 0))), Math.abs((t[k] ?? 0) + (q[k] ?? (k === 'w' ? 1 : 0)))))) < 3e-6 ? c : toEuler(b.node.orientation); };   /* typed values are kept only while the stored turn is exactly the typed one (as rounded) */
-  const turnField = (lab, k) => scrub(lab, () => turnNow()[k], v => { const d = [...turnNow()]; d[k] = wrap(v); b.node.orientation = toQuat(...d); (ED.turns ||= new Map()).set(b.node, d); }, 1, -100000, 100000);
+  const turnField = (lab, k) => scrub(lab, () => turnNow()[k], v => { const d = [...turnNow()]; d[k] = wrap(v); b.node.orientation = toQuat(...d); (ED.turns ||= new Map()).set(b.node, d); }, 1, -100000, 100000, 0.01);
   const xyz = (label, fields) => el('div', { class: 'wsgroup' }, el('b', { text: label }), el('div', { class: 'xyzrow' }, ...fields));   /* one row of axis fields, as in other editors */
   const own = /^Box_/.test(b.node.name), pos = own ? [b.node, 'position'] : [sh, 'offset'];
+  // Position: where the box's middle is (pivot + offset), the same number for game parts and added ones; a game part moves by its offset (so what hangs from it stays put), an added one by its position
+  const posField = (lab, ax) => scrub(lab, () => (b.node.position?.[ax] ?? 0) + (sh.offset?.[ax] ?? 0), v => { const [o, k] = pos, other = own ? (sh.offset?.[ax] ?? 0) : (b.node.position?.[ax] ?? 0); o[k] = { x: 0, y: 0, z: 0, ...o[k], [ax]: v - other }; }, 0.5, -64, 64);
   const act = (t, fn, tip) => el('button', { class: 'chip', text: t, title: tip ? `${t} (${tip})` : '', onclick: fn });
   const nudgeZ = d => () => { let ax = 'z', sg = 1; const m = st.findMesh(o => o.userData.nodeName === b.node.name), memo = (ED.fwd ||= new Map()).get(b.node.name);   /* forward = away from the body's middle, in the part's own axes */
     if (m && m.parent) { let root = m; while (root.parent && root.parent.type !== 'Scene') root = root.parent; const v = m.position.clone(), rp = m.position.clone(); m.getWorldPosition(v); root.getWorldPosition(rp);
@@ -1407,9 +1412,9 @@ function shapeSide() {
     el('div', { class: 'options' }, act('Reset item', resetShape)),
     el('div', { class: 'wshead', text: boxLabel(b.node) }),
     el('div', { class: 'options' }, act('Duplicate', () => addBox('dup'), 'Ctrl+D'), act('Mirror', () => addBox('mirror'), 'Shift+M'), el('button', { class: 'chip' + (ED.sym ? ' on' : ''), text: 'Symmetry', 'aria-pressed': String(!!ED.sym), onclick: () => { ED.sym = !ED.sym; render(); } })),
-    xyz('Position', [axisField('X', ...pos, 'x', -64, 64, 0.5), axisField('Y', ...pos, 'y', -64, 64, 0.5), axisField('Z', ...pos, 'z', -64, 64, 0.5)]),
+    xyz('Position', ['x', 'y', 'z'].map(ax => posField(ax.toUpperCase(), ax))),
     el('div', { class: 'options' }, act('Bring forward', nudgeZ(0.5)), act('Send backward', nudgeZ(-0.5))),
-    xyz('Size', [axisField('W', sh.settings, 'size', 'x', 1, 64), axisField('H', sh.settings, 'size', 'y', 1, 64), sh.type === 'quad' ? null : axisField('D', sh.settings, 'size', 'z', 0, 64)]),
+    xyz('Size', [axisField('W', sh.settings, 'size', 'x', 1, 64), axisField('H', sh.settings, 'size', 'y', 1, 64), sh.type === 'quad' ? null : axisField('D', sh.settings, 'size', 'z', 1, 64)]),
     xyz('Rotation', [turnField('X', 0), turnField('Y', 1), turnField('Z', 2)]),
     el('div', { class: 'options' }, (() => { const cb = curBox(), x = act('Separate texture', () => { const b = curBox(); if (b && !sharersOf(b.node.name).length) return; ownArea(); }); x.disabled = !cb || !sharersOf(cb.node.name).length; return x; })()   /* only when the part shares paint */)];
 }
@@ -1699,7 +1704,7 @@ async function combinePick() { if (ED?.model && boxesOf(ED.model).length >= asse
 function onCentre(n) { const m = st.findMesh(o => o.userData.nodeName === n.name); if (!m) return Math.abs((n.position?.x ?? 0) + (n.shape.offset?.x ?? 0)) < 0.25;
   m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox, lo = bb.min.clone(), hi = bb.max.clone(); m.localToWorld(lo); m.localToWorld(hi);
   let root = m; while (root.parent && root.parent.type !== 'Scene') root = root.parent; const r = m.position.clone(); root.getWorldPosition(r);
-  const cx = (lo.x + hi.x) / 2 - r.x, half = Math.abs(hi.x - lo.x) / 2; return Math.abs(cx) < Math.max(0.25, half); }
+  const cx = (lo.x + hi.x) / 2 - r.x; return Math.abs(cx) < 0.25; }
 function addBox(kind = 'dup', at = null) { say('');   // 'dup' a copy, 'mirror' a copy on the other side, 'add' a new 4-block box; each gets its own room on the texture
   const boxes = boxesOf(ED.model), b = boxes[ED.box || 0]; if (!b) return; if (boxes.length >= assets.MAX_BOXES) return say(`Limit is ${assets.MAX_BOXES} parts`, true);
   const n = b.node, sh = n.shape;
@@ -1732,6 +1737,9 @@ function splitShared() { if (ED.splitDone || ED.asset.split) return; ED.splitDon
 function ownArea(quiet) {   // move the selected box's paint to free room of its own, so it no longer shares texels with other boxes
   const b = curBox(); if (!b) return false; const sh = b.node.shape, old = structuredClone(sh.textureLayout || {}), lay = allocLayout(sh) || (growAny() ? allocLayout(sh) : null) || (growAny() ? allocLayout(sh) : null);
   if (!lay) { if (!quiet) say('Texture full', true); return false; }
+  { const fs = Object.keys(old), same = (p, q) => p && q && (p.offset?.x ?? 0) === (q.offset?.x ?? 0) && (p.offset?.y ?? 0) === (q.offset?.y ?? 0) && ((p.angle | 0) % 360) === ((q.angle | 0) % 360);   /* faces that shared one area in the game's layout share one area again (both gloves end up alike) */
+    for (let i = 0; i < fs.length; i++) for (let j = 0; j < i; j++) { const A = old[fs[j]], B = old[fs[i]], An = lay[fs[j]], pair = { front: 'back', back: 'front', left: 'right', right: 'left', top: 'bottom', bottom: 'top' }; if (pair[fs[i]] !== fs[j] || !An || !lay[fs[i]] || !same(A, B)) continue;   /* only opposite faces, which are the same size */
+      lay[fs[i]] = { ...An, offset: { ...An.offset }, mirror: { x: !!An.mirror?.x !== (!!A.mirror?.x !== !!B.mirror?.x), y: !!An.mirror?.y !== (!!A.mirror?.y !== !!B.mirror?.y) } }; break; } }
   shapeEdit(() => { sh.textureLayout = lay; }); ED.painter.write(paintFaces(sh, lay, old, false, null)); ED.hist.push({ k: 'g', parts: ED.hist.splice(-2) }); render();
   return true;
 }

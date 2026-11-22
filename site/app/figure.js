@@ -340,7 +340,7 @@ export function stage(canvas, Controls) {
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   // the texel of `image` under a screen point, for painting straight on the model
   function texel(image, ok) { for (const h of ray.intersectObject(figure, true)) { if (!h.uv || !h.object.visible || h.object.material?.map?.image !== image || (ok && !ok(h.object))) continue;
-      return { x: Math.min(image.width - 1, Math.max(0, Math.floor(h.uv.x * image.width))), y: Math.min(image.height - 1, Math.max(0, Math.floor((1 - h.uv.y) * image.height))), at: h.point.clone() }; }
+      return { x: Math.min(image.width - 1, Math.max(0, Math.floor(h.uv.x * image.width))), y: Math.min(image.height - 1, Math.max(0, Math.floor((1 - h.uv.y) * image.height))), at: h.point.clone(), obj: h.object }; }
     return null; }
   // the brush outline on the model: a square of brush-size texels, snapped to the texel grid of the face under the pointer
   const curs = [0xffffff, 0xf4c452].map(col => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3));
@@ -384,6 +384,7 @@ export function stage(canvas, Controls) {
 
     ray.ray.origin.copy(P).addScaledVector(N, 0.05); ray.ray.direction.copy(N).negate(); let hit = texel(image, ok); if (hit && hit.at.distanceTo(P) > 0.2) hit = null;
     if (!hit) { ray.ray.origin.copy(P).addScaledVector(N, -0.05); ray.ray.direction.copy(N); hit = texel(image, ok); if (hit && hit.at.distanceTo(P) > 0.2) hit = null; }   /* a mirrored mesh winds the other way; nothing right there: no twin */
+    if (hit && hit.obj !== src && Math.abs(hit.x - tx) + Math.abs(hit.y - ty) === 1) hit = { ...hit, x: tx, y: ty };   /* a pair sharing one texture area (bangles), a pixel apart on the model: the same texel, not the one beside it */
     ray.near = near; ray.far = far; return hit; }
   // while painting, the left button paints and the right button turns the view
   let painting = false, plantClear = 0;   // plants keep further away while an item is edited, or when a move sits or lies on the ground

@@ -492,3 +492,8 @@ table.keys th { text-align: left; font: 700 11px Lexend, sans-serif; letter-spac
 .animopen:hover { border-color: var(--gold); }
 .animopen { min-width: 0; gap: 8px; } .animopen b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .animopen small { flex: none; }
 .tlwrap { max-height: 300px; overflow-y: auto; margin: 4px 0 10px; } .tlwrap .timeline { margin: 0; }
+/* stage buttons: Undo/Redo readable on bright backgrounds; Save as and Save stay on one row on narrower windows */
+.bar .btn.icon { background: #0b1626d8; border-color: #2c4568; color: #e8eef6; }
+.bar .btn.icon:disabled { color: #8b9bb0; }
+@media (max-width: 1440px) { .bar { gap: 6px; } .bar .btn { padding-left: 10px; padding-right: 10px; font-size: 12px; } .bar .sep { display: none; } }
+.anyopt.paid { opacity: .5; cursor: default; display: flex; justify-content: space-between; gap: 8px; } .anyopt.paid small { color: #c9a24a; }
