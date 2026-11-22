@@ -46,7 +46,8 @@ async function readJsonFile(file, max = 2_000_000) { if (file.size > max) throw 
 // ---------------------------------------------------------------- connect screen
 const PATHS = { win: '%APPDATA%\\Hytale\\install\\release\\package\\game\\latest', mac: '~/Library/Application Support/Hytale/install/release/package/game/latest', linux: '~/.local/share/Hytale/install/release/package/game/latest' };
 function showConnect() {
-  $('app').hidden = true; $('connect').hidden = false; setConn(null);
+  const had = R && META; $('app').hidden = true; $('connect').hidden = false; if (!had) setConn(null);
+  $('connback')?.remove(); if (had) $('connect').prepend(el('button', { id: 'connback', class: 'btn ghost', text: 'Back', onclick: () => { $('connback')?.remove(); $('connect').hidden = true; $('app').hidden = false; } }));   /* already connected: the files are still here, so Back returns to the app */
   const os = /Mac/i.test(navigator.platform) ? 'mac' : /Linux/i.test(navigator.platform) ? 'linux' : 'win';
   const pick = o => { $('path').textContent = PATHS[o]; for (const b of $('os').children) b.classList.toggle('on', b.dataset.os === o); };
   for (const b of $('os').children) b.onclick = () => pick(b.dataset.os); pick(os);
@@ -162,7 +163,7 @@ async function saveSnap(was, c) { if (GONE.has(c.id) || (!c.id && GONE.has(was.i
       const used = new Set(WARD.custom.map(r => r.name)); let n = c.name || 'My skin', k = 2; while (used.has(n)) n = cleanName(clip(c.name || 'My skin', 37) + ' ' + k++);
       const r = await store.saveCustom(n, c.skin); if (cur === was) Object.assign(cur, { id: r.id, kind: 'custom', slot: null, name: r.name, auto: false }); keepDraft(); WARD = await store.list(); if (cur === was && JSON.stringify(keptSkin()) === JSON.stringify(c.skin)) dirty = false; plate(); say("Custom items can't go in game slots: saved to My skins"); return; }
     if (!c.id) { if (WARD.custom.length >= store.CUSTOM_MAX) { flush.stuck = true; if (!flush.full) { flush.full = true; say(`My skins is full (${store.CUSTOM_MAX})`, true); } return; }
-      const used = new Set(WARD.custom.map(r => r.name)); let k = WARD.custom.length + 1, n; while (used.has(n = 'My skin ' + k)) k++;
+      const used = new Set([...WARD.custom, ...WARD.game.filter(Boolean)].map(r => r.name)); let k = 1, n; while (used.has(n = 'My skin ' + k)) k++;   /* the first free number, never a name an in-game slot already shows */
       const r = await store.saveCustom(n, c.skin); if (cur === was && !cur.id) Object.assign(cur, { id: r.id, kind: r.kind, slot: null, name: r.name, auto: true }); c.id = r.id; keepDraft();
       }
     else await persist(c);
@@ -486,7 +487,7 @@ function guard(fn) { return async (...a) => { try { await fn(...a); } catch (e) 
 const slotButtons = () => WARD.game.map((r, i) => ({ label: `Slot ${i + 1}${r ? ': ' + r.name : ' (empty)'}`, value: String(i) }));
 const toGame = guard(async rec => { rec = liveRec(rec);
   if (hasCustom(rec.skin)) throw new Error("Custom items can't go in game slots");
-  const v = await ask('Send to game', WARD.game.length ? el('p', { text: 'The skin in that slot moves to My skins.' }) : [], [...slotButtons(), { label: 'Cancel', value: '' }]);
+  const v = await ask('Send to game', WARD.game.some(Boolean) ? el('p', { text: 'The skin in that slot moves to My skins.' }) : [], [...slotButtons(), { label: 'Cancel', value: '' }]);
   if (v === '') return; await store.swap(rec.id, +v); await movePub(rec.id, 'game-' + v); if (cur.id === rec.id) { cur.id = 'game-' + v; cur.kind = 'game'; cur.slot = +v; cur.random = false; keepDraft(); } else if (cur.id === 'game-' + v) { const mv = (await store.list()).custom.find(r => r.id === rec.id); Object.assign(cur, { id: rec.id, kind: 'custom', slot: null, name: mv ? mv.name : cur.name, random: false }); keepDraft(); }   /* the skin that was in the slot moved to My skins under the sent skin's id: the open look follows it */ await refreshWard(); say('Moved to in-game slot ' + (+v + 1));
 });
 const moveOut = guard(async rec => { rec = liveRec(rec); const used = new Set(WARD.custom.map(r => r.name)); let nm = rec.name, k = 2; while (used.has(nm)) nm = cleanName(clip(rec.name, 37) + ' ' + k++); const n = await store.saveCustom(nm, rec.skin); await movePub(rec.id, n && n.id); await store.remove(rec.id); if (n && cur.id === rec.id) { Object.assign(cur, { id: n.id, kind: 'custom', slot: null, name: n.name }); keepDraft(); } await refreshWard(); plate(); say('Moved to My skins'); });   /* the open skin follows its record */
@@ -499,7 +500,7 @@ const renameSkin = guard(async rec => { rec = liveRec(rec);
   if (cur.id === rec.id) { cur.name = r.name; cur.auto = false; cur.random = false; keepDraft(); }   /* a renamed skin is kept: Randomize starts a new one */
   await refreshWard(); if (PUBMAP[r.id] && canPublish() && !hasCustom(r.skin)) publish(r, true); });
 const duplicate = guard(async rec => { rec = liveRec(rec); const used = new Set(WARD.custom.map(r => r.name)), stem = String(rec.name).replace(/ copy( \d+)?$/, ''); let n = ''; for (let k = 1; k < 1000; k++) { const suf = ' copy' + (k > 1 ? ' ' + k : ''); n = cleanName(clip(stem, 40 - suf.length) + suf);   /* never cuts an emoji, even multi-part ones */ if (!used.has(n)) break; } await store.saveCustom(n, rec.skin); await refreshWard(); });   /* the number always fits in 40 characters */
-const removeSkin = guard(async rec => { if (PUBMAP[rec.id] && canPublish()) await unpublish(rec, true); const wasOpen = cur.id === rec.id; GONE.add(rec.id); if (wasOpen) { clearTimeout(autosave.t); dirty = false; } await store.remove(rec.id);   /* a pending autosave can't bring it back */ await refreshWard(); if (wasOpen) { Object.assign(cur, { id: null, kind: null, slot: null, name: '', auto: false }); keepDraft(); plate(); }   /* the look on screen is no longer that skin */   /* deleted at once, with Undo, instead of asking first */
+const removeSkin = guard(async rec => { if (PUBMAP[rec.id] && canPublish()) await unpublish(rec, true); const wasOpen = cur.id === rec.id; GONE.add(rec.id); if (flush.stuck && !wasOpen) { flush.stuck = false; setTimeout(() => { if (dirty) autosave(); }, 0); }   /* a freed place lets a stuck look save */ if (wasOpen) { clearTimeout(autosave.t); dirty = false; } await store.remove(rec.id);   /* a pending autosave can't bring it back */ await refreshWard(); if (wasOpen) { Object.assign(cur, { id: null, kind: null, slot: null, name: '', auto: false }); keepDraft(); plate(); }   /* the look on screen is no longer that skin */   /* deleted at once, with Undo, instead of asking first */
   sayUndo(`Deleted "${rec.name}"`, guard(async () => { if (rec.kind !== 'game' && WARD.custom.length >= store.CUSTOM_MAX) throw new Error(`My skins is full (${store.CUSTOM_MAX})`); GONE.delete(rec.id); const back = await store.saveCustom(await store.uniqueName(rec.name, rec.id), rec.skin, rec.id); await refreshWard();
     if (!cur.id && JSON.stringify(cur.skin) === JSON.stringify(R.fit(rec.skin))) { Object.assign(cur, { id: rec.id, kind: 'custom', slot: null, name: back.name }); keepDraft(); plate(); } }));   /* with the name it came back under */ });   /* the look on screen is that skin again */
 function sayUndo(text, undo) { const s = $('status'); say(text); s.append(' ', el('button', { class: 'linkbtn', text: 'Undo', onclick: () => { say(''); undo(); } })); clearTimeout(say.t); say.t = setTimeout(() => s.textContent = '', 8000); }
@@ -601,7 +602,7 @@ function panelAnimations() {
   const cats = animCats(); if (!cats.some(c => c[0] === animGroup)) animGroup = cats[0][0];
   const gs = cats.find(c => c[0] === animGroup)[1], A = st.anim, count = list => list.reduce((t, g) => t + animsOf(g).length, 0);
   const item = (g, n) => { const k = g + '/' + n, pinned = EMOTES && EMOTES.includes(k);
-    return el('button', { class: A.anim && playing.group === g && playing.name === n ? 'on' : '', title: nice(n), 'aria-keyshortcuts': 'F', onclick: () => playAnim(g, n), onkeydown: ev => { if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && (ev.key === 'f' || ev.key === 'F')) { ev.preventDefault(); toggleEmote(g, n); render(); setTimeout(() => [...document.querySelectorAll('.animlist button')].find(b => b.title === nice(n))?.focus(), 80); } } }, animThumb(g, n), el('span', { text: nice(n) }),
+    return el('button', { class: A.anim && playing.group === g && playing.name === n ? 'on' : '', title: nice(n), 'aria-keyshortcuts': 'F', 'aria-pressed': A.anim && playing.group === g && playing.name === n ? String(!!st.anim.playing) : null, onclick: () => { if (playing.group === g && playing.name === n) { st.anim.playing = !st.anim.playing; render(); } else playAnim(g, n); },   /* the playing card pauses and resumes */ onkeydown: ev => { if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && (ev.key === 'f' || ev.key === 'F')) { ev.preventDefault(); toggleEmote(g, n); render(); setTimeout(() => [...document.querySelectorAll('.animlist button')].find(b => b.querySelector('span')?.textContent === nice(n))?.focus(), 80); } } }, animThumb(g, n), el('span', { text: nice(n) }),
       el('i', { class: 'star' + (pinned ? ' on' : ''), 'aria-label': pinned ? 'Unfavourite' : 'Favourite', title: pinned ? 'Unfavourite' : 'Favourite', text: pinned ? '★' : '☆', onclick: e => { e.stopPropagation(); toggleEmote(g, n); render(); } })); };
   return [head('Animations'), el('div', { class: 'pbody' },
     el('div', { class: 'cattiles' }, cats.map(([k, list]) => el('button', { class: 'cattile' + (k === animGroup ? ' on' : ''), onclick: () => { const changed = animGroup !== k; animGroup = k; render(); if (changed) { const pb = document.querySelector('.panel .pbody'); if (pb) pb.scrollTop = 0; } } },
@@ -664,7 +665,8 @@ function panelHelp() {
   const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.filter(p => p !== '').map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
   const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const data = await readJsonFile(f, 40_000_000), r = await store.importAll(data);
       { let more = 0; if (Array.isArray(data.favourites)) for (const k of data.favourites.slice(0, 2000)) if (typeof k === 'string' && k.length <= 200 && !LOCK.favs.has(k)) { LOCK.favs.add(k); more++; } if (more) saveLock();   /* favourites and pinned animations come back too */
-        if (Array.isArray(data.emotes) && EMOTES) { for (const k of data.emotes.slice(0, 6)) if (typeof k === 'string' && k.length <= 120 && /^[A-Za-z0-9_ -]+\/[A-Za-z0-9_ -]+$/.test(k) && !EMOTES.includes(k)) { EMOTES.push(k); if (EMOTES.length > 6) EMOTES.shift(); } db.put('meta', 'emotes', EMOTES).catch(() => {}); } } await reloadAssets(); await refreshWard(); if (!r.added && !r.items && !r.skipped && !r.itemsSkipped) return say('Everything in that backup is already here'); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}` + (r.items ? `, ${r.items} item${r.items === 1 ? '' : 's'}` : '') + (r.skipped || r.itemsSkipped ? `; ${r.skipped + r.itemsSkipped} skipped (full)` : ''), !!(r.skipped || r.itemsSkipped)); }) });
+        if (Array.isArray(data.emotes) && EMOTES) { for (const k of data.emotes.slice(0, 6)) { if (EMOTES.length >= 6) break; const [g, n] = typeof k === 'string' ? k.split('/') : []; if (g && n && (CAT.anims[g] || []).includes(n) && !EMOTES.includes(k)) { EMOTES.push(k); more++; } } db.put('meta', 'emotes', EMOTES).catch(() => {}); }   /* only real animations, only into free places: the player's own pins stay */
+        r.extras = more; } await reloadAssets(); await refreshWard(); if (!r.added && !r.items && !r.skipped && !r.itemsSkipped && !r.extras) return say('Everything in that backup is already here'); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}` + (r.items ? `, ${r.items} item${r.items === 1 ? '' : 's'}` : '') + (r.skipped || r.itemsSkipped ? `; ${r.skipped + r.itemsSkipped} skipped (full)` : ''), !!(r.skipped || r.itemsSkipped)); }) });
   const steps = [['Wardrobe', 'pick a slot, click items to try them on.'], ['Locker', 'your saved skins.'], ['Animations', "the game's moves on your skin."],
     ['Creator', 'make your own items from any item.'], ['Players', 'look someone up by username.']];
   return [head('Help'), el('div', { class: 'pbody prose' },
@@ -681,7 +683,7 @@ function panelHelp() {
 
 // ---------------------------------------------------------------- asset creator
 let ASSETS = [], ED = null, edN = 0;
-const itemName = e => e && e.custom ? e.Name : (e && CAT.names && CAT.names[e.Name]) || nice(e ? e.Id : '');
+const itemName = e => e && e.custom ? e.Name : String((e && CAT.names && CAT.names[e.Name]) || nice(e ? e.Id : '')).replace(/^\[[A-Z]+\]\s*/, '');   /* the game's own work tags ([TMP]) are not part of the name */
 // names the game already uses (its items and moves): custom pieces may not take them, and items sharing one show once
 function gameNamed(n) { const k = String(n).trim().toLowerCase(); if (!gameNamed.set || gameNamed.cat !== CAT) {
     gameNamed.cat = CAT; gameNamed.set = new Set([...Object.values(CAT.items).flat().filter(e => !e.custom).map(e => itemName(e).toLowerCase()), ...Object.values(CAT.anims || {}).flat().map(a => nice(a).toLowerCase())]); }
@@ -1146,7 +1148,7 @@ function undoEntry(e, redo) {
 function wsUndo(redo) {
   if (!ED) return; if (ED.adjOpen) { if (!redo && ED.adjCancel) ED.adjCancel(); return; } say('');   /* inside Adjust colours, undo cancels the adjustment */
   if (ED.float && !redo) { ED.float = null; render(); return; }   /* the first undo only drops a paste that isn't placed yet */
-  ED.float = null; const from = redo ? ED.fut : ED.hist, to = redo ? ED.hist : ED.fut, e = from.pop(); if (!e) return;
+  if (ED.float && redo) placeFloat(); ED.float = null; const from = redo ? ED.fut : ED.hist, to = redo ? ED.hist : ED.fut, e = from.pop(); if (!e) return;
   ED.reshaped = false; to.push(undoEntry(e, redo)); if (ED.reshaped) shapeChanged();
   ED.palette = ED.painter.palette(); render();
 }
@@ -1244,7 +1246,7 @@ function boxLabel1(node) {
 function renameBox(btn, node) {
   const inp = el('input', { type: 'text', value: boxLabel(node), maxLength: 80, class: 'rename' });
   let ended = false; const done = keep => { if (ended) return; ended = true; inp.dataset.done = '1'; if (keep && clip(cleanName(inp.value), 30).trim() === boxLabel(node)) keep = false;
-    if (keep) { const want = clip(cleanName(inp.value), 30).trim(), taken = new Set(boxesOf(ED.model).filter(b => b.node !== node).map(b => boxLabel(b.node))); if (want && taken.has(want)) { let k = 2; while (taken.has(clip(want, 27) + ' ' + k)) k++; inp.value = clip(want, 27) + ' ' + k; } }   /* a name another part has gets a number; the other part keeps its name */   /* unchanged: no step */
+    if (keep) { const want = clip(cleanName(inp.value), 30).trim(), taken = new Set(boxesOf(ED.model).filter(b => b.node !== node).map(b => boxLabel(b.node))); if (want && taken.has(want)) { const cut = k => clip(want, 30 - String(k).length - 1).trimEnd() + ' ' + k; let k = 2; while (taken.has(cut(k))) k++; inp.value = cut(k); } }   /* a name another part has gets a number; the other part keeps its name */   /* unchanged: no step */
     if (keep) { const v = clip(cleanName(inp.value), 30).trim(), was = JSON.stringify(ED.asset.labels || null); ED.asset = { ...ED.asset, labels: { ...(ED.asset.labels || {}), [node.name]: v || undefined } }; if (!v) delete ED.asset.labels[node.name]; if (JSON.stringify(ED.asset.labels || null) !== was) { ED.hist.push({ k: 'l', other: was }); ED.fut = []; capHist(); } queueAssetSave(); } render(); document.querySelector('.partrow.on > button')?.focus(); };   /* focus goes back to the part */   /* a rename is an undo step */
   inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); }; inp.onblur = () => done(true);
   btn.replaceWith(inp); inp.focus(); inp.select();
@@ -1287,7 +1289,7 @@ function viewHint() { const h = $('viewhint'); if (h) { h.hidden = true; h.textC
 // ---- colours: a fixed set of basics, the item's own colours and the ones used lately
 const BASIC = ['#ffffff', '#c9c9c9', '#808080', '#3d3d3d', '#000000', '#e23b3b', '#ef8a35', '#f4d24a', '#7cc444', '#2e9a58', '#3db7c9', '#3b6fe0', '#7a4fd6', '#d65ab4', '#8a5a32', '#f2c9a1'];
 let RECENT = (() => { try { const r = JSON.parse(store_.get('se_recent') || '[]'); return Array.isArray(r) ? r.filter(h => /^#[0-9a-f]{6}$/i.test(h)).slice(0, 8) : []; } catch { return []; } })();
-function useColour(h) { if (!ED) return; const P = ED.painter; P.color = h; if (!ED.altFrom && P.tool === 'pick' || P.tool === 'erase' || P.tool === 'select') P.tool = 'brush';
+function useColour(h) { if (!ED) return; const P = ED.painter; P.color = h; if (ED.float) placeFloat();   /* a floating paste is placed before the tool changes, never dropped */ if (!ED.altFrom && P.tool === 'pick' || P.tool === 'erase' || P.tool === 'select') P.tool = 'brush';
   RECENT = [h, ...RECENT.filter(x => x !== h)].slice(0, 8); store_.set('se_recent', JSON.stringify(RECENT)); render(); }
 const swatchRow = list => el('div', { class: 'swatches' }, list.map(h => { const b = el('button', { title: h, class: h === ED.painter.color ? 'on' : '', onclick: () => useColour(h) }); b.style.background = h; return b; }));
 // ---- the finish: after Done, say what happens next
@@ -1338,7 +1340,7 @@ function bakeOffset(n) { const o = n.shape?.offset; if (!o || !(o.x || o.y || o.
   n.position = { x: r(p.x + ix * q.w - iw * q.x - iy * q.z + iz * q.y), y: r(p.y + iy * q.w - iw * q.y - iz * q.x + ix * q.z), z: r(p.z + iz * q.w - iw * q.z - ix * q.y + iy * q.x) }; n.shape.offset = { x: 0, y: 0, z: 0 }; return true; }
 function finishShape(before) {
   for (const b of boxesOf(ED.model)) if (/^Box_/.test(b.node.name)) bakeOffset(b.node);
-  for (const b of boxesOf(ED.model)) { const p = b.node.position; if (p) for (const k of ['x', 'y', 'z']) if (typeof p[k] === 'number') p[k] = Math.max(-64, Math.min(64, p[k])); }   /* every move path (gizmo, drag, Bring forward) keeps the same ±64 limit as the fields */
+  for (const b of boxesOf(ED.model)) { const p = b.node.position; for (const o of [p, b.node.shape?.offset]) if (o) for (const k of ['x', 'y', 'z']) if (typeof o[k] === 'number') o[k] = Math.max(-64, Math.min(64, o[k])); }   /* every move path (gizmo, drag, Bring forward) keeps the same ±64 limit as the fields */
   const paints = tidyResized(before); recordShape(before);
   if (paints.length) { ED.painter.write((d, W, H) => paints.forEach(p => p(d, W, H))); ED.hist.push({ k: 'g', parts: ED.hist.splice(-2) }); }
   shapeChanged();
@@ -1354,11 +1356,11 @@ function shapeSide() {
   const xyz = (label, fields) => el('div', { class: 'wsgroup' }, el('b', { text: label }), el('div', { class: 'xyzrow' }, ...fields));   /* one row of axis fields, as in other editors */
   const own = /^Box_/.test(b.node.name), pos = own ? [b.node, 'position'] : [sh, 'offset'];
   const act = (t, fn, tip) => el('button', { class: 'chip', text: t, title: tip ? `${t} (${tip})` : '', onclick: fn });
-  const nudgeZ = d => () => { let ax = 'z', sg = 1; const m = st.findMesh(o => o.userData.nodeName === b.node.name), memo = (ED.fwd ||= new Map()).get(b.node);   /* forward = away from the body's middle, in the part's own axes */
+  const nudgeZ = d => () => { let ax = 'z', sg = 1; const m = st.findMesh(o => o.userData.nodeName === b.node.name), memo = (ED.fwd ||= new Map()).get(b.node.name);   /* forward = away from the body's middle, in the part's own axes */
     if (m && m.parent) { let root = m; while (root.parent && root.parent.type !== 'Scene') root = root.parent; const v = m.position.clone(), rp = m.position.clone(); m.getWorldPosition(v); root.getWorldPosition(rp);
       const cp = st.camera.position.clone(), out = cp.sub(v); if (Math.hypot(out.x, out.z) > Math.abs(out.y) * 0.4) out.y = 0; if (out.length() < 1e-3) out.set(0, 0, 1);   /* from above, forward is up */ void rp;   /* forward = toward the viewer, like layers in a 2D editor */ const fr = pos[0] === b.node && m.parent.parent ? m.parent.parent : m.parent; out.normalize().applyQuaternion(fr.getWorldQuaternion(fr.quaternion.clone()).invert());
       ax = ['x', 'y', 'z'].reduce((a, c) => Math.abs(out[c]) > Math.abs(out[a]) ? c : a, 'x'); sg = Math.sign(out[ax]) || 1; }
-    if (memo) ({ ax, sg } = memo); else ED.fwd.set(b.node, { ax, sg });   /* the direction is fixed once per part: moving near the camera can't flip it, so Send backward undoes Bring forward */
+    if (memo) ({ ax, sg } = memo); else ED.fwd.set(b.node.name, { ax, sg });   /* the direction is fixed once per part: moving near the camera can't flip it, so Send backward undoes Bring forward */
     shapeEdit(() => { const [o_, k_] = pos, v0 = o_[k_]?.[ax] ?? 0; o_[k_] = { x: 0, y: 0, z: 0, ...o_[k_], [ax]: Math.max(-64, Math.min(64, d * sg > 0 ? Math.floor(v0 * 2 + 1e-6) / 2 + 0.5 : Math.ceil(v0 * 2 - 1e-6) / 2 - 0.5)) }; }); };   /* off-grid parts snap to the next half step, then move evenly */
   return [el('div', { class: 'wshead row' }, el('span', { class: 'grow', text: 'Parts' }),
       el('button', { class: 'iconbtn', text: '+', title: 'Add part (A)', 'aria-label': 'Add part', onclick: startPlacing }), el('button', { class: 'iconbtn', text: '⧉', title: 'Add item…', 'aria-label': 'Add item', onclick: guard(combinePick) })),
@@ -1380,10 +1382,11 @@ function delBox(k = ED.box || 0) { const boxes = boxesOf(ED.model), i = k, b = b
   const inside = boxesOf({ nodes: [b.node] }).length; if (boxes.length - inside < 1) return say(inside > 1 ? 'Every other part is attached to it' : "Can't delete the last part", true);
   const tw = ED.sym ? twinOf(b) : null, twB = tw && tw !== b.node && boxes.find(x => x.node === tw && !boxesOf({ nodes: [b.node] }).some(y => y.node === tw)), twIn = twB ? boxesOf({ nodes: [tw] }).length : 0, both = twB && boxes.length - inside - twIn >= 1;   /* Symmetry: the twin goes too */
   { const before = JSON.stringify(ED.model); const cut = x => { const list = x.parent ? x.parent.children : ED.model.nodes; list.splice(list.indexOf(x.node), 1); }; cut(b); if (both) cut(twB); ED.box = Math.max(0, Math.min(i, boxesOf(ED.model).length - 1)); finishShape(before); }
+  const gone = inside + (both ? twIn : 0);
   const keep = fig.usedRects(ED.model);   /* the paint no part uses any more goes too, so no old blocks stay on the texture */
   ED.painter.write((d, W, H) => { const used = new Uint8Array(W * H); for (const r of keep) for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(H, Math.ceil(r.y + r.h)); y++) used.fill(1, y * W + Math.max(0, Math.floor(r.x)), y * W + Math.min(W, Math.ceil(r.x + r.w)));
     for (let k = 0; k < W * H; k++) if (!used[k]) d[k * 4 + 3] = 0; }); ED.hist.push({ k: 'g', parts: ED.hist.splice(-2) }); render();
-  if (inside > 1) { const top = ED.hist[ED.hist.length - 1]; sayUndo(`Deleted ${inside} parts`, () => { if (ED && ED.hist[ED.hist.length - 1] === top) wsUndo(false); }); } else say('');   /* a part with pieces under it says how many went */
+  if (gone > 1) { const top = ED.hist[ED.hist.length - 1]; sayUndo(`Deleted ${gone} parts`, () => { if (ED && ED.hist[ED.hist.length - 1] === top) wsUndo(false); }); } else say('');   /* a part with pieces under it says how many went */
 }
 const resetShape = guard(async () => {   // the game's own shape and paint come back (one undo step)
   say('');
@@ -1726,10 +1729,11 @@ function panelCreator() {
 for (const b of $('tabs').children) b.onclick = () => setTab(b.dataset.tab);
 document.addEventListener('click', e => { const a = e.target.closest('a[data-tab]'); if (a) { e.preventDefault(); if (R) setTab(a.dataset.tab); else ask('How this works', el('p', { text: 'The editor reads the character files from your own Assets.zip and keeps them in this browser only. Nothing is uploaded, and this site hosts no Hytale files.' }), [{ label: 'OK', value: '', primary: true }]); } });
 $('undo').onclick = () => step(-1); $('redo').onclick = () => step(1);
-$('random').onclick = () => { if (cur.id && !cur.random) {   // another roll right after one replaces that look in place (no pile of saved skins)
+const unsavedOk = go => { if (!(flush.stuck && dirty)) return go(); ask('Not saved', el('p', { text: `My skins is full (${store.CUSTOM_MAX}), so this look isn't saved.` }), [{ label: 'Cancel', value: '' }, { label: 'Discard', value: 'yes', danger: true }]).then(v => { if (v === 'yes') { flush.stuck = false; dirty = false; go(); } }); };   // New and Randomize ask first too
+$('random').onclick = () => unsavedOk(randomNow); function randomNow() { if (cur.id && !cur.random) {   // another roll right after one replaces that look in place (no pile of saved skins)
    flush(); cur = { id: null, kind: null, slot: null, name: '', skin: cur.skin }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; }   // never overwrites a saved look
   setSkin(R.random(e => !e.custom && !isTmp(e)), true); };
-$('new').onclick = () => { flush(); cur = { id: null, kind: null, slot: null, name: '', skin: R.blank() }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; keepDraft(); rebuild(); render(); };
+$('new').onclick = () => unsavedOk(() => { flush(); cur = { id: null, kind: null, slot: null, name: '', skin: R.blank() }; hist = [JSON.stringify(cur.skin)]; hpos = 0; dirty = false; keepDraft(); rebuild(); render(); });
 $('front').onclick = () => st.view(true);
 $('ingame').onclick = async () => { SHOWGAME = !SHOWGAME; await db.put('meta', 'showInGame', SHOWGAME).catch(() => {}); drawGameSwitch(); pushWearing(); say(SHOWGAME ? 'Showing in game' : 'Your own skin is back in game'); };
 $('save').onclick = save; $('saveas').onclick = saveAs;

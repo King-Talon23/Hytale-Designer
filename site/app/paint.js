@@ -36,7 +36,7 @@ export function createPainter(canvas, onChange, onPick) {
   const colourAt = (d, i) => [d[i], d[i + 1], d[i + 2], d[i + 3]], is = (d, i, c) => d[i] === c[0] && d[i + 1] === c[1] && d[i + 2] === c[2] && d[i + 3] === c[3];
   function flood(x, y) {   // fills the connected area of one exact colour
     const d = img.data, at = (X, Y) => (Y * W + X) * 4, from = colourAt(d, at(x, y)), [r, g, b] = rgb(P.color); if (is(d, at(x, y), [r, g, b, 255])) return;
-    const tol = P.tolerance * 3, near = i => from[3] ? d[i + 3] && Math.abs(d[i] - from[0]) + Math.abs(d[i + 1] - from[1]) + Math.abs(d[i + 2] - from[2]) <= tol : !d[i + 3];
+    const tol = P.tolerance >= 100 ? Infinity : P.tolerance * 3, near = i => from[3] ? d[i + 3] && Math.abs(d[i] - from[0]) + Math.abs(d[i + 1] - from[1]) + Math.abs(d[i + 2] - from[2]) <= tol : !d[i + 3];
     const seen = new Uint8Array(W * H), stack = [[x, y]], box = P.faceRect ? P.faceRect(x, y) : null;   /* an area stays on the face it starts on, never runs into the face beside it on the texture */
     while (stack.length) { const [X, Y] = stack.pop(); if (X < 0 || Y < 0 || X >= W || Y >= H) continue; if (box && (X < box.x || Y < box.y || X >= box.x + box.w || Y >= box.y + box.h)) continue; const k = Y * W + X, i = k * 4; if (seen[k] || !near(i)) continue; seen[k] = 1;
       if (P.inside && P.mask && !P.mask[k]) continue;
@@ -44,7 +44,7 @@ export function createPainter(canvas, onChange, onPick) {
   }
   function replaceAll(x, y) {   // every texel of the clicked colour, wherever it is on the texture
     const d = img.data, from = colourAt(d, (y * W + x) * 4), [r, g, b] = rgb(P.color); if (!from[3]) return;
-    for (let i = 0; i < d.length; i += 4) if (is(d, i, from)) { d[i] = r; d[i + 1] = g; d[i + 2] = b; }
+    for (let i = 0; i < d.length; i += 4) if (is(d, i, from) && !(P.inside && P.mask && !P.mask[i / 4])) { d[i] = r; d[i + 1] = g; d[i + 2] = b; }   /* Paint outside off: only what shows on the model */
   }
   function fillSide(x, y) {   // the whole side of a box under the click, in one colour (the caller says where that side sits on the texture)
     const r = P.faceAt && P.faceAt(x, y); if (!r) return flood(x, y); const d = img.data, [cr, cg, cb] = rgb(P.color);
@@ -54,7 +54,7 @@ export function createPainter(canvas, onChange, onPick) {
     for (let Y = y0; Y < y1; Y++) for (let X = x0; X < x1; X++) {
       const i = (Y * W + X) * 4; if (keepHoles && !d[i + 3]) continue; d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = 255; } }
   function fillEvery(x, y) {   // every texel close to the clicked colour, anywhere on the item ("Similar colours" sets how close)
-    const d = img.data, from = colourAt(d, (y * W + x) * 4), [r, g, b] = rgb(P.color), tol = P.tolerance * 3; if (!from[3]) return flood(x, y);
+    const d = img.data, from = colourAt(d, (y * W + x) * 4), [r, g, b] = rgb(P.color), tol = P.tolerance >= 100 ? Infinity : P.tolerance * 3;   /* 100% = every colour */ if (!from[3]) return flood(x, y);
     for (let i = 0; i < d.length; i += 4) { if (!d[i + 3] || Math.abs(d[i] - from[0]) + Math.abs(d[i + 1] - from[1]) + Math.abs(d[i + 2] - from[2]) > tol) continue;
       if (P.inside && P.mask && !P.mask[i / 4]) continue; d[i] = r; d[i + 1] = g; d[i + 2] = b; } }
   const show = () => { ctx.putImageData(img, 0, 0); dirty = true; onChange(false); };
