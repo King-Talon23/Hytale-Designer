@@ -191,10 +191,11 @@ export class Animator {
           if (p) { const a = p[0].delta, b = p[1].delta, u = p[2]; let L = k => (a[k] ?? 0) + ((b[k] ?? 0) - (a[k] ?? 0)) * u;
             if (p[0] !== p[1] && u > 0 && u < 1 && isSmooth(p[0], p[1])) { const [pk, nk] = around(tr.position, p[0], p[1], loop); L = k => cr(pk.delta[k] ?? 0, a[k] ?? 0, b[k] ?? 0, nk.delta[k] ?? 0, u); }
             g.position.set(r.p.x + L('x'), r.p.y + L('y'), r.p.z + L('z')); }
-          if (v && g.userData.mesh) g.userData.mesh.visible = v[0].delta !== false;
+          const at = s => s[2] >= 1 - 1e-9 ? s[1] : s[0];   /* held tracks: on a key's own frame, that key */
+          if (v && g.userData.mesh) g.userData.mesh.visible = at(v).delta !== false;
           const m = g.userData.mesh; if (m && (tr.shapeStretch.length || tr.shapeUvOffset.length)) { const sk = tr.shapeStretch.length ? span(tr.shapeStretch, T, dur, loop) : null, uk = tr.shapeUvOffset.length ? span(tr.shapeUvOffset, T, dur, loop) : null;
             const L = (a, b, u, k, d) => (a[k] ?? d) + ((b[k] ?? d) - (a[k] ?? d)) * u;
-            faceShape(m, sk && [L(sk[0].delta, sk[1].delta, sk[2], 'x', 1), L(sk[0].delta, sk[1].delta, sk[2], 'y', 1), L(sk[0].delta, sk[1].delta, sk[2], 'z', 1)], uk && [uk[0].delta.x ?? 0, uk[0].delta.y ?? 0]); } } } }   /* face: eyelids stretch, the mouth slides to another part of its texture (held until the next key, as in game) */
+            faceShape(m, sk && [L(sk[0].delta, sk[1].delta, sk[2], 'x', 1), L(sk[0].delta, sk[1].delta, sk[2], 'y', 1), L(sk[0].delta, sk[1].delta, sk[2], 'z', 1)], uk && [at(uk).delta.x ?? 0, at(uk).delta.y ?? 0]); } } } }   /* face: eyelids stretch, the mouth slides to another part of its texture (held until the next key, as in game) */
     if (this.blend < 1) { const k = this.blend * this.blend * (3 - 2 * this.blend);
       parts.forEach(gs => gs.forEach(g => { const f = g.userData.from; if (!f) return; g.position.lerpVectors(f.p, g.position, k); q0.copy(f.q).slerp(g.quaternion, k); g.quaternion.copy(q0); })); }
   }

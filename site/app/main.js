@@ -111,7 +111,7 @@ async function startApp() {
   $('connect').hidden = true; $('app').hidden = false;
   if (!st) { st = fig.stage($('view'), OrbitControls);
     ANIMATE = createAnimate({ el, st, render, say, ask, head, cat: () => CAT, nice, label: (g, n) => animLabel(g, n), idle: () => playAnim('Default', 'Idle', 0.5), tab: () => tab, canPublish: () => canPublish(), lockedPublish: () => locked('Publish', 'publishing', 'mini'), props: Object.keys(game.PROPS).filter(k => k !== 'glider'),
-      hold: async (k, hand) => { propsKey = null; if (!k) return st.props([]); const [model, tex] = game.PROPS[k]; try { st.props([{ root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone: hand === 'L' ? 'L-Attachment' : 'R-Attachment' }]); } catch (e) { say(e.message, true); } } });   /* held-item preview for the Animate tab */ if (location.hostname.endsWith('localhost')) window.__an = ANIMATE;   // the Animate tab
+      hold: async (k, hand) => { const my = (holdSeq = (holdSeq || 0) + 1); propsKey = null; if (!k) return st.props([]); const [model, tex] = game.PROPS[k]; try { const root = model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex); if (my !== holdSeq) return; st.props([{ root, bone: hand === 'L' ? 'L-Attachment' : 'R-Attachment' }]); } catch (e) { say(e.message, true); } } });   /* held-item preview for the Animate tab */ if (location.hostname.endsWith('localhost')) window.__an = ANIMATE;   // the Animate tab
     $('view').addEventListener('pointerdown', e => { if (tab !== 'animate' || !ANIMATE.active() || e.button !== 0 || st.gizmoBusy(e.clientX, e.clientY)) return; ANIMATE.pickAt(e.clientX, e.clientY); });
     if (location.hostname.endsWith('localhost')) { window.__st = st; window.__dbg = { combineWith: (...a) => combineWith(...a), combinePick: () => combinePick(), cat: () => CAT, ed: () => ED, sizeOf: sh => sizeOf(sh), colourPart: n => colourPart(n), geoTwin: n => geoTwin(n), boxes: () => boxesOf(ED.model).map(b => b.node.name) }; }   // local tests only
     st.onMissing = () => say('Missing game files for this move', true); st.onFacing(f => { const t = $('facing') || $('view').parentElement.appendChild(el('div', { id: 'facing', class: 'facing' })); t.textContent = 'Facing you: ' + f; }); bindPaint($('view'), e => ED && !ED.shapeOpen && ED.painter.tool !== 'select' ? st.pick(e.clientX, e.clientY, ED.canvas, ED.mirror) : null, 10, true);
@@ -239,8 +239,9 @@ function animThumb(g, n) { const s = R.fit(cur.skin);
 const portrait = skin => { const s = R.fit(skin); return lazyImg('p|' + JSON.stringify(s), async () => fig.snapshot(await fig.build(s, R), 'full')); };
 
 // ---------------------------------------------------------------- panels
-let ANIMATE = null;
+let ANIMATE = null, holdSeq = 0;
 function setTab(t) { if (t !== 'editor' && picking) leavePicker();
+  if (t !== tab && (walk.on || walk.crouched || walk.keys.size)) walkStop(); if (t === 'animate' || t === 'creator') st?.face(0, true);   /* posing and editing face the front */
   if (t !== tab && tab === 'animate' && ANIMATE) { ANIMATE.leave(); if (R) playAnim('Default', 'Idle', 0.5); }   // leaving Animate saves and puts the idle back
   // opening or leaving the Animations tab stops whatever move is playing (and drops what it holds)
   if (t !== tab && (t === 'animations' || tab === 'animations') && R && !(playing.group === 'Default' && playing.name === 'Idle')) playAnim('Default', 'Idle', 0.5);
@@ -264,8 +265,10 @@ function render() { if (pressing) { renderLater = true; return; } jobGen++; plat
   if (!!ED !== $('app').classList.contains('ws')) scrollTo(0, 0);   // opening or closing the Creator workspace starts at the top of the page
   $('app').classList.toggle('ws', !!ED); $('app').classList.toggle('ws-tex', !!ED); /* the texture panel is always there in the Creator */ if (ED && document.querySelector('input.rename:not([data-done])')) return;   /* a part being renamed: the redraw waits (the click that opened it redraws a moment later) */
   if (ED) { const fa = document.activeElement, fk = fa && fa !== document.body && fa.closest?.('#app') ? (fa.dataset?.fk || [fa.tagName, fa.textContent, fa.title || fa.getAttribute('aria-label') || ''].join('|')) : null, pb_ = ED.box_, sl = pb_?.scrollLeft, stp = pb_?.scrollTop; const r_ = renderWorkspace(); if (pb_ && ED.box_ === pb_) { pb_.scrollLeft = sl; pb_.scrollTop = stp; }   /* the zoomed texture view stays where it was */ if (fk && !document.activeElement?.closest?.('#app')) { const m = [...document.querySelectorAll('#app button, #app input, #app select')].find(x => (x.dataset?.fk || [x.tagName, x.textContent, x.title || x.getAttribute('aria-label') || ''].join('|')) === fk); m?.focus(); } return r_; }   /* keyboard focus stays on the control after the panel redraws */ const p = $('panel'), was = p.className, top = p.querySelector('.pbody')?.scrollTop || 0; p.className = 'panel tab-' + tab;
+  const fa = tab === 'animate' ? document.activeElement : null, fk = fa && p.contains(fa) ? [fa.tagName, fa.getAttribute('aria-label') || '', fa.textContent.slice(0, 40), fa.title || ''].join('|') : null, keepScroll = [...p.querySelectorAll('.bonelist, .tlwrap')].map(x => x.scrollTop);   // the Animate panel keeps focus and its inner scroll through a redraw
   p.replaceChildren(...({ editor: panelEditor, wardrobe: panelWardrobe, animations: panelAnimations, animate: () => ANIMATE.panel(), lookup: panelLookup, creator: panelCreator, help: panelHelp }[tab])());
-  if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; } }
+  if (was === p.className && top) { const b = p.querySelector('.pbody'); if (b) b.scrollTop = top; }
+  if (tab === 'animate') { [...p.querySelectorAll('.bonelist, .tlwrap')].forEach((x, i) => { if (keepScroll[i]) x.scrollTop = keepScroll[i]; }); if (fk) [...p.querySelectorAll('button, input, select, canvas')].find(x => [x.tagName, x.getAttribute('aria-label') || '', x.textContent.slice(0, 40), x.title || ''].join('|') === fk)?.focus({ preventScroll: true }); } }
 // our own small symbols for the category rail (drawn here, not taken from the game)
 const ICON = { Head: 'M6 3h12v13H6zM9 8v3h2V8zM13 8v3h2V8zM9 17h6v4H9z', Body: 'M9 2h6v6H9zM7 9h10v8H7zM3 9h3v8H3zM18 9h3v8h-3zM8 18h3v4H8zM13 18h3v4h-3z',
   Torso: 'M8 3l4 2 4-2 5 3-2 4-2-1v12H7V9l-2 1-2-4z', Legs: 'M6 3h12l1 18h-5l-2-11-2 11H5z', Capes: 'M8 3h8l4 18-4-2-4 2-4-2-4 2z' };
@@ -413,32 +416,34 @@ function drawEmotes() { const box = $('emotes'); if (!box || !EMOTES) return; bo
   box.replaceChildren(...EMOTES.map(k => { const [g, n] = k.split('/');
     return el('button', { class: 'emote' + (st.anim.anim && playing.group === g && playing.name === n ? ' on' : ''), title: animLabel(g, n), 'aria-pressed': String(!!(st.anim.anim && playing.group === g && playing.name === n)), onclick: () => playing.group === g && playing.name === n ? playAnim('Default', 'Idle', 0.5) : playAnim(g, n) }, animThumb(g, n)); })); }   // plays on a loop until clicked again
 
-// ---- walking the character around: W A S D (Shift runs, Ctrl crouches), Space jumps; 1-6 play the pinned emotes, 0 stops.
+// ---- walking the character around: W A S D (Shift runs, C crouches), Space jumps; 1-6 play the pinned emotes, 0 stops.
 // Not in the Creator or the Animate tab (their letters are tool keys and the figure must stand still there), never while typing.
-const walk = { keys: new Set(), on: false, kind: '', keepYaw: false };
+const walk = { keys: new Set(), on: false, kind: '', keepYaw: false, yaw: 0, prevYaw: 0, at: 0 };
+function walkStop() { walk.keys.clear(); const was = walk.on || walk.crouched; walk.crouched = false; if (!was) return; walk.on = false; walk.kind = ''; if (tab === 'animate' || tab === 'creator' || ED) { st.face(0, true); return; } walk.keepYaw = true; playAnim('Default', 'Idle', 0.5); }   // let go anywhere: the walk ends
 const walkAllowed = () => !ED && tab !== 'creator' && tab !== 'animate' && R && st && !document.querySelector('dialog[open]');
 const typing = t => t?.matches?.('input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable]');
 function walkUpdate() {
   const k = walk.keys, x = (k.has('d') ? 1 : 0) - (k.has('a') ? 1 : 0), z = (k.has('w') ? 1 : 0) - (k.has('s') ? 1 : 0);
-  if (!x && !z) { if (walk.on) { walk.on = false; walk.kind = ''; walk.keepYaw = true; playAnim('Default', 'Idle', 0.5); } return; }   // let go: idle, still facing the way it walked
+  if (!x && !z) { const crouch = k.has('c'); if (walk.on || crouch !== !!walk.crouched) { walk.on = false; walk.kind = ''; walk.keepYaw = true; if (performance.now() - walk.at < 150) st.face(walk.prevYaw); walk.crouched = crouch; playAnim('Default', crouch ? 'Crouch' : 'Idle', 0.5); } return; }   // C alone crouches in place   // let go: idle, still facing the way it walked (two keys let go together keep the diagonal)
   const c = st.camera.position, t = st.target ? st.target() : { x: 0, z: 0 }, f = { x: (t.x ?? 0) - c.x, z: (t.z ?? 0) - c.z }, L = Math.hypot(f.x, f.z) || 1; f.x /= L; f.z /= L;
   const m = { x: f.x * z - f.z * x, z: f.z * z + f.x * x }, yaw = Math.atan2(m.x, m.z);   // W away from the camera, D to its right
-  const kind = walk.keys.has('control') ? 'Crouch_Walk' : walk.keys.has('shift') ? 'Run' : 'Walk';
+  const kind = walk.keys.has('c') ? 'Crouch_Walk' : walk.keys.has('shift') ? 'Run' : 'Walk';
   if (!walk.on || walk.kind !== kind) { walk.on = true; walk.kind = kind; playAnim('Default', kind); }
-  st.face(yaw);
+  if (Math.abs(yaw - walk.yaw) > 1e-3) { walk.prevYaw = walk.yaw; walk.yaw = yaw; walk.at = performance.now(); } st.face(yaw);
 }
 addEventListener('keydown', e => {
   if (typing(e.target) || e.altKey || e.metaKey) return; const key = e.key.toLowerCase();
-  if (!walkAllowed()) { if (walk.on) { walk.keys.clear(); walkUpdate(); } return; }
+  if (!walkAllowed()) { if (walk.on) walkStop(); return; }
   if (['w', 'a', 's', 'd'].includes(key) && !e.ctrlKey) { e.preventDefault(); walk.keys.add(key); walkUpdate(); return; }
-  if (key === 'shift' || key === 'control') { walk.keys.add(key); if (walk.on) walkUpdate(); return; }
+  if (key === 'shift' || (key === 'c' && !e.ctrlKey)) { walk.keys.add(key); if (walk.on || key === 'c') walkUpdate(); if (key === 'c' && walk.on) e.preventDefault(); return; }   /* C crouches (Ctrl belongs to the browser: Ctrl+W closes the tab) */
   if (e.ctrlKey) return;
-  if (key === ' ' && tab !== 'animations' && !e.target.closest?.('button,a,summary,label')) { e.preventDefault(); if (!walk.on && !e.repeat) playAnim('Default', 'Jump', 1, true); return; }   // Space jumps (in Animations it plays and pauses)
-  if (/^[0-6]$/.test(key) && !e.repeat && EMOTES) { const i = +key - 1, k = EMOTES[i]; walk.keys.clear(); walk.on = false; walk.kind = '';
-    if (key === '0' || !k) { if (key === '0') playAnim('Default', 'Idle', 0.5); return; } const [g, n] = k.split('/');
+  if (key === ' ' && tab !== 'animations' && !e.target.closest?.('button,a,summary,label,input,select,[role=button],[tabindex]')) { e.preventDefault(); if (!walk.on && !e.repeat) playAnim('Default', 'Jump', 1, true); return; }   // Space jumps (in Animations it plays and pauses)
+  if (/^[0-6]$/.test(key) && !e.repeat && EMOTES) { const i = +key - 1, k = EMOTES[i]; if (key !== '0' && !k) return;   /* an empty pin changes nothing, a walk goes on */ for (const d of ['w', 'a', 's', 'd']) walk.keys.delete(d); walk.on = false; walk.kind = ''; walk.crouched = false;
+    const keepFocus = e.target.closest?.('.animlist button')?.querySelector('span')?.textContent; if (keepFocus) setTimeout(() => [...document.querySelectorAll('.animlist button')].find(b => b.querySelector('span')?.textContent === keepFocus)?.focus(), 80);
+    if (key === '0') { playAnim('Default', 'Idle', 0.5); return; } const [g, n] = k.split('/');
     if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5); else playAnim(g, n); render(); }   // the same number again stops it
 });
-addEventListener('keyup', e => { const key = e.key.toLowerCase(); if (!walk.keys.has(key)) return; walk.keys.delete(key); if (walkAllowed()) walkUpdate(); });
+addEventListener('keyup', e => { const key = e.key.toLowerCase(); if (!walk.keys.has(key)) return; walk.keys.delete(key); if (walkAllowed() && (walk.on || key === 'c' || walk.crouched)) walkUpdate(); else if (!['w', 'a', 's', 'd'].some(k => walk.keys.has(k))) walkStop(); });   // let go while walking is off (a dialog): the walk still ends
 addEventListener('blur', () => { if (walk.keys.size) { walk.keys.clear(); if (walkAllowed()) walkUpdate(); } });   // keys let go while the window was away
 // the animation transport on the stage (Animations tab): play/pause, step a frame, scrub to any frame
 function drawTransport() {
@@ -455,7 +460,7 @@ function drawTransport() {
     const tick = () => { if (!bar.hidden) sync(); requestAnimationFrame(tick); }; requestAnimationFrame(tick);
     addEventListener('keydown', e => { if (bar.hidden || e.ctrlKey || e.metaKey || e.altKey || e.target.matches?.('input:not([type=range]),textarea,select,[contenteditable]')) return;
       if (e.key === ',' || e.key === '.') { e.preventDefault(); bar.seek(Math.round(st.anim.t) + (e.key === '.' ? 1 : -1)); }
-      else if (e.key === ' ' && !e.target.closest?.('button')) { e.preventDefault(); play.click(); } });   /* , and . step a frame, Space plays/pauses (as in video players) */
+      else if (e.key === ' ' && (e.target.matches?.('input[type=range]') || !e.target.closest?.('button,input,select,label,[role=button]'))) { e.preventDefault(); play.click(); } });   /* , and . step a frame, Space plays/pauses (as in video players) */
   }
   bar.hidden = false; bar.sync();
 }
@@ -692,7 +697,7 @@ async function loadPublished(name, id) {
   const me = shown = { name, uuid: id, skins: null }; render();
   try { const r = await fetch('/api/players/' + encodeURIComponent(id) + '/skins', { credentials: 'omit', cache: 'no-store' }), j = r.ok ? await r.json() : null;
     if (!r.ok && r.status !== 404) me.failed = true; if (r.status === 404 && !j) me.failed = true;   /* the skins service missing is not 'no skins' */
-    fetch('/api/players/' + encodeURIComponent(id) + '/anims', { credentials: 'omit', cache: 'no-store' }).then(x => x.ok ? x.json() : null).then(k => { me.anims = (Array.isArray(k?.anims) ? k.anims : []).filter(x => x && x.anim && x.anim.nodeAnimations).map(x => ({ name: cleanName(x.name) || 'Animation', anim: x.anim })).slice(0, 45); if (shown === me) render(); }).catch(() => {});
+    fetch('/api/players/' + encodeURIComponent(id) + '/anims', { credentials: 'omit', cache: 'no-store' }).then(x => x.ok ? x.json() : null).then(k => { me.anims = (Array.isArray(k?.anims) ? k.anims : []).filter(x => x && x.anim && x.anim.nodeAnimations && typeof x.anim.nodeAnimations === 'object' && !Array.isArray(x.anim.nodeAnimations) && Number.isFinite(+x.anim.duration) && +x.anim.duration >= 1 && +x.anim.duration <= 6000).map(x => ({ name: cleanName(x.name) || 'Animation', anim: x.anim })).slice(0, 45); if (shown === me) render(); }).catch(() => {});
     me.skins = (Array.isArray(j?.skins) ? j.skins : []).map(k => ({ id: 'pub_' + String(k.id).slice(0, 24), name: cleanName(k.name) || 'Skin', skin: sanitize(k.skin) })).filter(k => k.skin).slice(0, 45);
   } catch { me.skins = []; me.failed = true; }
   if (shown === me) render();
@@ -711,14 +716,14 @@ async function pickSkinFiles(fallback) {
     importSkinFiles(await Promise.all(hs.map(h => h.getFile()))); } catch (e) { if (e.name !== 'AbortError') say(e.message, true); }
 }
 function panelLookup() {
-  const input = el('input', { type: 'text', placeholder: 'Username or UUID', maxLength: 36, autocomplete: 'off', spellcheck: false, value: lookupQ });   // the name you looked up stays in the box
+  const input = el('input', { type: 'text', placeholder: 'Username or UUID', maxLength: 36, autocomplete: 'off', spellcheck: false, value: lookupQ, oninput: e => { lookupQ = e.target.value; } });   // the name you looked up stays in the box
   const form = el('form', { class: 'row', onsubmit: e => { e.preventDefault(); lookup(input.value); } }, input, el('button', { class: 'btn primary', text: 'Find' }));
   const file = el('input', { type: 'file', accept: '.json,.skin,application/json', multiple: true, hidden: true, onchange: e => { importSkinFiles(e.target.files); e.target.value = ''; } });
   return [head('Players'), el('div', { class: 'pbody' },
     el('h3', { text: 'Find a player' }), form, el('p', { class: 'err', text: lookupMsg }),
     shown ? [el('h3', {}, 'Published by ' + shown.name, null), shown.skins === null ? el('p', { class: 'need', text: 'Looking…' })
       : shown.skins.length ? el('div', { class: 'cards' }, shown.skins.map(r => card(r, 'pub'))) : el('p', { class: 'need', text: shown.failed ? 'Could not load skins' : 'No skins' }),
-      shown.anims && shown.anims.length ? [el('h3', { text: 'Animations' }), el('div', { class: 'animlib' }, shown.anims.map(x => el('div', { class: 'animrow' }, el('span', { class: 'animopen' }, el('b', { text: x.name }), el('small', { text: `${(x.anim.duration / 60).toFixed(2)} s` })),
+      shown.anims && shown.anims.length ? [el('h3', { text: 'Animations' }), el('div', { class: 'animlib' }, shown.anims.map(x => el('div', { class: 'animrow' }, el('span', { class: 'animopen' }, el('b', { text: x.name }), el('small', { text: `${(Math.max(1, Math.min(6000, Math.round(+x.anim.duration) || 60)) / 60).toFixed(2)} s` })),
         el('button', { class: 'mini', text: 'Copy', onclick: () => { setTab('animate'); ANIMATE.importAnim(x.anim, x.name); } }))))] : null] : null,   /* a copy goes into your own Animate library */
     el('h3', { text: 'Open skin files' }),
     el('button', { class: 'btn ghost', text: 'Choose skin files', onclick: () => pickSkinFiles(file) }), file,
@@ -727,13 +732,14 @@ function panelLookup() {
 
 function panelHelp() {
   const sec = (t, ...ps) => [el('h3', { text: t }), ...ps.filter(p => p !== '').map(p => typeof p === 'string' ? el('p', { text: p }) : p)];
-  const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const data = await readJsonFile(f, 40_000_000), r = await store.importAll(data);
+  const backupFile = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: guard(async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const data = await readJsonFile(f, 400_000_000), r = await store.importAll(data);
       { let more = 0; if (Array.isArray(data.favourites)) for (const k of data.favourites.slice(0, 2000)) if (typeof k === 'string' && k.length <= 200 && !LOCK.favs.has(k)) { LOCK.favs.add(k); more++; } if (more) saveLock();   /* favourites and pinned animations come back too */
         if (Array.isArray(data.emotes) && EMOTES) { for (const k of data.emotes.slice(0, 6)) { if (EMOTES.length >= 6) break; const [g, n] = typeof k === 'string' ? k.split('/') : []; if (g && n && (CAT.anims[g] || []).includes(n) && !EMOTES.includes(k)) { EMOTES.push(k); more++; } } db.put('meta', 'emotes', EMOTES).catch(() => {}); }   /* only real animations, only into free places: the player's own pins stay */
         if (Array.isArray(data.animations)) { const anim = await import('./anim.js'), have = new Set((await db.keys('meta')).filter(k => String(k).startsWith('anim:')));   /* animations: new ones added, ones already here left alone */
+          const used = new Set((await Promise.all([...have].map(k => db.get('meta', k)))).map(x => String(x?.name || '').toLowerCase()));
           for (const x of data.animations.slice(0, 500)) { try { if (!x || typeof x.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x.id) || have.has('anim:' + x.id) || !x.a || typeof x.a.nodeAnimations !== 'object' || !x.a.nodeAnimations) continue;
-              const nm = clip(String(x.name || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '').replace(/\s+/g, ' ').trim(), 60) || 'My animation';
-              await db.put('meta', 'anim:' + x.id, { id: x.id, name: nm, a: anim.read(x.a), updated: Number.isFinite(x.updated) ? x.updated : Date.now() }); have.add('anim:' + x.id); r.anims = (r.anims || 0) + 1; } catch { /* a broken one is skipped */ } } store.syncFolder().catch(() => {}); }
+              const base = ANIMATE.cleanName(x.name) || 'My animation'; let nm = base, k = 2; while (used.has(nm.toLowerCase())) nm = `${base.slice(0, 56)} ${k++}`; used.add(nm.toLowerCase());
+              await db.put('meta', 'anim:' + x.id, { id: x.id, name: nm, a: ANIMATE.cleanImport(x.a), updated: Number.isFinite(x.updated) ? x.updated : Date.now() }); have.add('anim:' + x.id); r.anims = (r.anims || 0) + 1; } catch { /* a broken one is skipped */ } } await ANIMATE.reload(); store.syncFolder().catch(() => {}); }   /* the Animate library shows them at once */
         r.extras = more; } await reloadAssets(); await refreshWard(); if (!r.added && !r.items && !r.skipped && !r.itemsSkipped && !r.extras && !r.anims) return say('Everything in that backup is already here'); if (!r.added && !r.items && r.anims) return say(`Restored ${r.anims} animation${r.anims === 1 ? '' : 's'}`); say(`Restored ${r.added} skin${r.added === 1 ? '' : 's'}` + (r.items ? `, ${r.items} item${r.items === 1 ? '' : 's'}` : '') + (r.skipped || r.itemsSkipped ? `; ${r.skipped + r.itemsSkipped} skipped (full)` : ''), !!(r.skipped || r.itemsSkipped)); }) });
   const steps = [['Wardrobe', 'pick a slot, click items to try them on.'], ['Locker', 'your saved skins.'], ['Animations', "the game's moves on your skin."],
     ['Creator', 'make your own items from any item.'], ['Players', 'look someone up by username.']];

@@ -19,12 +19,13 @@ export function read(src) {
   if (!src || typeof src !== 'object' || Array.isArray(src)) throw new Error('That is not an animation file.');
   const out = {}; if ('formatVersion' in src) out.formatVersion = num(src.formatVersion, 1);
   out.duration = Math.max(1, Math.min(MAX_FRAMES, Math.round(num(src.duration, 60)))); out.holdLastKeyframe = !!src.holdLastKeyframe; out.nodeAnimations = {};
-  for (const [bone, tr] of Object.entries(src.nodeAnimations || {}).slice(0, MAX_BONES)) {
+  const na = src.nodeAnimations && typeof src.nodeAnimations === 'object' && !Array.isArray(src.nodeAnimations) ? src.nodeAnimations : {};
+  for (const [bone, tr] of Object.entries(na).slice(0, MAX_BONES)) {
     if (!NAME.test(bone) || !tr || typeof tr !== 'object') continue; const t2 = {};
-    for (const k of TRACKS) { const keys = []; for (const key of Array.isArray(tr[k]) ? tr[k] : []) { const d = cleanDelta(k, key && key.delta); if (d === null || !Number.isFinite(key.time)) continue;
+    for (const k of TRACKS) { const keys = []; for (const key of Array.isArray(tr[k]) ? tr[k] : []) { const d = cleanDelta(k, key && key.delta); if (d === null || !Number.isFinite(key.time) || key.time < 0 || key.time > out.duration) continue;   /* keys inside the length only */
         const o = { time: key.time, delta: d }; if (typeof key.interpolationType === 'string') o.interpolationType = key.interpolationType === 'linear' ? 'linear' : 'smooth'; keys.push(o); }
       keys.sort((a, b) => a.time - b.time); t2[k] = keys; }
-    out.nodeAnimations[bone] = t2;
+    if (TRACKS.some(k => t2[k].length)) out.nodeAnimations[bone] = t2;   // a bone with no usable keys is left out
   }
   return out;
 }
@@ -60,4 +61,4 @@ export function keyTimes(a, bone) { const s = new Set(); for (const [b, tr] of O
 // left/right mirror of a whole animation: L- and R- bones swap, x positions and the y/z turn flip
 export const sideSwap = n => /^L-/.test(n) ? n.replace(/^L-/, 'R-') : /^R-/.test(n) ? n.replace(/^R-/, 'L-') : /^L_/.test(n) ? n.replace(/^L_/, 'R_') : /^R_/.test(n) ? n.replace(/^R_/, 'L_') : n;
 export function mirrorKeyDelta(k, d) { if (k === 'orientation') return { x: d.x, y: -d.y, z: -d.z, w: d.w }; if (k === 'position') return { x: -d.x, y: d.y, z: d.z }; return typeof d === 'object' ? { ...d } : d; }
-export function mirror(a) { const out = { ...a, nodeAnimations: {} }; for (const [bone, tr] of Object.entries(a.nodeAnimations)) { const t2 = {}; for (const k of TRACKS) t2[k] = (tr[k] || []).map(x => ({ ...x, delta: mirrorKeyDelta(k, x.delta) })); out.nodeAnimations[sideSwap(bone)] = t2; } return out; }
+export function mirror(a, has = () => true) { const out = { ...a, nodeAnimations: {} }; for (const [bone, tr] of Object.entries(a.nodeAnimations)) { const t2 = {}; for (const k of TRACKS) t2[k] = (tr[k] || []).map(x => ({ ...x, delta: mirrorKeyDelta(k, x.delta) })); const to = sideSwap(bone); out.nodeAnimations[to !== bone && has(bone) && !has(to) ? bone : to] = t2; } return out; }   // a bone the model has without a partner (R-Ear2) stays itself, mirrored in place
