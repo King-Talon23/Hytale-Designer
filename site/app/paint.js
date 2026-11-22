@@ -12,21 +12,21 @@ export const SHAPES = new Set(['line', 'box', 'boxfill']), ONCE = new Set(['pick
 
 export function createPainter(canvas, onChange, onPick) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true }); let W = canvas.width, H = canvas.height;
-  const undo = [], redo = []; let img = null, base = null, start = null, touched = null, fresh = false, dirty = false, adjFrom = null;
+  const undo = [], redo = []; let img = null, base = null, start = null, touched = null, fresh = false, dirty = false, adjFrom = null, lastFill = null;
   const copy = () => { const d = ctx.getImageData(0, 0, W, H); return new ImageData(new Uint8ClampedArray(d.data), W, H); };
   function px(x, y) {   // one texel, once per stroke (so lighten, darken and see-through paint do not stack while the pointer rests)
-    if (x < 0 || y < 0 || x >= W || y >= H) return; if (mapTo) { const t = mapTo(x, y); if (!t) return; x = t.x; y = t.y; }   /* Symmetry pass: each texel lands on its own twin */
+    if (x < 0 || y < 0 || x >= W || y >= H) return; const src = y * W + x; if (mapTo) { const t = mapTo(x, y); if (!t) return; x = t.x; y = t.y; }   /* Symmetry pass: each texel lands on its own twin */
     const k = y * W + x; if (touched.has(k)) return; touched.add(k);
     if (P.inside && P.mask && !P.mask[k]) return;   // outside the drawn area: never shows on the model
     const d = img.data, i = k * 4, t = P.tool;
     if (t === 'erase') d[i + 3] = 0;
     else if (t === 'light' || t === 'dark') { if (!d[i + 3]) return; const m = t === 'light' ? 1.12 : 0.88; for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] * m + (m > 1 ? 4 : -4)); }
-    else if (t === 'noise') { if (!d[i + 3]) return; const n = (Math.random() - 0.5) * 26; for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] + n); }
+    else if (t === 'noise') { if (!d[i + 3]) return; let n = noiseAt.get(src); if (n === undefined) noiseAt.set(src, n = (Math.random() - 0.5) * 26);   /* the twin gets the same grain */ for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] + n); }
     else { const [r, g, b] = rgb(P.color), a = d[i + 3] ? P.opacity : 1; d[i] = clamp(d[i] * (1 - a) + r * a); d[i + 1] = clamp(d[i + 1] * (1 - a) + g * a); d[i + 2] = clamp(d[i + 2] * (1 - a) + b * a); d[i + 3] = 255; }
   }
   function dot(x, y) { const s = P.size, o = Math.floor((s - 1) / 2); for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) px(x - o + dx, y - o + dy); }
   // Symmetry: run the same drawing again with every texel sent to its twin on the other side (exact for any brush size, turned faces and shapes across faces)
-  let mapTo = null; const twins = new Map();
+  let mapTo = null; const twins = new Map(), noiseAt = new Map();
   function mirrored(fn) { if (!P.twinAt || !(P.symOn && P.symOn())) return; mapTo = (x, y) => { const k = y * W + x; if (!twins.has(k)) twins.set(k, P.twinAt(x, y)); return twins.get(k); }; try { fn(); } finally { mapTo = null; } }
   function line(a, b) { let x = a.x, y = a.y; const dx = Math.abs(b.x - x), dy = -Math.abs(b.y - y), sx = x < b.x ? 1 : -1, sy = y < b.y ? 1 : -1; let e = dx + dy;
     for (let n = 0; n < 4096; n++) { dot(x, y); if (x === b.x && y === b.y) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x += sx; } if (e2 <= dx) { e += dx; y += sy; } } }
@@ -40,7 +40,7 @@ export function createPainter(canvas, onChange, onPick) {
     const seen = new Uint8Array(W * H), stack = [[x, y]], box = P.faceRect ? P.faceRect(x, y) : null;   /* an area stays on the face it starts on, never runs into the face beside it on the texture */
     while (stack.length) { const [X, Y] = stack.pop(); if (X < 0 || Y < 0 || X >= W || Y >= H) continue; if (box && (X < box.x || Y < box.y || X >= box.x + box.w || Y >= box.y + box.h)) continue; const k = Y * W + X, i = k * 4; if (seen[k] || !near(i)) continue; seen[k] = 1;
       if (P.inside && P.mask && !P.mask[k]) continue;
-      d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; stack.push([X + 1, Y], [X - 1, Y], [X, Y + 1], [X, Y - 1]); }
+      d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; (lastFill ||= []).push(k); stack.push([X + 1, Y], [X - 1, Y], [X, Y + 1], [X, Y - 1]); }
   }
   function replaceAll(x, y) {   // every texel of the clicked colour, wherever it is on the texture
     const d = img.data, from = colourAt(d, (y * W + x) * 4), [r, g, b] = rgb(P.color); if (!from[3]) return;
@@ -60,7 +60,7 @@ export function createPainter(canvas, onChange, onPick) {
   const show = () => { ctx.putImageData(img, 0, 0); dirty = true; onChange(false); };
   function swap(from, to) { if (!from.length) return; to.push(copy()); ctx.putImageData(from.pop(), 0, 0); onChange(true); }
   const P = { tool: 'brush', size: 1, color: '#e0b050', opacity: 1, inside: true, mask: null, tolerance: 24, fillMode: 'area', faceAt: null,   // tolerance: how far a colour may differ (0-100) and still count as the same for Fill
-    begin() { img = ctx.getImageData(0, 0, W, H); base = new ImageData(new Uint8ClampedArray(img.data), W, H); undo.push(base); touched = new Set(); twins.clear(); fresh = true; dirty = false; start = null; },
+    begin() { img = ctx.getImageData(0, 0, W, H); base = new ImageData(new Uint8ClampedArray(img.data), W, H); undo.push(base); touched = new Set(); twins.clear(); noiseAt.clear(); lastFill = null; fresh = true; dirty = false; start = null; },
     stroke(a, b) { if (!img) return; const first = fresh, t = P.tool; fresh = false; if (first) start = a;
       if (t === 'pick') { if (first) { const i = (b.y * W + b.x) * 4, d = img.data; if (d[i + 3]) { P.color = hex(d[i], d[i + 1], d[i + 2]); onPick && onPick(); } } return; }
       if (t === 'fill' || t === 'replace') { if (first) { (t === 'replace' ? replaceAll : P.fillMode === 'side' ? fillSide : P.fillMode === 'every' ? fillEvery : flood)(b.x, b.y); show(); } return; }
@@ -68,7 +68,8 @@ export function createPainter(canvas, onChange, onPick) {
         mirrored(() => { if (t === 'line') line(start, b); else box(start, b, t === 'boxfill'); });
         show(); return; }   // the shape is redrawn from where the drag began
       line(a, b); mirrored(() => line(a, b)); show(); },
-    fillAlso(b) { if (!img || !b || P.tool !== 'fill' || P.fillMode === 'every') return; (P.fillMode === 'side' ? fillSide : flood)(b.x, b.y); show(); },   // Symmetry: the same fill at the mirrored spot, in the same step
+    fillAlso(b) { if (!img || !b || P.tool !== 'fill' || P.fillMode === 'every') return;
+      if (P.fillMode !== 'side' && lastFill && P.twinAt) { const d = img.data, [r, g, bl] = rgb(P.color); for (const k of lastFill) { const t = P.twinAt(k % W, (k / W) | 0); if (!t) continue; const j = t.y * W + t.x, i = j * 4; if (P.inside && P.mask && !P.mask[j]) continue; d[i] = r; d[i + 1] = g; d[i + 2] = bl; d[i + 3] = 255; } show(); return; }   /* Area: every filled texel's own twin, not a second flood */ (P.fillMode === 'side' ? fillSide : flood)(b.x, b.y); show(); },   // Symmetry: the same fill at the mirrored spot, in the same step
     end() { if (!img) return; if (dirty && base) { const a = img.data, b = base.data; let same = true; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { same = false; break; } if (same) dirty = false; }   /* a stroke that changed nothing is not a step */
       if (dirty) { redo.length = 0; if (undo.length > 120) undo.shift(); onChange(true); } else undo.pop();   /* the oldest step goes only when a real one is added */ img = null; base = null; touched = null; },
     undo() { swap(undo, redo); }, redo() { swap(redo, undo); },

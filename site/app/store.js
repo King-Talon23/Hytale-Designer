@@ -23,7 +23,7 @@ export async function saveCustom(name, skin, id) {
   return write(record(id || crypto.randomUUID(), 'custom', name, skin));
 }
 export const hasCustomItem = skin => Object.values(skin || {}).some(v => typeof v === 'string' && v.startsWith('Custom_'));
-export async function uniqueName(name, exceptId) { const used = new Set((await list()).custom.filter(r => r.id !== exceptId).map(r => r.name)), base = cleanName(name) || 'My skin'; if (!used.has(base)) return base; const stem = base.replace(/ \d+$/, ''); for (let k = 2; k < 1000; k++) { const n = cleanName(stem.slice(0, 36) + ' ' + k); if (!used.has(n)) return n; } return base; }   // a taken name gets a number
+export async function uniqueName(name, exceptId) { const used = new Set((await list()).custom.filter(r => r.id !== exceptId).map(r => r.name)), base = cleanName(name) || 'My skin'; if (!used.has(base)) return base; const stem = base; for (let k = 2; k < 1000; k++) { const n = cleanName(stem.slice(0, 36) + ' ' + k); if (!used.has(n)) return n; } return base; }   // a taken name gets a number
 export async function saveGame(slot, name, skin) {   // an in-game slot never holds custom items: such a look is kept in My skins instead (and that record is returned)
   if (hasCustomItem(skin)) return saveCustom(await uniqueName(name), skin);
   return write(record(gameId(slot), 'game', name, skin, slot)); }
@@ -40,7 +40,7 @@ export async function swap(customId, slot) {
 
 export async function exportAll() { const { game, custom } = await list();
   const mine = []; for (const a of await assets.list()) mine.push(await packAsset(a));
-  return { format: 'skin-editor-backup', version: 2, game: game.map(r => r && { name: r.name, skin: r.skin }), custom: custom.map(r => ({ name: r.name, skin: r.skin })), assets: mine }; }
+  return { format: 'skin-editor-backup', version: 2, game: game.map(r => r && { name: r.name, skin: r.skin }), custom: custom.map(r => ({ name: r.name, skin: r.skin, updated: r.updated })), assets: mine }; }
 export async function packAsset(a) { return { id: a.id, name: a.name, field: a.field, baseId: a.baseId, model: a.model, w: a.w, h: a.h, shape: a.shape, labels: a.labels, split: !!a.split, tone: a.tone, png: await toBase64(a.data) }; }   // one item with its texture, shape and part names
 export async function unpackAssets(list, check = () => true) { const have = new Set((await assets.list()).map(a => a.id)); let n = 0; for (const m of Array.isArray(list) ? list.slice(0, 200) : []) { try { if (m && typeof m.png === 'string' && m.png.length < 3_000_000 && check(m) && await takeAsset(m, Uint8Array.from(atob(m.png), c => c.charCodeAt(0)), have)) n++; } catch { /* not a usable item */ } } return n; }
 async function toBase64(blob) { const b = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); }
@@ -55,8 +55,10 @@ export async function importAll(data) {   // adds to what is there; never overwr
   if (!data || data.format !== 'skin-editor-backup' || !Array.isArray(data.custom)) throw new Error('That file is not a Skin Editor backup.');
   const cur = await list(); let added = 0, skipped = 0, room = CUSTOM_MAX - cur.custom.length;
   const had = new Set((await assets.list()).map(a => a.id)), offered = Array.isArray(data.assets) ? data.assets.filter(m => m && !had.has(m.id)).length : 0, items = await unpackAssets(data.assets);   /* items already here are not 'skipped' */   // items first, so restored skins that wear them find them
-  const same = new Set(cur.custom.map(r => r.name + '|' + JSON.stringify(r.skin))), names = new Set(cur.custom.map(r => r.name));   // restoring the same backup twice does not double up
-  for (const r of data.custom.slice(0, 500)) { const s = sanitize(r?.skin); if (!s) continue; const k = cleanName(r.name) + '|' + JSON.stringify(s); if (same.has(k)) continue; if (room <= 0) { skipped++; continue; } let nm = cleanName(r.name) || 'My skin', q = 2; while (names.has(nm)) nm = cleanName(String(cleanName(r.name) || 'My skin').slice(0, 36) + ' ' + q++); await saveCustom(nm, s); names.add(nm); same.add(k); room--; added++; }   /* a taken name gets a number */
+  const there = cur.custom.map(r => [r.name, JSON.stringify(r.skin)]), names = new Set(cur.custom.map(r => r.name)), now = Date.now();
+  const seen = (nm, k) => there.some(([n, x]) => x === k && (n === nm || (n.startsWith(nm + ' ') && /^\d+$/.test(n.slice(nm.length + 1)))));   // restoring the same backup twice does not double up, also when the first restore had to number the name
+  for (const [i, r] of data.custom.slice(0, 500).entries()) { const s = sanitize(r?.skin); if (!s) continue; const base = cleanName(r.name) || 'My skin', k = JSON.stringify(s); if (seen(base, k)) continue; if (room <= 0) { skipped++; continue; } let nm = base, q = 2; while (names.has(nm)) nm = cleanName(base.slice(0, 36) + ' ' + q++);
+    const rec = record(crypto.randomUUID(), 'custom', nm, s); rec.updated = Number.isFinite(r.updated) ? r.updated : now - i; await write(rec); names.add(nm); there.push([nm, k]); room--; added++; }   /* a taken name gets a number; skins keep their order */
   for (let i = 0; i < GAME_SLOTS; i++) { const r = data.game?.[i], s = sanitize(r?.skin); if (s && !cur.game[i]) { if (hasCustomItem(s)) { const sk = JSON.stringify(s); if ((await list()).custom.some(c => JSON.stringify(c.skin) === sk)) continue; if (room <= 0) { skipped++; continue; } room--; } await saveGame(i, r.name, s); added++; } }   /* custom looks go to My skins (saveGame), once */   /* in-game slots never get custom items */
   return { added, items, skipped, itemsSkipped: Math.max(0, offered - items) };   /* skins and items counted apart */
 }

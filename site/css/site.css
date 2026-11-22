@@ -257,7 +257,7 @@ input[type=color] { width: 46px; height: 38px; padding: 2px; background: #0d1826
 .slot i { position: absolute; top: 4px; left: 5px; display: flex; gap: 4px; align-items: center; font: 700 10px var(--h); letter-spacing: .06em; text-transform: uppercase; color: #ffffffd0; text-shadow: 0 1px 2px #000; font-style: normal; }
 .slot i svg { width: 13px; height: 13px; fill: currentColor; }
 .slot b, .lcard b { display: block; background: #0b1626d8; font-size: 12px; font-weight: 700; padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.slot:hover img, .lcard:hover img, .tile:hover img, .animlist button:hover img { filter: drop-shadow(1px 0 0 var(--gold)) drop-shadow(-1px 0 0 var(--gold)) drop-shadow(0 1px 0 var(--gold)) drop-shadow(0 -1px 0 var(--gold)) drop-shadow(0 0 4px #f4c452aa); }   /* hover lights the picture, not the frame */
+.slot:hover img, .lcard:hover img, .tile:hover img, .animlist button:hover img { filter: drop-shadow(1px 0 0 var(--gold)) drop-shadow(-1px 0 0 var(--gold)) drop-shadow(0 1px 0 var(--gold)) drop-shadow(0 -1px 0 var(--gold)) drop-shadow(0 0 4px #f4c452aa); clip-path: inset(-8px -8px 0 -8px); }   /* hover lights the picture, not the frame; cut at the picture's bottom so no line runs along the name bar */
 .slot.on, .lcard.on { border-color: var(--gold); box-shadow: 0 0 12px #f4c45266; }
 .mine { border-style: dashed; }
 .lcard .bin { position: absolute; top: 3px; left: 4px; font-size: 13px; line-height: 1; padding: 3px 4px; border-radius: 3px; background: #0b1626b0; cursor: pointer; filter: grayscale(1) brightness(1.6); }
