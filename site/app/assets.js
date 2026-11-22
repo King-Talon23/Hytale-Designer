@@ -2,7 +2,7 @@
 // not in the game: an asset is the item it was made from (its model) plus one PNG the player painted.
 import * as db from './db.js';
 import { FIELDS } from './game.js';
-import { cleanName } from './skin.js';
+import { cleanName, clip } from './skin.js';
 
 export const MAX = 60;
 const MODEL = /^[\w ./-]{1,200}\.blockymodel$/, ID = /^[0-9a-f]{8}$/;
@@ -14,7 +14,7 @@ export async function save(a) {
   const r = { id: a.id, name: cleanName(a.name) || 'My asset', field: a.field, baseId: String(a.baseId || '').slice(0, 64), model: a.model, w: a.w, h: a.h, data: a.data, updated: Date.now(),
     flag: typeof a.flag === 'string' ? a.flag.slice(0, 80) : undefined, split: !!a.split, tone: typeof a.tone === 'string' ? a.tone.slice(0, 40) : undefined,   /* a body's skin tone when it was copied */   /* shared paint spots were split once already */   // set when the asset is too close to a paid item
     shape: a.shape == null ? undefined : okShape(a.shape) ? a.shape : (() => { throw new Error('Shape too big to save'); })(),   /* never drop an edited shape silently */
-    labels: a.labels && typeof a.labels === 'object' ? Object.fromEntries(Object.entries(a.labels).filter(([k, v]) => typeof k === 'string' && k.length <= 64 && typeof v === 'string').slice(0, 64).map(([k, v]) => [k, cleanName(v).slice(0, 30)]).filter(([, v]) => v)) : undefined };   // box names shown in the Creator   // the item's model, reshaped in the Creator (JSON text)
+    labels: a.labels && typeof a.labels === 'object' ? Object.fromEntries(Object.entries(a.labels).filter(([k, v]) => typeof k === 'string' && k.length <= 64 && typeof v === 'string').slice(0, 64).map(([k, v]) => [k, clip(cleanName(v), 30)]).filter(([, v]) => v)) : undefined };   // box names shown in the Creator   // the item's model, reshaped in the Creator (JSON text)
   if (!ok(r)) throw new Error('That asset could not be saved.');
   await db.put('assets', r.id, r); return r;
 }
