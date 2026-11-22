@@ -62,9 +62,11 @@ public final class SkinEditorPlugin extends JavaPlugin {
         "undertop", "overtop", "shoes", "headAccessory", "faceAccessory", "earAccessory", "skinFeature", "gloves", "cape" };
     static final Set<String> SLOTS = Set.of(FIELDS);
     static final String LIVE = "SkinEditor_Live";
-    static final String VERSION = "1.0.2";
+    static final String VERSION = "1.0.3";
+    static final Pattern WORD = Pattern.compile("^[A-Za-z0-9_ -]{1,64}$");
+    static final Map<String, String> GENERIC = Map.of("Short", "GenericShort", "Medium", "GenericMedium", "Long", "GenericLong");   // Cosmetics/CharacterCreator/HaircutFallbacks.json
 
-    record Asset(String id, String field, String model, String texture) {}
+    record Asset(String id, String field, String model, String texture, String baseId, String tone) {}   // baseId: the game item it was copied from; tone: a copied body's skin tone
     /** what the website says you are wearing */
     record Wearing(Map<String, String> parts, Set<String> keepOwn, String raw) {}
 
@@ -79,7 +81,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
     public SkinEditorPlugin(JavaPluginInit init) {
         super(init);
         // the live pack must be a valid pack before the server loads asset packs (after plugins are found, before setup)
-        try { locate(); ensureLivePack(); } catch (Throwable ignored) { }
+        try { locate(); ensureLivePack(); syncAssets(true); } catch (Throwable ignored) { }   // prune before the packs are read: removing a file after that crashes clients
         // a world only loads packs it was told about (single-player worlds start with "default mods enabled" off), so the live pack is
         // switched on here, unless the player turned it off themselves
         try { var cfg = com.hypixel.hytale.server.core.HytaleServer.get().getConfig().getModConfig();
@@ -90,7 +92,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
 
     @Override
     protected void setup() {
-        try { locate(); ensureLivePack(); syncAssets(); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not prepare: " + e); }
+        try { locate(); ensureLivePack(); syncAssets(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not prepare: " + e); }
         tick = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "SkinEditor"); t.setDaemon(true); return t; });
         tick.scheduleWithFixedDelay(this::step, 2, 1, TimeUnit.SECONDS);
     }
@@ -113,7 +115,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
     // ------------------------------------------------------------------ once a second
     private void step() {
         markFolder();
-        try { syncAssets(); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] sync: " + e); }
+        try { syncAssets(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] sync: " + e); }
         try {
             UUID me = localPlayer(); if (me == null) return;
             PlayerRef pr = Universe.get().getPlayer(me); if (pr == null) return;
@@ -180,10 +182,11 @@ public final class SkinEditorPlugin extends JavaPlugin {
             applied.put(who, new PlayerSkin(skin)); plain(store, ref, skin);
         } else {
             applied.remove(who);
-            for (String f : custom.keySet()) put(skin, f, null);
-            List<ModelAttachment> extra = new ArrayList<>(); for (Asset a : custom.values()) extra.add(new ModelAttachment(a.model(), a.texture(), null, null, 1.0));
+            for (var e : custom.entrySet()) { String f = e.getKey(); Asset a = e.getValue();
+                // the body, hat and haircut keep their game item underneath (tone, covering rules, hair length); the custom piece is drawn in its place
+                put(skin, f, f.equals("bodyCharacteristic") && a.baseId() != null && a.tone() != null ? a.baseId() + "." + a.tone() : null); }   // only the body keeps its game item (for the tone); hat and hair rules read the custom pieces' base items in skinToModel
             CosmeticsModule cm = CosmeticsModule.get();
-            Model m = skinToModel(cm, skin, cm.createModel(skin), extra);
+            Model m = skinToModel(cm, skin, cm.createModel(skin), custom);
             if (store.getComponent(ref, PlayerSkinComponent.getComponentType()) != null) store.removeComponent(ref, PlayerSkinComponent.getComponentType());
             store.putComponent(ref, ModelComponent.getComponentType(), new ModelComponent(m));
         }
@@ -210,7 +213,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
     }
 
     /** copies "<skins folder>/Custom assets" into the live pack; each texture is named after its content, so a repaint is a new file */
-    synchronized void syncAssets() throws Exception {
+    synchronized void syncAssets(boolean prune) throws Exception {   // prune: only at world start; a texture removed while a client may still draw it crashes that client
         Path src = skinsDir.resolve("Custom assets"); if (!Files.isDirectory(src)) return;
         StringBuilder stamp = new StringBuilder();
         try (Stream<Path> fs = Files.list(src)) { for (Path f : (Iterable<Path>) fs::iterator) stamp.append(f.getFileName()).append(Files.getLastModifiedTime(f).toMillis()).append(Files.size(f)).append(';'); }
@@ -232,12 +235,14 @@ public final class SkinEditorPlugin extends JavaPlugin {
                 if (Files.isRegularFile(shp) && Files.size(shp) <= 200_000) { String mj = Files.readString(shp).trim();
                     if (mj.startsWith("{") && mj.contains("\"nodes\"")) { String mf = id + "-" + String.format("%08x", mj.hashCode()) + ".blockymodel";
                         Path mo = texDir.resolve(mf); if (!Files.isRegularFile(mo)) Files.writeString(mo, mj); keepFiles.add(mf); model = "Characters/SkinEditor/" + mf; } }
-                String entry = "{\"format\": \"skin-editor-asset\", \"id\": \"" + id + "\", \"field\": \"" + field + "\", \"model\": \"" + model + "\", \"texture\": \"Characters/SkinEditor/" + tex + "\"}\n";
+                String baseId = str(json, "baseId"), tone = str(json, "tone"); if (baseId != null && !WORD.matcher(baseId).matches()) baseId = null; if (tone != null && !WORD.matcher(tone).matches()) tone = null;
+                String entry = "{\"format\": \"skin-editor-asset\", \"id\": \"" + id + "\", \"field\": \"" + field + "\", \"model\": \"" + model + "\", \"texture\": \"Characters/SkinEditor/" + tex + "\""
+                    + (baseId != null ? ", \"baseId\": \"" + baseId + "\"" : "") + (tone != null ? ", \"tone\": \"" + tone + "\"" : "") + "}\n";
                 Path ent = entDir.resolve(id + ".json"); if (!Files.isRegularFile(ent) || !Files.readString(ent).equals(entry)) Files.writeString(ent, entry);
                 keepFiles.add(tex); keepFiles.add(id + ".json");
             }
         }
-        for (Path dir : List.of(texDir, entDir)) try (Stream<Path> fs = Files.list(dir)) {   // old repaints and deleted assets go
+        if (prune) for (Path dir : List.of(texDir, entDir)) try (Stream<Path> fs = Files.list(dir)) {   // old repaints and deleted assets go (at world start only)
             for (Path f : (Iterable<Path>) fs::iterator) if (!keepFiles.contains(f.getFileName().toString())) Files.deleteIfExists(f);
         }
         lastSync = stamp.toString();
@@ -252,7 +257,8 @@ public final class SkinEditorPlugin extends JavaPlugin {
                 if (!f.getFileName().toString().endsWith(".json")) continue; String json = Files.readString(f);
                 String id = str(json, "id"), field = str(json, "field"), model = str(json, "model"), tex = str(json, "texture");
                 if (id == null || !ID.matcher(id).matches() || field == null || !SLOTS.contains(field) || model == null || tex == null || !TEX.matcher(tex).matches()) continue;
-                if (Files.isRegularFile(live.resolve("Common").resolve(tex))) out.put(id, new Asset(id, field, model, tex));
+                String baseId = str(json, "baseId"), tone = str(json, "tone"); if (baseId != null && !WORD.matcher(baseId).matches()) baseId = null; if (tone != null && !WORD.matcher(tone).matches()) tone = null;
+                if (Files.isRegularFile(live.resolve("Common").resolve(tex))) out.put(id, new Asset(id, field, model, tex, baseId, tone));
             }
         } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not read the live pack: " + e); }
         return out;
@@ -266,7 +272,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
 
     /** a skin as the Player model with one attachment per part, resolved from the game's cosmetics list (variant, fixed texture, or greyscale + colour) */
     @SuppressWarnings("unchecked")
-    static Model skinToModel(CosmeticsModule cm, PlayerSkin ps, Model base, List<ModelAttachment> extra) throws Exception {
+    static Model skinToModel(CosmeticsModule cm, PlayerSkin ps, Model base, Map<String, Asset> custom) throws Exception {
         var reg = cm.getRegistry();
         java.util.function.Function<String, com.hypixel.hytale.server.core.cosmetics.PlayerSkin.PlayerSkinPartId> pid =
             id -> id == null ? null : com.hypixel.hytale.server.core.cosmetics.PlayerSkin.PlayerSkinPartId.fromString(id);
@@ -276,10 +282,29 @@ public final class SkinEditorPlugin extends JavaPlugin {
             {ps.haircut, reg.getHaircuts()}, {ps.facialHair, reg.getFacialHairs()}, {ps.underwear, reg.getUnderwear()}, {ps.pants, reg.getPants()}, {ps.overpants, reg.getOverpants()},
             {ps.undertop, reg.getUndertops()}, {ps.overtop, reg.getOvertops()}, {ps.shoes, reg.getShoes()}, {ps.gloves, reg.getGloves()}, {ps.headAccessory, reg.getHeadAccessories()},
             {ps.faceAccessory, reg.getFaceAccessories()}, {ps.earAccessory, reg.getEarAccessories()}, {ps.skinFeature, reg.getSkinFeatures()}, {ps.cape, reg.getCapes()} };
+        // a hat covers hair as in the game: fully covering hides it, half covering swaps a tall cut for the generic one of its length
+        Asset ch = custom.get("headAccessory"), cHair = custom.get("haircut");
+        var hatId = pid.apply(ps.headAccessory); var hat = ch != null ? (ch.baseId() == null ? null : reg.getHeadAccessories().get(ch.baseId())) : hatId == null ? null : reg.getHeadAccessories().get(hatId.assetId);
+        var hairPart = cHair != null ? (cHair.baseId() == null ? null : reg.getHaircuts().get(cHair.baseId())) : hairId == null ? null : reg.getHaircuts().get(hairId.assetId);
+        var hatType = hat == null ? null : hat.getHeadAccessoryType();
+        boolean hairHidden = hatType == PlayerSkinPart.HeadAccessoryType.FullyCovering;
+        boolean hairGeneric = !hairHidden && hatType == PlayerSkinPart.HeadAccessoryType.HalfCovering && hairPart != null && hairPart.doesRequireGenericHaircut();
+        String genericHair = hairGeneric && hairPart.getHairType() != null ? GENERIC.get(hairPart.getHairType().name()) : null;
         // earrings hang from R/L-Ear-Attachment (or Head), which every body model has, so they are drawn like the rest
-        List<ModelAttachment> out = new ArrayList<>(extra);   // custom pieces first: the client draws only the first several attachments
+        List<ModelAttachment> out = new ArrayList<>();   // custom pieces first: the client draws only the first several attachments
+        for (var e : custom.entrySet()) { String f = e.getKey(); Asset a = e.getValue();
+            if (f.equals("bodyCharacteristic")) continue;   // the body is the model itself (set below), not a second body on top
+            if (f.equals("haircut") && (hairHidden || hairGeneric)) continue;   // under a hat: hidden, or the game's generic cut drawn below
+            out.add(new ModelAttachment(a.model(), a.texture(), null, null, 1.0)); }
+        String hairTone = null; try { var hs = reg.getGradientSets().get("Hair"); if (hs != null) { var gm = hs.getClass().getMethod("getGradients").invoke(hs); if (gm instanceof Map<?, ?> mm && !mm.isEmpty()) hairTone = mm.containsKey("PitchBlack") ? "PitchBlack" : String.valueOf(mm.keySet().iterator().next()); }   /* the site draws it in the first hair colour (PitchBlack) */ } catch (Exception ignored) { }
         for (Object[] pr : parts) {
-            String id = (String) pr[0]; if (id == null || id.isEmpty()) continue;
+            String id = (String) pr[0];
+            if (pr[1] == reg.getHaircuts() && (id == null || id.isEmpty()) && cHair != null && hairGeneric && genericHair != null && hairTone != null) id = genericHair + "." + hairTone;   // a custom cut under a half-covering hat: the game's generic one shows
+            if (id == null || id.isEmpty()) continue;
+            if (pr[1] == reg.getHaircuts()) { if (hairHidden) continue;
+                if (hairGeneric && genericHair != null && reg.getHaircuts().containsKey(genericHair)) { var hp = pid.apply(id); id = genericHair + (hp.textureId != null ? "." + hp.textureId : ""); } }
+            if (id.isEmpty()) continue;
+            if (pr[1] == reg.getHeadAccessories() && custom.containsKey("headAccessory")) continue;   // the custom hat is drawn instead
             var map = (Map<String, PlayerSkinPart>) pr[1];
             var p = pid.apply(id); var part = map.get(p.assetId); if (part == null) continue;
             String mdl = part.getModel(), grey = part.getGreyscaleTexture(); var texs = part.getTextures();
@@ -293,8 +318,10 @@ public final class SkinEditorPlugin extends JavaPlugin {
         Model m = new Model(base); var body = bodyId == null ? null : reg.getBodyCharacteristics().get(bodyId.assetId);
         java.util.function.BiConsumer<String, Object> set = (f, v) -> { try { var fl = Model.class.getDeclaredField(f); fl.setAccessible(true); fl.set(m, v); } catch (Exception e) { throw new RuntimeException(e); } };
         set.accept("attachments", out.toArray(new ModelAttachment[0]));
-        if (body != null) { if (body.getModel() != null) set.accept("model", body.getModel()); if (body.getGreyscaleTexture() != null) set.accept("texture", body.getGreyscaleTexture()); }
-        set.accept("gradientSet", "Skin"); set.accept("gradientId", tone);
+        Asset cb = custom.get("bodyCharacteristic");
+        if (cb != null) { set.accept("model", cb.model()); set.accept("texture", cb.texture()); set.accept("gradientSet", null); set.accept("gradientId", null); }   // a copied body is painted already: its own model and texture, no tint
+        else { if (body != null) { if (body.getModel() != null) set.accept("model", body.getModel()); if (body.getGreyscaleTexture() != null) set.accept("texture", body.getGreyscaleTexture()); }
+            set.accept("gradientSet", "Skin"); set.accept("gradientId", tone); }
         set.accept("cachedPacket", null);
         return m;
     }
