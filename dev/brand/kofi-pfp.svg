@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+<defs>
+<radialGradient id="bg" cx=".62" cy=".38" r=".85"><stop offset="0" stop-color="#1d3a3a"/><stop offset=".45" stop-color="#132338"/><stop offset="1" stop-color="#0a121d"/></radialGradient>
+<linearGradient id="steel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a9c6f5"/><stop offset=".45" stop-color="#4a7bd0"/><stop offset="1" stop-color="#27468a"/></linearGradient>
+</defs>
+<rect width="1000" height="1000" fill="url(#bg)"/>
+<circle cx="500" cy="500" r="470" fill="none" stroke="#40618c" stroke-width="10"/>
+<g fill="none" stroke="#f4c452" stroke-width="16" stroke-linecap="round">
+<path d="M155 260 A400 400 0 0 1 260 155"/><path d="M740 155 A400 400 0 0 1 845 260"/>
+<path d="M845 740 A400 400 0 0 1 740 845"/><path d="M260 845 A400 400 0 0 1 155 740"/>
+</g>
+<g transform="translate(500 500) scale(3.15) translate(-90.05 -57)">
+<g fill="#0b1626" stroke="#0b1626" stroke-width="16" stroke-linejoin="round" fill-rule="evenodd"><path d="M-4.9 0 L33 0 L33 53.8 L64.8 53.8 L64.8 0 L102.7 0 L92.9 105.1 L70.9 134.4 L64.8 124.7 L64.8 75.8 L33 75.8 L33 110 L4.9 95.3 Z"/><path transform="translate(107 0)" d="M0 0 H60 L78 18 V92 L60 110 H0 Z M28 26 H46 L52 32 V78 L46 84 H28 Z"/></g>
+<g fill="url(#steel)" stroke="#dbe7f7" stroke-width="4" stroke-linejoin="round" fill-rule="evenodd"><path d="M-4.9 0 L33 0 L33 53.8 L64.8 53.8 L64.8 0 L102.7 0 L92.9 105.1 L70.9 134.4 L64.8 124.7 L64.8 75.8 L33 75.8 L33 110 L4.9 95.3 Z"/><path transform="translate(107 0)" d="M0 0 H60 L78 18 V92 L60 110 H0 Z M28 26 H46 L52 32 V78 L46 84 H28 Z"/></g>
+</g>
+</svg>
