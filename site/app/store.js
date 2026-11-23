@@ -76,6 +76,18 @@ export async function swap(customId, slot) {
   await mirror();
 }
 
+// Swap what two in-game slots hold (an empty one swaps too: the skin just moves over).
+export async function swapSlots(a, b) {
+  const { game } = await list(),
+    x = game[a],
+    y = game[b];
+  if (y) await put(record(gameId(a), 'game', y.name, y.skin, a));
+  else await db.del('skins', gameId(a));
+  if (x) await put(record(gameId(b), 'game', x.name, x.skin, b));
+  else await db.del('skins', gameId(b));
+  await mirror();
+}
+
 export async function exportAll() {
   const { game, custom } = await list();
   const mine = [];

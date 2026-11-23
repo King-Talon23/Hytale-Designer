@@ -84,6 +84,17 @@ export function createLocker(app) {
       render();
     }
   });
+  // two records trade places (a slot and a skin, or two slots): their published copies trade with them
+  const swapPub = async (a, b) => {
+    const x = PUBMAP[a],
+      y = PUBMAP[b];
+    if (!x && !y) return;
+    if (y) PUBMAP[a] = y;
+    else delete PUBMAP[a];
+    if (x) PUBMAP[b] = x;
+    else delete PUBMAP[b];
+    await savePubMap();
+  };
   const movePub = async (from, to) => {
     if (PUBMAP[from] && to) {
       PUBMAP[to] = PUBMAP[from];
@@ -125,11 +136,73 @@ export function createLocker(app) {
     render();
   });
 
+  // ---- drag and drop between the in-game slots and My skins
+  let DRAG = null; // { kind: 'game' | 'custom', rec }
+  const dropOk = (kind, i) => !!DRAG && kind === 'game' && !(DRAG.kind === 'game' && DRAG.rec.slot === i);
+  const dragFrom = (rec, kind) =>
+    (kind === 'game' || (kind === 'custom' && !app.hasCustom(rec.skin))) && {
+      draggable: true,
+      title: kind === 'game' ? 'Drag to My skins or another slot' : 'Drag onto an in-game slot',
+      ondragstart: e => {
+        DRAG = { kind, rec };
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', rec.name);
+        e.currentTarget.classList.add('dragging');
+        document.querySelector('.shelf.custom')?.classList.toggle('dropzone', kind === 'game');
+      },
+      ondragend: e => {
+        DRAG = null;
+        e.currentTarget.classList.remove('dragging');
+        document.querySelectorAll('.drop, .dropzone').forEach(x => x.classList.remove('drop', 'dropzone'));
+      },
+    };
+  // a slot takes a skin dropped on it: one from My skins swaps in, another slot's trades places
+  const dropOn = (kind, i) =>
+    kind === 'game' && {
+      ondragover: e => {
+        if (!dropOk(kind, i)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.currentTarget.classList.add('drop');
+      },
+      ondragleave: e => e.currentTarget.classList.remove('drop'),
+      ondrop: e => {
+        e.currentTarget.classList.remove('drop');
+        if (!dropOk(kind, i)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const d = DRAG;
+        DRAG = null;
+        if (d.kind === 'custom') sendToSlot(d.rec, i);
+        else moveSlot(d.rec.slot, i);
+      },
+    };
+  // My skins takes an in-game skin dropped anywhere on it
+  const shelfDrop = {
+    ondragover: e => {
+      if (DRAG?.kind !== 'game') return;
+      e.preventDefault();
+      e.currentTarget.classList.add('drop');
+    },
+    ondragleave: e => {
+      if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('drop');
+    },
+    ondrop: e => {
+      e.currentTarget.classList.remove('drop');
+      if (DRAG?.kind !== 'game') return;
+      e.preventDefault();
+      const d = DRAG;
+      DRAG = null;
+      moveOut(d.rec);
+    },
+  };
+
   function card(rec, kind, i) {
     if (!rec)
       return el(
         'div',
         {
+          ...dropOn(kind, i),
           class: 'skin empty ' + kind,
           role: 'button',
           tabIndex: 0,
@@ -187,6 +260,8 @@ export function createLocker(app) {
     return el(
       'div',
       {
+        ...dragFrom(rec, kind),
+        ...dropOn(kind, kind === 'game' ? rec.slot : null),
         class: 'skin ' + kind + (app.cur.id && app.cur.id === rec.id ? ' on' : ''),
         tabIndex: 0,
         data: { rid: String(rec.id) },
@@ -434,7 +509,7 @@ export function createLocker(app) {
         ),
         el(
           'div',
-          { class: 'shelf custom' },
+          { class: 'shelf custom', ...shelfDrop },
           el('h3', {}, el('span', { text: 'My skins' }), el('em', { text: `${app.WARD.custom.length} / ${store.CUSTOM_MAX}` })),
           app.WARD.custom.length
             ? el(
@@ -465,8 +540,14 @@ export function createLocker(app) {
       { label: 'Cancel', value: '' },
     ]);
     if (v === '') return;
-    await store.swap(rec.id, +v);
-    await movePub(rec.id, 'game-' + v);
+    await sendToSlot(rec, +v);
+  });
+  // a skin from My skins into a slot; what the slot held moves to My skins (under the sent skin's id)
+  const sendToSlot = guard(async (rec, v) => {
+    rec = liveRec(rec);
+    if (app.hasCustom(rec.skin)) throw new Error("Custom items can't go in game slots");
+    await store.swap(rec.id, v);
+    await swapPub(rec.id, 'game-' + v);
     if (app.cur.id === rec.id) {
       app.cur.id = 'game-' + v;
       app.cur.kind = 'game';
@@ -498,6 +579,19 @@ export function createLocker(app) {
     plate();
     say('Moved to My skins');
   }); /* the open skin follows its record */
+  // one in-game slot onto another: they trade skins
+  const moveSlot = guard(async (from, to) => {
+    if (from === to) return;
+    await store.swapSlots(from, to);
+    await swapPub('game-' + from, 'game-' + to);
+    if (app.cur.id === 'game-' + from || app.cur.id === 'game-' + to) {
+      const now = app.cur.id === 'game-' + from ? to : from;
+      Object.assign(app.cur, { id: 'game-' + now, kind: 'game', slot: now });
+      keepDraft();
+    }
+    await refreshWard();
+    say(`Swapped slots ${from + 1} and ${to + 1}`);
+  });
   const liveRec = rec => {
     const w = [...app.WARD.game, ...app.WARD.custom].find(r => r && r.id === rec.id) || rec;
     return app.cur && app.cur.id === rec.id ? { ...w, skin: app.cur.skin } : w;

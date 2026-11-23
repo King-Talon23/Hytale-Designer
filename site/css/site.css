@@ -3593,3 +3593,20 @@ nav button.make.on::after {
     width: min(300px, 48%);
   }
 } /* above the emote circles, clear of the background buttons */
+
+/* Locker drag and drop: in-game slots and My skins */
+.skin[draggable='true'] {
+  cursor: grab;
+}
+.skin.dragging {
+  opacity: 0.45;
+}
+.skin.drop,
+.shelf.custom.drop {
+  outline: 2px dashed var(--gold);
+  outline-offset: 3px;
+}
+.shelf.custom.dropzone {
+  outline: 2px dashed var(--line2);
+  outline-offset: 3px;
+}
