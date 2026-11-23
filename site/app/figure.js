@@ -757,10 +757,75 @@ export async function blockModel(name) {
   m.userData.shared = true;
   return m;
 } // one piece of furniture (a chair, a ladder ...)
+// block geometries and materials are shared and cached, only the instance lists go (and the few meshes a world made for itself, whose textures are the shared blocks')
 const disposeTree = root =>
   root.traverse(o => {
     if (o.isInstancedMesh) o.dispose();
-  }); // block geometries and materials are shared and cached, only the instance lists go
+    if (o.userData.own) {
+      o.geometry.dispose();
+      o.material.dispose();
+    }
+  });
+// the fall's shaft: four walls of a 5x5 block (or grid cell) square round the character, each a plane facing in, so a view from
+// outside looks straight through the near wall into the shaft. Below SHAFT_CAP the walls rise with the fall; past it they stay
+// and their pattern scrolls instead, so the fall can go on for ever.
+const SHAFT_CAP = 1000,
+  shaftWalls = (half, mat, geo) => {
+    const g = new THREE.Group();
+    for (const [x, z, r] of [
+      [0, -half, 0],
+      [0, half, Math.PI],
+      [-half, 0, Math.PI / 2],
+      [half, 0, -Math.PI / 2],
+    ]) {
+      const w = new THREE.Mesh(geo, mat);
+      w.position.set(x, 0, z);
+      w.rotation.y = r;
+      w.frustumCulled = false;
+      g.add(w);
+    }
+    return g;
+  };
+// a wall of cols x rows of a block's side face (the wall's top edge at y 0), each block a touch lighter or darker than the next
+// (a pattern repeating every SHADE_ROWS rows) so the rows read as blocks even when the texture tiles seamlessly, darkening to
+// black below fadeAt
+const SHADE_ROWS = 8;
+function blockWall(part, cols, rows, fadeAt = Infinity) {
+  const side = Array.isArray(part.mat) ? part.mat[0] : part.mat,
+    pos = [],
+    uv = [],
+    col = [],
+    idx = [];
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      const n = Math.sin(c * 12.9898 + (r % SHADE_ROWS) * 78.233) * 43758.5453,
+        k = 0.8 + 0.2 * (n - Math.floor(n)),
+        x0 = (c - cols / 2) * BLOCK,
+        y0 = -r * BLOCK,
+        i = pos.length / 3;
+      for (const [dx, dy] of [
+        [0, 0],
+        [1, 0],
+        [0, -1],
+        [1, -1],
+      ]) {
+        const y = y0 + dy * BLOCK,
+          d = Math.min(1, Math.max(0.02, 1 - (-y - fadeAt) / 900));
+        pos.push(x0 + dx * BLOCK, y, 0);
+        uv.push(dx, 1 + dy);
+        col.push(k * d, k * d, k * d);
+      }
+      idx.push(i, i + 2, i + 1, i + 2, i + 3, i + 1);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mat = new THREE.MeshLambertMaterial({ map: side.map, color: side.color.clone(), vertexColors: true, alphaTest: side.alphaTest });
+  return { geo: g, mat };
+}
 // a block's turn in a prefab: 0-63, quarter turns about y, then x, then z
 const turnOf = r =>
   new THREE.Quaternion().setFromEuler(
@@ -889,6 +954,40 @@ async function buildWorld(sc, tint) {
     root.add(im);
     sets.push({ im, list, plant, slide });
   }
+  // the fall: the land goes and only a shaft is left, walled with the zone's own blocks: a row of its ground block at the top
+  // (the rim the character drops in from) and its under-ground block all the way down, dark at the very bottom
+  const shaft = new THREE.Group(),
+    wall = blockWall((await blockParts(sc.under, tint))[0], 5, 40, SHAFT_CAP + 700),
+    rimW = blockWall((await blockParts(sc.ground, tint))[0], 5, 1),
+    walls = shaftWalls(2.5 * BLOCK, wall.mat, wall.geo.translate(0, -BLOCK, 0)),
+    rim = shaftWalls(2.5 * BLOCK, rimW.mat, rimW.geo);
+  walls.children[0].userData.own = rim.children[0].userData.own = true;
+  {
+    const end = new THREE.Mesh(
+      new THREE.PlaneGeometry(5 * BLOCK, 5 * BLOCK).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0 })
+    );
+    end.position.y = -41 * BLOCK;
+    end.userData.own = true;
+    walls.add(end);
+  }
+  /* the shaft's dark bottom, far below */
+  shaft.add(walls, rim);
+  shaft.visible = false;
+  root.add(shaft);
+  let falling = false;
+  // r: how far the character has fallen (scene units), or null when not falling. Past SHAFT_CAP the walls step back down a whole
+  // shade pattern at a time, which looks the same, so they can rush past for ever
+  root.userData.fall = r => {
+    if ((r != null) !== falling) {
+      falling = r != null;
+      for (const o of root.children) o.visible = o === shaft ? falling : !falling;
+    }
+    if (!falling) return;
+    walls.position.y = r <= SHAFT_CAP ? r : SHAFT_CAP + ((r - SHAFT_CAP) % (SHADE_ROWS * BLOCK));
+    rim.position.y = r;
+    rim.visible = r < SHAFT_CAP + 1500;
+  };
   let ax = 0,
     az = 0; // how far the plain has slid (scene units)
   const avoid = () => root.userData.avoid || []; // set pieces' ground rectangles [x0, z0, x1, z1] in blocks: no plant inside them
@@ -980,7 +1079,8 @@ export function stage(canvas, Controls) {
   ctl.minDistance = 40;
   ctl.maxDistance = 900;
   ctl.rotateSpeed = 0.55;
-  ctl.maxPolarAngle = Math.PI * 0.55;
+  // the camera stays above the floor everywhere (Studio matches the backgrounds)
+  ctl.maxPolarAngle = Math.PI * 0.47;
   ctl.update();
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(58, 48),
@@ -995,13 +1095,15 @@ export function stage(canvas, Controls) {
       new THREE.ShaderMaterial({
         transparent: true,
         depthWrite: false,
+        // both faces: on Studio the camera may tip below the floor (far out at the lowest tilt it is under it), and the floor must still show
+        side: THREE.DoubleSide,
         extensions: { derivatives: true },
         // the Studio floor: grid lines on an endless plane, fading into the dark with distance so no edge is ever seen
-        uniforms: { opacity: { value: 0 }, color: { value: new THREE.Color(0x5a8cc8) }, cell: { value: CELL }, hole: { value: 0 } },
+        uniforms: { opacity: { value: 0 }, color: { value: new THREE.Color(0x5a8cc8) }, cell: { value: CELL } },
         vertexShader:
           'varying vec3 vL; varying vec3 vW; void main() { vL = position; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
         fragmentShader:
-          'uniform float opacity; uniform vec3 color; uniform float cell; uniform float hole; varying vec3 vL; varying vec3 vW; void main() { if (length(vW.xz) < hole) discard; vec2 g = abs(fract(vL.xz / cell - 0.5) - 0.5) / fwidth(vL.xz / cell); float line = 1.0 - smoothstep(0.0, 1.3, min(g.x, g.y)); float d = length(vW.xz); float fade = 1.0 - smoothstep(300.0, 3200.0, d); gl_FragColor = vec4(color, line * fade * opacity); if (gl_FragColor.a < 0.003) discard; }',
+          'uniform float opacity; uniform vec3 color; uniform float cell; varying vec3 vL; varying vec3 vW; void main() { vec2 g = abs(fract(vL.xz / cell - 0.5) - 0.5) / fwidth(vL.xz / cell); float line = 1.0 - smoothstep(0.0, 1.3, min(g.x, g.y)); float d = length(vW.xz); float fade = 1.0 - smoothstep(300.0, 3200.0, d); gl_FragColor = vec4(color, line * fade * opacity); if (gl_FragColor.a < 0.003) discard; }',
       })
     );
   Object.defineProperty(grid.material, 'opacity', {
@@ -1026,6 +1128,45 @@ export function stage(canvas, Controls) {
   wallG.material.depthWrite = false;
   wallG.visible = false;
   scene.add(wallG);
+  // the Studio's fall shaft: grid walls fading into the dark below, and streaks of rushing air for every background
+  const SHAFT = 80 * CELL,
+    shaftM = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      extensions: { derivatives: true },
+      uniforms: {
+        opacity: { value: 0 },
+        color: { value: new THREE.Color(0x5a8cc8) },
+        cell: { value: CELL },
+        scroll: { value: 0 },
+        depth: { value: SHAFT },
+      },
+      vertexShader:
+        'varying vec2 vL; void main() { vL = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader:
+        'uniform float opacity; uniform vec3 color; uniform float cell; uniform float scroll; uniform float depth; varying vec2 vL; void main() { vec2 u = vec2(vL.x / cell + 2.5, (vL.y - scroll) / cell); vec2 g = abs(fract(u - 0.5) - 0.5) / fwidth(u); float line = 1.0 - smoothstep(0.0, 1.3, min(g.x, g.y)); float fade = 1.0 - smoothstep(depth * 0.55, depth, -vL.y); gl_FragColor = vec4(color, (line + 0.12 * (1.0 - line)) * fade * opacity); if (gl_FragColor.a < 0.003) discard; }',
+    }),
+    shaftG = shaftWalls(2.5 * CELL, shaftM, new THREE.PlaneGeometry(5 * CELL, SHAFT).translate(0, -SHAFT / 2, 0));
+  shaftG.visible = false;
+  scene.add(shaftG);
+  const STREAKS = 40,
+    streakPos = new Float32Array(STREAKS * 6),
+    streakLen = [],
+    streaks = new THREE.LineSegments(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(streakPos, 3)),
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false })
+    );
+  for (let i = 0; i < STREAKS; i++) {
+    const x = Math.random() * 1.8 - 0.9,
+      z = Math.random() * 1.8 - 0.9,
+      y = Math.random() * 1000 - 400;
+    streakLen.push(40 + Math.random() * 90);
+    streakPos.set([x, y, z, x, y + streakLen[i], z], i * 6);
+  }
+  streaks.frustumCulled = false;
+  streaks.visible = false;
+  scene.add(streaks);
   let wallOn = null;
   const WALL_Z = 12,
     WALL_Y = 70;
@@ -1034,22 +1175,47 @@ export function stage(canvas, Controls) {
     O2 = new THREE.Vector2();
   let yawTo = 0,
     yawAt = 0; // yaw: which way the figure faces (walking with WASD); the ground slides the way it faces
+  // the fall: the ground goes, the character drops FALL_D into the shaft and then falls on at the speed reached, the walls rushing up
+  const FALL_D = 2 * BLOCK,
+    FALL_G = 3000,
+    FALL_V = Math.sqrt(2 * FALL_D * FALL_G);
   let jumpH = 0,
     jumpAt = 0,
     fallOn = false,
-    fallT = 0,
-    fallRise = 0;
+    fallT = 0;
   function airStep(dt) {
     // jumps and falls (the files only hold the body; the stage shows the air under it)
-    if (fallOn) fallT += dt;
-    const open = fallOn ? Math.min(1, fallT / 0.3) : 0,
-      hole = open * open * (3 - 2 * open) * 260;
-    grid.material.uniforms.hole.value = hole;
-    fallRise = fallOn ? Math.min(900, fallRise + dt * (fallT < 0.25 ? 0 : 420)) : fallRise * Math.exp(-dt * 10);
-    if (fallRise < 0.5) fallRise = 0;
-    grid.position.y = fallRise;
-    if (world) world.position.y = fallRise;
-    disc.visible = disc.userData.on !== false && !fallOn && fallRise < 1;
+    let fell = null;
+    if (fallOn) {
+      fallT += dt;
+      const land = FALL_V / FALL_G;
+      fell = fallT < land ? 0.5 * FALL_G * fallT * fallT : FALL_D + FALL_V * (fallT - land);
+    }
+    if (world) world.userData.fall(fell);
+    const half = (world ? 2.5 * BLOCK : 2.5 * CELL) - 6;
+    shaftG.visible = fell != null && !world;
+    if (shaftG.visible) {
+      shaftG.position.y = Math.min(fell, SHAFT_CAP);
+      shaftM.uniforms.scroll.value = Math.max(0, fell - SHAFT_CAP) % CELL;
+      shaftM.uniforms.opacity.value = 0.55;
+    }
+    {
+      /* rushing air: thin streaks flying up inside the shaft, a little faster than the walls */
+      const sp = Math.min(1, fallT / 0.4);
+      streaks.visible = fell != null;
+      streaks.material.opacity = fell != null ? 0.32 * sp : 0;
+      streaks.scale.set(half, 1, half);
+      if (streaks.visible) {
+        for (let i = 0; i < STREAKS; i++) {
+          let y = streakPos[i * 6 + 1] + FALL_V * 1.3 * sp * dt;
+          if (y > 600) y -= 1000;
+          streakPos[i * 6 + 1] = y;
+          streakPos[i * 6 + 4] = y + streakLen[i];
+        }
+        streaks.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+    disc.visible = disc.userData.on !== false && fell == null;
     if (figure && (jumpH || jumpAt)) {
       const p = anim.anim && anim.playing && !anim.resting ? (anim.t % Math.max(1, anim.duration)) / Math.max(1, anim.duration) : 0,
         h = jumpH * Math.sin(Math.PI * p);
@@ -1088,12 +1254,11 @@ export function stage(canvas, Controls) {
     } // water drifts with the land
     grid.position.x = (grid.position.x - vel.x * dt) % CELL;
     grid.position.z = (grid.position.z - vel.y * dt) % CELL; // the ground runs backwards under the figure
-    grid.material.opacity += ((!world ? 0.5 : 0) - grid.material.opacity) * (1 - Math.exp(-dt * 6));
+    grid.material.opacity = fallOn ? 0 : grid.material.opacity + ((!world ? 0.5 : 0) - grid.material.opacity) * (1 - Math.exp(-dt * 6));
     grid.visible = grid.material.opacity > 0.01;
-    const wv = fallOn && fallT > 0.25 ? [0, -360] : wallOn,
-      wy = wallG.position.y - WALL_Y - (wv ? wv[1] : 0) * dt,
-      wx = wallG.position.x - (wv ? wv[0] : 0) * dt; /* falling: the walls of the hole stream up past */
-    wallG.position.set(wx % CELL, WALL_Y + (wy % CELL), fallOn ? -70 : WALL_Z);
+    const wy = wallG.position.y - WALL_Y - (wallOn ? wallOn[1] : 0) * dt,
+      wx = wallG.position.x - (wallOn ? wallOn[0] : 0) * dt;
+    wallG.position.set(wx % CELL, WALL_Y + (wy % CELL), WALL_Z);
     for (const p of scrollers) {
       const b = p.userData.scroll;
       if (!wallOn) {
@@ -1103,8 +1268,7 @@ export function stage(canvas, Controls) {
       p.position.x = b.x + ((p.position.x - b.x - wallOn[0] * dt) % BLOCK);
       p.position.y = b.y + ((p.position.y - b.y - wallOn[1] * dt) % BLOCK);
     }
-    wallG.material.opacity +=
-      (((wallOn && !scrollers.length) || (fallOn && fallT > 0.25) ? 0.5 : 0) - wallG.material.opacity) * (1 - Math.exp(-dt * 6));
+    wallG.material.opacity += ((wallOn && !scrollers.length ? 0.5 : 0) - wallG.material.opacity) * (1 - Math.exp(-dt * 6));
     wallG.visible = wallG.material.opacity > 0.01;
   }
   let hl = null,
@@ -1389,7 +1553,7 @@ export function stage(canvas, Controls) {
     painting = !!on;
     ctl.zoomToCursor = false;
     /* the wheel zooms toward the middle, so the item stays centred (zoom-to-pointer moved the target and the character drifted off-screen) */ ctl.maxPolarAngle =
-      on ? Math.PI * 0.97 : Math.PI * 0.55;
+      on ? Math.PI * 0.97 : Math.PI * 0.47;
     ctl.mouseButtons.LEFT = on ? -1 : THREE.MOUSE.ROTATE;
     ctl.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
     ctl.touches.ONE = on ? -1 : THREE.TOUCH.ROTATE;
@@ -2299,7 +2463,7 @@ export function stage(canvas, Controls) {
     }
   }; // videos at twice the screen's pixels
   api.capture = transparent => {
-    const hide = transparent ? [sky, world, disc, grid, wallG, mist, setPiece].filter(o => o && o.visible) : [],
+    const hide = transparent ? [sky, world, disc, grid, wallG, shaftG, streaks, mist, setPiece].filter(o => o && o.visible) : [],
       fog = scene.fog,
       bg = scene.background,
       pr = renderer.getPixelRatio(),
@@ -2367,7 +2531,7 @@ export function stage(canvas, Controls) {
     disc.material.opacity = bd ? 1 : 0.55;
     disc.material.needsUpdate = true;
     disc.position.y = bd ? 0.9 : -0.2; // the shadow above the sliding floor
-    ctl.maxPolarAngle = Math.PI * (bd ? 0.47 : 0.55);
+    ctl.maxPolarAngle = Math.PI * 0.47;
     ctl.update(); // on real land the camera stays above the ground
     if (!bd) return;
     const top = new THREE.Color(bd.top),
