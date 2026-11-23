@@ -210,3 +210,71 @@ export function motionKind(group, a, name = '') {
   const limit = String(group).split('/')[0] === 'Poses' ? 45 : 12;
   return turn > limit || shift > 4 ? 'move' : 'pose';
 }
+
+// ---- recorded takes (the Animate tab's Record): a take is what the player did with the rings, sampled as they did it,
+// { bone: { orientation: [{ time, delta }], position: [...] } } with times from the take's start. Trimming keeps a span of it,
+// and simplifying keeps only the samples the motion needs, so the result is a few clean keys instead of a key every frame.
+const qAngle = (p, q) => {
+  const d = Math.min(1, Math.abs(p.x * q.x + p.y * q.y + p.z * q.z + p.w * q.w));
+  return (2 * Math.acos(d) * 180) / Math.PI;
+};
+const lerpDelta = (part, p, q, u) => {
+  if (part !== 'orientation') return { x: p.x + (q.x - p.x) * u, y: p.y + (q.y - p.y) * u, z: p.z + (q.z - p.z) * u };
+  const s = p.x * q.x + p.y * q.y + p.z * q.z + p.w * q.w < 0 ? -1 : 1,
+    o = ['x', 'y', 'z', 'w'].map(c => p[c] + (s * q[c] - p[c]) * u),
+    L = Math.hypot(...o) || 1;
+  return { x: o[0] / L, y: o[1] / L, z: o[2] / L, w: o[3] / L };
+};
+const miss = (part, p, q) => (part === 'orientation' ? qAngle(p, q) : Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) / 2);
+// keeps the samples the motion needs: tolerance in degrees (turns) or half-units (moves)
+export function simplifyKeys(keys, part, tol) {
+  if (keys.length <= 2 || !(tol > 0)) return keys.slice();
+  const keep = new Set([0, keys.length - 1]),
+    stack = [[0, keys.length - 1]];
+  while (stack.length) {
+    const [i, j] = stack.pop();
+    let worst = -1,
+      at = -1;
+    for (let k = i + 1; k < j; k++) {
+      const u = (keys[k].time - keys[i].time) / (keys[j].time - keys[i].time || 1),
+        e = miss(part, lerpDelta(part, keys[i].delta, keys[j].delta, u), keys[k].delta);
+      if (e > worst) [worst, at] = [e, k];
+    }
+    if (worst > tol) {
+      keep.add(at);
+      stack.push([i, at], [at, j]);
+    }
+  }
+  return keys.filter((_, k) => keep.has(k));
+}
+// the length of a take in frames
+export const takeLength = take => Math.max(0, ...Object.values(take).flatMap(tr => Object.values(tr).flatMap(ks => ks.map(k => k.time))));
+// writes the span [from, to] of a take into an animation so it starts at frame `at`: the recorded bones' keys inside that span
+// are replaced, everything else is left alone, and the animation grows when the take runs past its end
+export function applyTake(a, take, from, to, at, tol = 1.5) {
+  const len = Math.max(1, Math.round(to - from)),
+    end = at + len;
+  if (end > a.duration) setDuration(a, end);
+  for (const [bone, tr] of Object.entries(take))
+    for (const [part, ks] of Object.entries(tr)) {
+      const span = ks.filter(k => k.time >= from && k.time <= to);
+      if (!span.length) continue;
+      // the take's edges: what the motion was exactly at the cut, so a trim never jumps
+      const at_ = t => {
+        const j = ks.findIndex(k => k.time >= t);
+        if (j <= 0) return ks[Math.max(0, j)].delta;
+        const p = ks[j - 1],
+          q = ks[j];
+        return lerpDelta(part, p.delta, q.delta, (t - p.time) / (q.time - p.time || 1));
+      };
+      if (span[0].time > from && ks[0].time < from) span.unshift({ time: from, delta: at_(from) });
+      if (span[span.length - 1].time < to && ks[ks.length - 1].time >= to) span.push({ time: to, delta: at_(to) });
+      // only where this part was really recorded: before a bone was first grabbed it keeps its own keys
+      const lo = at + Math.round(span[0].time - from),
+        hi = at + Math.round(span[span.length - 1].time - from);
+      for (const k of [...(a.nodeAnimations[bone]?.[part] || [])]) if (k.time >= lo && k.time <= hi) deleteKey(a, bone, part, k.time);
+      for (const k of simplifyKeys(span, part, tol))
+        setKey(a, bone, part, Math.min(MAX_FRAMES, at + Math.round(k.time - from)), k.delta, 'smooth');
+    }
+  return a;
+}

@@ -3610,3 +3610,19 @@ nav button.make.on::after {
   outline: 2px dashed var(--line2);
   outline-offset: 3px;
 }
+
+/* Animate: trimming a recorded take */
+.posestrip.trim {
+  display: grid;
+  gap: 8px;
+}
+.trimrow {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+#rectime {
+  color: var(--bad);
+  font-weight: 700;
+}

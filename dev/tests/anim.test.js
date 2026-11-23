@@ -187,3 +187,25 @@ test('motionKind: travel, climbing and damage are moves; still stances are poses
   assert.equal(A.motionKind('Flavor', still, 'Look_Up'), 'move');
   assert.equal(A.motionKind('Expressions', face, 'Smile'), 'face');
 });
+
+test('takes: simplify keeps the turns that matter, applyTake trims, shifts and replaces only the recorded span', () => {
+  const q = deg => ({ x: Math.sin((deg * Math.PI) / 360), y: 0, z: 0, w: Math.cos((deg * Math.PI) / 360) });
+  // a steady swing 0 -> 90 degrees over 60 frames, then back to 0 by frame 120
+  const ks = [];
+  for (let t = 0; t <= 120; t += 2) ks.push({ time: t, delta: q(t <= 60 ? (t * 90) / 60 : ((120 - t) * 90) / 60) });
+  const slim = A.simplifyKeys(ks, 'orientation', 1);
+  assert.ok(slim.length >= 3 && slim.length <= 5, 'start, turn and end are enough: ' + slim.length);
+  assert.equal(A.takeLength({ 'R-Arm': { orientation: ks } }), 120);
+  const a = A.blank(60);
+  A.setKey(a, 'R-Arm', 'orientation', 10, q(5));
+  A.setKey(a, 'R-Arm', 'orientation', 55, q(5));
+  A.setKey(a, 'Head', 'orientation', 20, q(30));
+  // keep frames 30..90 of the take, starting at frame 20 of the animation
+  A.applyTake(a, { 'R-Arm': { orientation: ks } }, 30, 90, 20);
+  assert.equal(a.duration, 80, 'grows to fit the take');
+  const times = a.nodeAnimations['R-Arm'].orientation.map(k => k.time);
+  assert.equal(times[0], 10, 'a key before the span stays');
+  assert.ok(!times.includes(55), 'keys inside the span are replaced');
+  assert.equal(times[times.length - 1], 80, 'the take ends where it was cut');
+  assert.equal(a.nodeAnimations.Head.orientation.length, 1, 'bones not recorded are untouched');
+});

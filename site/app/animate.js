@@ -37,6 +37,9 @@ export function createAnimate(ctx) {
   const { el, st, render, say, ask, head, nice } = ctx;
   let GAMEANIMS = null,
     KINDS = {};
+  // REC: a take being recorded (the clock runs and the rings are sampled); TRIM: a finished take being cut before it is kept
+  let REC = null,
+    TRIM = null;
   let AN = null,
     LIB = null,
     RIG = null,
@@ -148,7 +151,168 @@ export function createAnimate(ctx) {
   // the pose strip: a small picture of the whole figure at each pose, placed by time; drag one to retime it, click to go there
   const shots = new Map();
   let shotGen = 0;
+  // ---- Record: the clock runs in real time from the playhead while the player turns and moves parts with the rings, every
+  // part they grab is sampled 30 times a second, and Stop hands the take to Trim, which cuts it and turns it into clean keys
+  function startRecord() {
+    if (REC || TRIM) return;
+    st.anim.playing = false;
+    REC = { at: frame(), t0: performance.now(), a: A.clone(AN.a), take: {}, last: {}, lastS: -1 };
+    say('Recording: turn and move parts with the rings. Press Stop when you are done.');
+    render();
+    requestAnimationFrame(recTick);
+  }
+  function recTick() {
+    if (!REC || !AN) return;
+    const gone = ((performance.now() - REC.t0) / 1000) * A.FPS,
+      t = REC.at + gone;
+    if (t >= A.MAX_FRAMES - 1) {
+      stopRecord();
+      return;
+    }
+    if (t > REC.a.duration) A.setDuration(REC.a, Math.ceil(t) + 30);
+    st.anim.anim = REC.a;
+    st.anim.t = t;
+    st.anim.apply();
+    const s = Math.round(gone / 2) * 2;
+    if (s !== REC.lastS) {
+      REC.lastS = s;
+      for (const [bone, parts] of Object.entries(REC.last))
+        for (const [part, delta] of Object.entries(parts)) ((REC.take[bone] ||= {})[part] ||= []).push({ time: s, delta: { ...delta } });
+    }
+    const clock = document.getElementById('rectime');
+    if (clock) clock.textContent = '● ' + secs(Math.round(gone));
+    requestAnimationFrame(recTick);
+  }
+  // a ring dragged while recording: the part follows at once, and the sampler picks its value up
+  function recordChange(d) {
+    const part = Object.keys(d)[0];
+    if (!AN.bone || (part !== 'orientation' && part !== 'position')) return;
+    if (part === 'position') for (const c of ['x', 'y', 'z']) d[part][c] = Math.max(-256, Math.min(256, d[part][c]));
+    (REC.last[AN.bone] ||= {})[part] = { ...d[part] };
+    A.setKey(REC.a, AN.bone, part, Math.round(st.anim.t), d[part], 'linear');
+    st.anim.anim = REC.a;
+    st.anim.apply();
+  }
+  function stopRecord() {
+    if (!REC) return;
+    const { take, at } = REC,
+      len = A.takeLength(take);
+    REC = null;
+    st.anim.t = at;
+    show();
+    if (!len) {
+      say('Nothing was recorded: drag a ring while the clock runs', true);
+      render();
+      return;
+    }
+    TRIM = { take, at, from: 0, to: len, len, tol: 1.5 };
+    say('Cut the start and end, set how smooth it is, then Keep it');
+    render();
+  }
+  // Trim: the take with its start and end cut, smoothed into keys and placed at the frame where recording began
+  function trimPanel() {
+    const T = TRIM;
+    const preview = () => A.applyTake(A.clone(AN.a), T.take, T.from, T.to, T.at, T.tol);
+    const keysIn = () => {
+      let n = 0;
+      for (const tr of Object.values(T.take))
+        for (const [part, ks] of Object.entries(tr))
+          n += A.simplifyKeys(
+            ks.filter(k => k.time >= T.from && k.time <= T.to),
+            part,
+            T.tol
+          ).length;
+      return n;
+    };
+    const showAt = f => {
+      st.anim.playing = false;
+      st.anim.anim = preview();
+      st.anim.t = T.at + Math.round(f - T.from);
+      st.anim.apply();
+    };
+    const info = el('span', { class: 'dim' });
+    const tell = () => (info.textContent = `${secs(T.to - T.from)} kept, ${keysIn()} keys`);
+    const range = (label, val, max, stepBy, set) =>
+      el(
+        'label',
+        { class: 'trimrow' },
+        el('span', { text: label }),
+        el('input', {
+          type: 'range',
+          min: 0,
+          max,
+          step: stepBy,
+          value: val,
+          'aria-label': label,
+          oninput: e => {
+            e.target.value = set(+e.target.value);
+            tell();
+          },
+        })
+      );
+    tell();
+    showAt(T.from);
+    return el(
+      'div',
+      { class: 'posestrip trim' },
+      el('b', { text: 'Trim the recording' }),
+      range('Start', T.from, T.len, 1, v => {
+        T.from = Math.min(v, T.to - 6);
+        showAt(T.from);
+        return T.from;
+      }),
+      range('End', T.to, T.len, 1, v => {
+        T.to = Math.max(v, T.from + 6);
+        showAt(T.to);
+        return T.to;
+      }),
+      range('Smooth', T.tol, 8, 0.5, v => {
+        T.tol = v;
+        return v;
+      }),
+      el(
+        'div',
+        { class: 'row' },
+        el('button', {
+          class: 'btn ghost',
+          text: 'Play',
+          onclick: () => {
+            st.anim.anim = preview();
+            st.anim.t = T.at;
+            st.anim.playing = true;
+          },
+        }),
+        el('button', {
+          class: 'btn primary',
+          text: 'Keep',
+          onclick: () => {
+            step();
+            A.applyTake(AN.a, T.take, T.from, T.to, T.at, T.tol);
+            TRIM = null;
+            st.anim.playing = false;
+            st.anim.t = T.at;
+            show();
+            queueSave();
+            render();
+            say('Recording added to the animation');
+          },
+        }),
+        el('button', {
+          class: 'btn ghost',
+          text: 'Discard',
+          onclick: () => {
+            TRIM = null;
+            st.anim.playing = false;
+            show();
+            render();
+          },
+        }),
+        info
+      )
+    );
+  }
   function poseTrack() {
+    if (TRIM) return trimPanel();
     const a = AN.a,
       n = Math.max(1, a.duration),
       times = A.keyTimes(a),
@@ -254,8 +418,14 @@ export function createAnimate(ctx) {
         'div',
         { class: 'row' },
         el('button', { class: 'btn primary', text: 'Add pose', title: 'K', onclick: addPose }),
-        el('button', { class: 'btn ghost', text: 'Remove pose', disabled: !times.includes(f), onclick: removePose }),
-        el('span', { class: 'dim', text: secs(f) + ' / ' + secs(n) })
+        el('button', { class: 'btn ghost', text: 'Remove pose', disabled: !times.includes(f) || !!REC, onclick: removePose }),
+        el('button', {
+          class: 'btn ' + (REC ? 'danger' : 'ghost'),
+          text: REC ? 'Stop' : 'Record',
+          title: REC ? '' : 'Record yourself moving the model, then trim it',
+          onclick: () => (REC ? stopRecord() : startRecord()),
+        }),
+        el('span', { class: 'dim', id: REC ? 'rectime' : null, text: REC ? '● 0 s' : secs(f) + ' / ' + secs(n) })
       )
     );
   }
@@ -975,6 +1145,10 @@ export function createAnimate(ctx) {
       g,
       mode,
       onChange: (d, end) => {
+        if (REC) {
+          recordChange(d);
+          return;
+        }
         if (end && !gizmoStep) return;
         if (!gizmoStep) {
           step();
@@ -1299,7 +1473,7 @@ export function createAnimate(ctx) {
       const f = frame();
       if (playing || f !== lastF || wasPlaying) {
         draw();
-        if (!playing && (f !== lastF || wasPlaying)) {
+        if (!playing && !REC && (f !== lastF || wasPlaying)) {
           ghosts();
           placeGizmo();
           refreshBox();
