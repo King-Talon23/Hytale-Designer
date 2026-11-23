@@ -101,10 +101,6 @@ export function createStage(app) {
     a.click();
     a.remove();
   }
-  function bdPeek(k) {
-    clearTimeout(bdPeek.t);
-    bdPeek.t = setTimeout(() => showBackdrop(k), 90);
-  } // a background previewed from the menu (the chosen one comes back when the menu closes)
   function drawStageBtns() {
     const box = $('stagebtns'),
       stg = $('view').parentElement;
@@ -139,7 +135,6 @@ export function createStage(app) {
     } // the Creator's view buttons keep clear of the background button
     let bd = prefs.get('se_backdrop');
     if (!BACKDROPS.some(b => b[0] === bd)) bd = 'dark';
-    clearTimeout(bdPeek.t);
     showBackdrop(bd);
     const name = BACKDROPS.find(b => b[0] === bd)[1],
       clean = stg.classList.contains('clean');
@@ -171,7 +166,6 @@ export function createStage(app) {
                 class: 'bdmenu',
                 role: 'listbox',
                 'aria-label': 'Backgrounds',
-                onpointerleave: () => bdPeek(bd),
                 onkeydown: e => {
                   if (e.key === 'Tab') {
                     box._open = false;
@@ -193,8 +187,6 @@ export function createStage(app) {
                     class: 'bdopt' + (k === bd ? ' on' : ''),
                     role: 'option',
                     'aria-selected': String(k === bd),
-                    onpointerenter: () => bdPeek(k),
-                    onfocus: () => bdPeek(k) /* the stage shows the background under the pointer or arrows */,
                     onclick: e => {
                       e.stopPropagation();
                       box._open = false;

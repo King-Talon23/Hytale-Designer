@@ -119,6 +119,17 @@ button {
   -webkit-user-select: none;
   pointer-events: none;
 } /* the logo is just a logo: not a link, nothing happens on hover or click */
+/* on the bug report page the logo is the way back to the Wardrobe */
+a.brand.home {
+  pointer-events: auto;
+  cursor: pointer;
+}
+a.brand.home:hover svg {
+  filter: drop-shadow(0 2px 0 #0008) brightness(1.15);
+}
+a.brand.home:hover span {
+  color: #fff;
+}
 .brand svg {
   height: 36px;
   width: auto;
