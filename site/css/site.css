@@ -502,3 +502,51 @@ table.keys th { text-align: left; font: 700 11px Lexend, sans-serif; letter-spac
 .anyopt.paid { opacity: .5; cursor: default; display: flex; justify-content: space-between; gap: 8px; } .anyopt.paid small { color: #c9a24a; }
 
 .modhow { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 6px; }
+
+/* previewing drop-downs (picklist.js) */
+.picklist { display: flex; align-items: center; gap: 8px; }
+.picklist > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.anymenu .anysearch { display: block; width: 100%; margin: 2px 0 4px; box-sizing: border-box; }
+.anygroup { padding: 8px 9px 3px; font-size: 12px; font-weight: 700; color: var(--gold); text-transform: none; position: sticky; top: 0; background: #0d1826; }
+.anyopt.ingroup { padding-left: 18px; }
+.anyopt.chosen { color: var(--gold); }
+.anyopt { display: flex; align-items: center; gap: 8px; }
+.pickicon { display: inline-grid; place-items: center; width: 28px; height: 18px; flex: none; }
+.pickicon svg { width: 28px; height: 18px; }
+.pickicon.pic { width: 34px; height: 34px; border-radius: 3px; overflow: hidden; background: #13233a; }
+.pickicon.pic img { width: 100%; height: 100%; object-fit: cover; }
+.anymenu .anysearch { position: sticky; top: 0; z-index: 2; }
+.anymenu:has(.anysearch) .anygroup { top: 40px; }
+.anymenu.inline { position: static; max-height: 240px; margin-top: 4px; box-shadow: none; }
+
+/* Create and Animate stand apart in the tab bar: the making tools */
+nav .makegroup { display: flex; align-items: center; gap: 8px; margin-left: 10px; padding-left: 14px; border-left: 1px solid #2c4568; }
+nav button.make { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border: 1px solid #c9a24a; border-radius: 4px; background: linear-gradient(#2a3f5f, #1b2c45); color: #f1d38a; box-shadow: 0 0 10px #c9a24a33; }
+nav button.make svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+nav button.make:hover { color: #fff; border-color: var(--gold); box-shadow: 0 0 14px #f4c45266; }
+nav button.make.on { background: linear-gradient(#f4c452, #c9962e); color: #1b1407; border-color: var(--gold); }
+nav button.make.on::after { display: none; }
+
+/* Animate: start cards, pose strip, tips */
+.startcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.startcard { display: grid; justify-items: center; gap: 6px; padding: 10px 8px 12px; background: #13233a; border: 1px solid #2c4568; border-radius: 6px; color: #e6eef6; cursor: pointer; text-align: center; }
+.startcard:hover, .startcard.on { border-color: var(--gold); box-shadow: 0 0 12px #f4c45233; }
+.startcard .pic { width: 84px; height: 84px; display: grid; place-items: center; overflow: hidden; border-radius: 4px; background: #0d1826; }
+.startcard .pic img { width: 100%; height: 100%; object-fit: cover; }
+.startcard b { font-size: 13px; line-height: 1.25; }
+.posestrip { display: grid; gap: 8px; margin: 8px 0 10px; }
+.posetrack { position: relative; height: 74px; background: #0d1826; border: 1px solid #2c4568; border-radius: 4px; margin: 0 26px; cursor: pointer; }
+.posetrack.many { height: 30px; }
+.posecard { position: absolute; top: 4px; transform: translateX(-50%); width: 50px; padding: 2px; display: grid; justify-items: center; gap: 1px; background: #1b2c45; border: 1px solid #3a5a85; border-radius: 4px; color: #c9d6e6; cursor: grab; touch-action: none; }
+.posecard img { width: 44px; height: 44px; object-fit: cover; pointer-events: none; }
+.posecard small { font-size: 10px; pointer-events: none; }
+.posecard.on { border-color: var(--gold); color: var(--gold); }
+.posetrack.many .posecard { width: 12px; height: 20px; padding: 0; }
+.posehead { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--gold); box-shadow: 0 0 8px var(--gold); pointer-events: none; }
+.animguide { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 6px 0; background: #1d3352; border: 1px solid var(--gold); border-radius: 4px; }
+.animguide b { color: var(--gold); }
+.animguide span { flex: 1; }
+.animedit .hint { margin: 4px 0 8px; }
+.animguide .linkbtn { background: none; border: 0; padding: 0; min-height: 0; color: var(--dim); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.animguide .linkbtn:hover { color: var(--gold); }
+@media (max-width: 980px) { .transport { bottom: 156px; left: auto; right: 12px; transform: none; width: min(300px, 48%); } }   /* above the emote circles, clear of the background buttons */

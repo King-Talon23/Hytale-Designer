@@ -1,6 +1,7 @@
 // The Animate tab: make player animations in the game's own format. A library of your animations, and the editor: pick a bone
 // (list or click on the model), turn or move it with the gizmo or the number fields, keys on a timeline, undo, save.
 import * as A from './anim.js';
+import { pickList } from './picklist.js';
 import * as db from './db.js';
 import * as game from './game.js';
 import * as store from './store.js';
@@ -23,6 +24,43 @@ function fromEuler(ex, ey, ez) {   // X then Y then Z (the inverse of toEuler)
 export function createAnimate(ctx) {
   const { el, st, render, say, ask, head, nice } = ctx, CATS = () => ctx.cat() || {};
   let GAMEANIMS = null; let AN = null, LIB = null, RIG = null, mode = 'rotate', ghostsOn = false;
+  // simple mode (the default): the figure, the pose strip and a few buttons; "More tools" shows the rest
+  const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private window */ } };
+  let simple = lsGet('se_anim_simple') !== '0', startMode = null, guideStep = lsGet('se_anim_guide') ? -1 : 0;
+  const friendly = b => { const s = String(b).replace(/^([LR])[-_]/, (m, c) => c === 'L' ? 'Left ' : 'Right ').replace(/[-_]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\s+/g, ' ').trim().toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); };   // R-Forearm -> Right forearm
+  const secs = f => (f / 60).toFixed(f % 6 ? 2 : 1).replace(/\.?0+$/, '') + ' s';
+  const GUIDE = ['Click a body part on the figure.', 'Drag the rings to turn it. That is a pose.', 'Click later on the pose strip, pose again, then press Play.'];
+  function guideNext() { guideStep++; if (guideStep >= GUIDE.length) guideEnd(); else render(); }
+  function guideEnd() { guideStep = -1; lsSet('se_anim_guide', '1'); render(); }
+  function guideBox() { if (guideStep < 0 || guideStep >= GUIDE.length) return null;
+    return el('div', { class: 'animguide', role: 'note' }, el('b', { text: `${guideStep + 1}/${GUIDE.length}` }), el('span', { text: GUIDE[guideStep] }),
+      el('button', { class: 'mini', text: guideStep < GUIDE.length - 1 ? 'Next' : 'Got it', onclick: guideNext }), el('button', { class: 'linkbtn', text: 'Skip', onclick: guideEnd })); }
+  // poses: every frame with a key is a pose of the whole figure
+  function addPose() { const f = frame(), bones = [...new Set([...poseBones(), ...(AN.bone ? [AN.bone] : [])])]; if (!bones.length) { say('Click a body part on the figure first'); return; }
+    step(); for (const b of bones) { const p = pose(b); if (!p || A.TRACKS.some(k => A.keyAt(AN.a, b, k, f))) continue; const g = group(b), q = g.userData.rest.q.clone().invert().multiply(g.quaternion);
+      setPose(b, 'orientation', { x: q.x, y: q.y, z: q.z, w: q.w }); if ((AN.a.nodeAnimations[b]?.position || []).length || p.pos.some(v => Math.abs(v) > 1e-6)) setPose(b, 'position', { x: p.pos[0], y: p.pos[1], z: p.pos[2] }); }
+    if (guideStep === 2) { guideStep = -1; lsSet('se_anim_guide', '1'); } show(); queueSave(); runChecks(); render(); }
+  function removePose() { const f = frame(), bones = poseBones().filter(b => A.TRACKS.some(k => A.keyAt(AN.a, b, k, f))); if (!bones.length) return; step();
+    for (const b of bones) { dropHolds(b, f, true); for (const k of A.TRACKS) A.deleteKey(AN.a, b, k, f); } show(); queueSave(); runChecks(); render(); }
+  // the pose strip: a small picture of the whole figure at each pose, placed by time; drag one to retime it, click to go there
+  const shots = new Map(); let shotGen = 0;
+  function poseTrack() { const a = AN.a, n = Math.max(1, a.duration), times = A.keyTimes(a), f = frame(), many = times.length > 16;
+    const track = el('div', { class: 'posetrack' + (many ? ' many' : ''), 'aria-label': 'Poses' }), head_ = el('div', { class: 'posehead' }), pct = t => (t / n) * 100;
+    const seek = t => { st.anim.playing = false; st.anim.t = Math.max(0, Math.min(n, t)); show(); refreshBox(); };
+    track.onpointerdown = e => { if (e.target.closest('.posecard')) return; const r = track.getBoundingClientRect(); seek(Math.round((e.clientX - r.left) / r.width * n)); render(); };
+    const cards = times.map((t, i) => { const prev = times[i - 1] ?? -1, next = times[i + 1] ?? n + 1, img = el('img', { alt: '', draggable: false }), lab = el('small', { text: secs(t) });
+      const c = el('button', { class: 'posecard' + (t === f ? ' on' : ''), title: secs(t), 'aria-label': 'Pose at ' + secs(t) }, many ? null : img, many ? null : lab); c.style.left = pct(t) + '%';
+      let drag = null;
+      c.onpointerdown = e => { e.preventDefault(); drag = { x: e.clientX, t, moved: false }; c.setPointerCapture?.(e.pointerId); };
+      c.onpointermove = e => { if (!drag) return; const r = track.getBoundingClientRect(), nt = Math.max(prev + 1, Math.min(next - 1, Math.round((e.clientX - r.left) / r.width * n))); if (Math.abs(e.clientX - drag.x) > 3) drag.moved = true; if (!drag.moved) return; drag.to = nt; c.style.left = pct(nt) + '%'; lab.textContent = secs(nt); };
+      c.onpointerup = () => { const d = drag; drag = null; if (!d) return; if (!d.moved || d.to === undefined || d.to === t) { seek(t); render(); return; }
+        step(); A.moveKeys(a, Object.keys(a.nodeAnimations), t, d.to); st.anim.t = d.to; show(); queueSave(); runChecks(); render(); };
+      if (!many) { const k = `${AN.id}|${AN.rev || 0}|${t}`; if (shots.has(k)) img.src = shots.get(k); else img.dataset.want = k; img.dataset.t = String(t); }
+      return c; });
+    track.append(...cards, head_);
+    const tick = () => { if (!track.isConnected || !AN) return; head_.style.left = pct(st.anim.t) + '%'; requestAnimationFrame(tick); }; requestAnimationFrame(tick);
+    const gen = ++shotGen; setTimeout(async () => { for (const img of track.querySelectorAll('img[data-want]')) { if (gen !== shotGen || !img.isConnected || !AN) return; try { const url = await ctx.poseShot?.(AN.a, +img.dataset.t); if (url) { shots.set(img.dataset.want, url); if (shots.size > 200) shots.delete(shots.keys().next().value); img.src = url; } } catch { return; } await new Promise(r => setTimeout(r, 0)); } }, 60);   /* pictures one at a time, after the panel is drawn */
+    return el('div', { class: 'posestrip' }, track, el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'Add pose', title: 'K', onclick: addPose }), el('button', { class: 'btn ghost', text: 'Remove pose', disabled: !times.includes(f), onclick: removePose }), el('span', { class: 'dim', text: secs(f) + ' / ' + secs(n) }))); }
 
   // ---- the rig: the player's bones, in the model's own order, with their depth for the list
   async function rig() {
@@ -44,7 +82,7 @@ export function createAnimate(ctx) {
   addEventListener('pagehide', () => { if (AN?.dirty) { try { localStorage.setItem('se_anim_rescue', JSON.stringify({ id: AN.id, name: AN.name, a: AN.a, updated: Date.now(), base: AN.saved })); } catch { /* full */ } save(AN).catch(() => {}); } });   /* a reload inside the save delay keeps the edit */
   async function rescue() { let r = null; try { r = JSON.parse(localStorage.getItem('se_anim_rescue') || 'null'); } catch { /* none */ } if (!r || !r.id) return; const there = await db.get('meta', 'anim:' + r.id);
     if (there && (!r.base || there.updated <= r.base)) await db.put('meta', 'anim:' + r.id, { id: r.id, name: r.name, a: A.read(r.a), updated: r.updated }); try { localStorage.removeItem('se_anim_rescue'); } catch { /* fine */ } }
-  let saveT = 0; const queueSave = () => { AN.dirty = true; clearTimeout(saveT); const x = AN; saveT = setTimeout(() => save(x).catch(e => say(e.message, true)), 500); };
+  let saveT = 0; const queueSave = () => { AN.dirty = true; AN.rev = (AN.rev || 0) + 1; clearTimeout(saveT); const x = AN; saveT = setTimeout(() => save(x).catch(e => say(e.message, true)), 500); };
 
   // ---- editing
   function tidyHolds() { const n = AN.a.duration; for (const tr of Object.values(AN.a.nodeAnimations)) for (const k of A.TRACKS) { const ks = tr[k] || []; for (let i = ks.length - 1; i >= 0; i--) { const c = ks[i]; if (!c.hold) continue; const p = ks[i - 1], nx = ks[i + 1];
@@ -143,13 +181,13 @@ export function createAnimate(ctx) {
     return true; }
   function placeGizmo() { if (!AN || !AN.bone) { st.boneGizmo(null); return; } const g = group(AN.bone); if (!g) { st.boneGizmo(null); return; }
     st.boneGizmo({ g, mode, onChange: (d, end) => { if (end && !gizmoStep) return; if (!gizmoStep) { step(); gizmoStep = true; }   /* a click on the gizmo without a drag is not a change */ const part = Object.keys(d)[0]; if (part === 'position') for (const c of ['x', 'y', 'z']) d[part][c] = Math.max(-256, Math.min(256, d[part][c]));
-      if (ikOn && part === 'position' && CHAIN[AN.bone]) { const gg = group(AN.bone), tgt = gg.parent.localToWorld(gg.userData.rest.p.clone().add(new THREE.Vector3(d.position.x, d.position.y, d.position.z))); st.anim.anim = AN.a; st.anim.apply(); ikSolve(AN.bone, tgt); st.anim.apply(); if (end) { gizmoStep = false; queueSave(); placeGizmo(); runChecks(); render(); } return; }   /* IK: the joints turn, the hand is not moved off its arm */ A.setKey(AN.a, AN.bone, part, frame(), d[part], A.keyAt(AN.a, AN.bone, part, frame())?.interpolationType || 'smooth');
-      st.anim.anim = AN.a; st.anim.apply(); if (end) { gizmoStep = false; queueSave(); placeGizmo(); runChecks(); render(); } } }); }
+      if (ikOn && part === 'position' && CHAIN[AN.bone]) { const gg = group(AN.bone), tgt = gg.parent.localToWorld(gg.userData.rest.p.clone().add(new THREE.Vector3(d.position.x, d.position.y, d.position.z))); st.anim.anim = AN.a; st.anim.apply(); ikSolve(AN.bone, tgt); st.anim.apply(); if (end) { gizmoStep = false; if (guideStep === 1) guideStep = 2; queueSave(); placeGizmo(); runChecks(); render(); } return; }   /* IK: the joints turn, the hand is not moved off its arm */ A.setKey(AN.a, AN.bone, part, frame(), d[part], A.keyAt(AN.a, AN.bone, part, frame())?.interpolationType || 'smooth');
+      st.anim.anim = AN.a; st.anim.apply(); if (end) { gizmoStep = false; if (guideStep === 1) guideStep = 2; queueSave(); placeGizmo(); runChecks(); render(); } } }); }
   let gizmoStep = false;
 
   // a click on the model picks the bone it belongs to
   function pickAt(x, y) { if (!AN) return false; const m = st.pickMesh(x, y, () => true); if (!m) return false; const names = new Set((RIG || []).map(b => b.name)), parts = st.anim.figure.userData.parts, owner = new Map(); parts.forEach((gs, k) => gs.forEach(g => owner.set(g, k)));
-    for (let o = m; o; o = o.parent) { const k = owner.get(o); if (k && names.has(k) && !/Attachment$/.test(k)) {   /* clicks land on the body bone, not the small attachment points */ AN.bone = k; if (!CHAIN[k]) ikOn = false; placeGizmo(); render(); return true; } } return false; }
+    for (let o = m; o; o = o.parent) { const k = owner.get(o); if (k && names.has(k) && !/Attachment$/.test(k)) {   /* clicks land on the body bone, not the small attachment points */ AN.bone = k; if (!CHAIN[k]) ikOn = false; if (guideStep === 0) guideStep = 1; placeGizmo(); render(); return true; } } return false; }
 
   // ---- timeline (one canvas: frame ruler, a row per animated bone, diamonds for keys, the playhead)
   function timeline() {
@@ -202,15 +240,31 @@ export function createAnimate(ctx) {
         if (out.duration > 6000 || Object.keys(out.nodeAnimations).length > 200 || keys > 20000 || size > 590000) throw new Error(`Too big to publish: ${keys.toLocaleString()} keys (${Math.ceil(size / 1024)} KB). Published animations can have up to 6000 frames, 200 bones and about 580 KB of keys.`);
         const r = await fetch('/api/anims', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: x.name, anim: out }) }), j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Could not publish'); PUBS[rec.id] = j.id; }
       await db.put('meta', 'animpub', PUBS); render(); } catch (e) { say(e.message, true); } } }); }
+  let gamePick = null;
+  const PROPNAME = { battleaxe: 'Battleaxe', wizstaff: 'Wizard staff', staff: 'Staff', block: 'Block', potion: 'Potion', book: 'Spellbook', pickaxe: 'Pickaxe', sword: 'Sword', mace: 'Mace', bow: 'Bow', shield: 'Shield', torch: 'Torch' };
+  const curve = d => `<svg viewBox="0 0 28 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+  const EASES = [{ value: 'smooth', text: 'Smooth', icon: curve('M2 16 C12 16 16 2 26 2') }, { value: 'linear', text: 'Steady', icon: curve('M2 16 L26 2') }, { value: 'hold', text: 'Snap', icon: curve('M2 16 H19 V2 H26') }];   /* each shows its curve */
+  async function createStill(src, name) { await create(src, animName(name, 'pose')); if (!AN) return; const a = AN.a, t = Math.round(a.duration * 0.45); st.anim.t = t; show(); st.anim.apply();
+    const out = A.blank(60); for (const [b, tr] of Object.entries(a.nodeAnimations)) { const g = group(b), p = pose(b); if (!g || !p) continue;
+      if ((tr.orientation || []).length) { const q = g.userData.rest.q.clone().invert().multiply(g.quaternion); A.setKey(out, b, 'orientation', 0, { x: q.x, y: q.y, z: q.z, w: q.w }, 'smooth'); }
+      if ((tr.position || []).length) A.setKey(out, b, 'position', 0, { x: p.pos[0], y: p.pos[1], z: p.pos[2] }, 'smooth');
+      for (const k of ['shapeStretch', 'shapeUvOffset', 'shapeVisible']) if ((tr[k] || []).length) { const v = trackAt(b, k, t); if (v != null) A.setKey(out, b, k, 0, v, 'linear'); } }
+    AN.a = out; AN.hist = []; st.anim.t = 0; show(); queueSave(); render(); }   // the pose part-way through the move, as a one-pose animation
   function libraryPanel() {
     if (!LIB) { loadLib().then(render); return [head('Animate'), el('div', { class: 'pbody' }, el('p', { class: 'dim', text: 'Loading…' }))]; }
     if (!GAMEANIMS) { gameAnims().then(render); }
     const groups = Object.keys(GAMEANIMS || {}).sort(), label = ctx.label || ((g, n) => nice(n));
-    const pick = el('select', { 'aria-label': 'Game animation' }, el('option', { value: '', text: 'Copy a game animation…' }),
-      ...groups.map(g => el('optgroup', { label: g.split('/').map(nice).join(' / ') }, ...GAMEANIMS[g].map(n => el('option', { value: g + '|' + n, text: label(g, n) })))));
-    const copyBtn = el('button', { class: 'btn ghost', text: 'Copy', onclick: async () => { const v = pick.value; if (!v) return; const [g, n] = v.split('|'); const src = await game.json(`Common/Characters/Animations/${g}/${n}.blockyanim`); create(src, label(g, n)); } });   /* arrows only move the choice; Copy makes it */
+    const play = v => { if (!v) { ctx.idle?.(); return; } const [g, n] = v.split('|'); ctx.play?.(g, n); };   /* the figure plays the animation under the pointer */
+    const pick = { items: groups.flatMap(g => GAMEANIMS[g].map(n => ({ value: g + '|' + n, text: label(g, n), group: g.split('/').map(nice).join(' / '), icon: ctx.thumb ? () => ctx.thumb(g, n) : null }))) };   /* every game move, with its picture; the figure plays the one under the pointer */
+    const card = (k, t, pic, onclick) => el('button', { class: 'startcard' + (startMode === k ? ' on' : ''), onclick }, el('span', { class: 'pic' }, pic || null), el('b', { text: t }));
+    const chooser = startMode ? pickList(el, { label: 'Game animation', placeholder: startMode === 'pose' ? 'Pick a move to take a pose from…' : 'Pick a game move…', search: true, value: null, items: pick.items || [],
+        onPreview: v => play(v), onChoose: async v => { const [g, n] = v.split('|'), src = await game.json(`Common/Characters/Animations/${g}/${n}.blockyanim`); const m = startMode; startMode = null; if (m === 'pose') await createStill(src, label(g, n)); else await create(src, label(g, n)); } }) : null;
+    if (chooser) setTimeout(() => chooser.isConnected && chooser.click(), 0);   /* the list opens at once */
     return [head('Animate'), el('div', { class: 'pbody' },
-      el('div', { class: 'row' }, el('button', { class: 'btn primary', text: 'New', onclick: () => create(null) }), pick, copyBtn),
+      el('div', { class: 'startcards' }, card('move', 'Start from a game move', ctx.thumb?.('Default', 'Run'), () => { startMode = startMode === 'move' ? null : 'move'; render(); }),
+        card('pose', 'Start from a still pose', ctx.thumb?.('Emote', 'Wave'), () => { startMode = startMode === 'pose' ? null : 'pose'; render(); }),
+        card('blank', 'Blank', ctx.thumb?.('Default', 'Idle'), () => { startMode = null; create(null); })),
+      chooser,
       el('h3', { text: 'My animations' }),
       LIB.length ? el('div', { class: 'animlib' }, LIB.map(rec => el('div', { class: 'animrow' },
         el('button', { class: 'animopen', onclick: () => open(rec.id) }, el('b', { text: rec.name }), el('small', { text: `${(rec.a.duration / 60).toFixed(2)} s` })),
@@ -222,7 +276,7 @@ export function createAnimate(ctx) {
   function editorPanel() {
     const a = AN.a, bones = RIG || [], f = frame();
     const nameIn = el('input', { type: 'text', class: 'wsname', value: AN.name, maxLength: 60, 'aria-label': 'Name', onchange: async e => { const base = animName(e.target.value); if (!base) { e.target.value = AN.name; return; } await loadLib(); const used = new Set(LIB.filter(x => x.id !== AN.id).map(x => x.name.toLowerCase())); let nm = base, k = 2; while (used.has(nm.toLowerCase())) nm = animName(base, String(k++)); AN.name = nm; e.target.value = nm; queueSave(); } });
-    const len = el('input', { type: 'number', min: 1, max: A.MAX_FRAMES, value: a.duration, class: 'adjnum', 'aria-label': 'Length in frames', onchange: e => { const v = Math.round(+e.target.value); if (!(v >= 1)) { e.target.value = a.duration; return; } step(); A.setDuration(a, v); if (st.anim.t > a.duration) st.anim.t = a.duration; show(); queueSave(); render(); document.querySelector('.animedit input[aria-label="Length in frames"]')?.focus(); } });
+    const len = el('input', { type: 'number', min: 0.1, max: A.MAX_FRAMES / 60, step: 0.1, value: +(a.duration / 60).toFixed(2), class: 'adjnum', 'aria-label': 'Length in seconds', onchange: e => { const v = Math.round(+e.target.value * 60); if (!(v >= 1)) { e.target.value = +(a.duration / 60).toFixed(2); return; } step(); A.setDuration(a, v); if (st.anim.t > a.duration) st.anim.t = a.duration; show(); queueSave(); render(); document.querySelector('.animedit input[aria-label="Length in seconds"]')?.focus(); } });
     const loop = el('input', { type: 'checkbox', checked: !a.holdLastKeyframe, onchange: e => { step(); a.holdLastKeyframe = !e.target.checked; show(); queueSave(); render(); } });
     const sel = el('div', { class: 'boneslot' }, boneBox());
     const list = boneList(bones);
@@ -233,21 +287,20 @@ export function createAnimate(ctx) {
     const ty = AN.typed; if (ty && ty.bone === AN.bone && ty.f === f) { const q = fromEuler(...ty.rot), g = group(AN.bone), rq = g.userData.rest.q.clone().invert().multiply(g.quaternion); if (Math.abs(q.x * rq.x + q.y * rq.y + q.z * rq.z + q.w * rq.w) > 0.9999) p.rot = [...ty.rot]; }   /* the same turn as typed: show the typed numbers */
     const field = (label, v, set, lim) => el('label', { class: 'axf' }, el('span', { text: label }), el('input', { type: 'number', step: 1, 'aria-label': (lim ? 'Move ' : 'Turn ') + label, value: r1(v), onchange: e => { const t = e.target.value.trim(), n = +t; if (!t || !Number.isFinite(n)) { e.target.value = r1(v); return; } step(); set(lim ? Math.max(-lim, Math.min(lim, n)) : n); const all = [...document.querySelectorAll('.bonebox input')], at = all.indexOf(e.target); refreshBox(); document.querySelector('canvas.timeline')?.redraw?.(); if (at >= 0) document.querySelectorAll('.bonebox input')[at]?.focus(); } }));   /* empty or junk puts the old value back */
     return el('div', { class: 'bonebox' },
-      el('div', { class: 'row' }, el('b', { text: AN.bone }), CHAIN[AN.bone] ? el('label', { class: 'chk' }, el('input', { type: 'checkbox', checked: ikOn, onchange: e => { ikOn = e.target.checked; if (ikOn) mode = 'move'; placeGizmo(); refreshBox(); } }), el('span', { text: 'IK' })) : null, el('button', { class: 'mini' + (mode === 'rotate' ? ' on' : ''), text: 'Turn', title: 'R', onclick: () => { mode = 'rotate'; placeGizmo(); render(); } }), el('button', { class: 'mini' + (mode === 'move' ? ' on' : ''), text: 'Move', title: 'G', onclick: () => { mode = 'move'; placeGizmo(); render(); } })),
-      el('div', { class: 'xyzrow' }, el('span', { class: 'dim', text: 'Turn' }), ...['X', 'Y', 'Z'].map((k, i) => field(k, p.rot[i], n => { const e = [...p.rot]; e[i] = n; AN.typed = { bone: AN.bone, f: frame(), rot: e };
+      el('div', { class: 'row' }, el('b', { text: friendly(AN.bone), title: AN.bone }), !simple && CHAIN[AN.bone] ? el('label', { class: 'chk' }, el('input', { type: 'checkbox', checked: ikOn, onchange: e => { ikOn = e.target.checked; if (ikOn) mode = 'move'; placeGizmo(); refreshBox(); } }), el('span', { text: 'IK' })) : null, el('button', { class: 'mini' + (mode === 'rotate' ? ' on' : ''), text: 'Turn', title: 'R', onclick: () => { mode = 'rotate'; placeGizmo(); render(); } }), el('button', { class: 'mini' + (mode === 'move' ? ' on' : ''), text: 'Move', title: 'G', onclick: () => { mode = 'move'; placeGizmo(); render(); } })),
+      simple ? null : el('div', { class: 'xyzrow' }, el('span', { class: 'dim', text: 'Turn' }), ...['X', 'Y', 'Z'].map((k, i) => field(k, p.rot[i], n => { const e = [...p.rot]; e[i] = n; AN.typed = { bone: AN.bone, f: frame(), rot: e };
         const g = group(AN.bone), cur = g.userData.rest.q.clone().invert().multiply(g.quaternion), sh = fromEuler(...p.rot), shq = new THREE.Quaternion(sh.x, sh.y, sh.z, sh.w), res = shq.clone().invert().multiply(cur), nq = fromEuler(...e), out = new THREE.Quaternion(nq.x, nq.y, nq.z, nq.w).multiply(res);   /* what the fields can't show is kept */
         setPose(AN.bone, 'orientation', { x: out.x, y: out.y, z: out.z, w: out.w }); }))),
-      ...shapeRows(f),
-      el('div', { class: 'xyzrow' }, el('span', { class: 'dim', text: 'Move' }), ...['X', 'Y', 'Z'].map((k, i) => field(k, p.pos[i], n => { const v = [...p.pos]; v[i] = n; setPose(AN.bone, 'position', { x: v[0], y: v[1], z: v[2] }); }, 256))),
-      el('div', { class: 'row' }, el('button', { class: 'btn ghost', text: hasKey ? 'Key set' : 'Set key', title: 'K', disabled: !!hasKey, onclick: () => keyNow(AN.bone) }),
-        el('button', { class: 'btn ghost', text: 'Delete key', disabled: !hasKey, onclick: () => deleteNow(AN.bone) }),
+      ...(simple ? [] : shapeRows(f)),
+      simple ? null : el('div', { class: 'xyzrow' }, el('span', { class: 'dim', text: 'Move' }), ...['X', 'Y', 'Z'].map((k, i) => field(k, p.pos[i], n => { const v = [...p.pos]; v[i] = n; setPose(AN.bone, 'position', { x: v[0], y: v[1], z: v[2] }); }, 256))),
+      el('div', { class: 'row' }, simple ? null : el('button', { class: 'btn ghost', text: hasKey ? 'Posed here' : 'Pose this part', disabled: !!hasKey, onclick: () => keyNow(AN.bone) }),
+        el('button', { class: 'btn ghost', text: simple ? 'Clear this part' : 'Remove', title: 'Delete', disabled: !hasKey, onclick: () => deleteNow(AN.bone) }),
         A.sideSwap(AN.bone) !== AN.bone ? el('button', { class: 'btn ghost', text: 'To other side', onclick: () => toOtherSide(AN.bone) }) : null,
-        hasKey ? el('select', { 'aria-label': 'Easing', onchange: e => { step(); const v = e.target.value, wasHold = easeNow(a, f) === 'hold'; for (const k of A.TRACKS) { const key = A.keyAt(a, AN.bone, k, f); if (!key) continue; key.interpolationType = v === 'hold' ? 'linear' : v;
+        hasKey ? pickList(el, { label: 'Motion', value: easeNow(a, f), items: EASES, onChoose: v => { step(); const wasHold = easeNow(a, f) === 'hold'; for (const k of A.TRACKS) { const key = A.keyAt(a, AN.bone, k, f); if (!key) continue; key.interpolationType = v === 'hold' ? 'linear' : v;
             if (wasHold && v !== 'hold') { const ks = a.nodeAnimations[AN.bone][k], i = ks.lastIndexOf(ks.filter(x => x.time === f).pop()), nx = ks[i + 1]; if (nx && JSON.stringify(nx.delta) === JSON.stringify(key.delta)) ks.splice(i + 1, 1); }   /* leaving Hold removes its copy */
             if (v === 'hold') { const next = (a.nodeAnimations[AN.bone][k] || []).find(x => x.time > f); if (next && next.time - 1 > f && !A.keyAt(a, AN.bone, k, next.time - 1)) A.setKey(a, AN.bone, k, next.time - 1, JSON.parse(JSON.stringify(key.delta)), 'linear');
               else if (!next && f < a.duration) A.setKey(a, AN.bone, k, a.duration, JSON.parse(JSON.stringify(key.delta)), 'linear');
-              const ks2 = a.nodeAnimations[AN.bone][k], ci = ks2.findIndex(x => x.time > f); const cp = ci >= 0 ? ks2[ci] : null; if (cp && JSON.stringify(cp.delta) === JSON.stringify(key.delta)) cp.hold = true; } } show(); queueSave(); render(); } },   /* the copy is marked, so it can follow its key */   /* the last key holds to the end */   /* Hold: a copy of the key one frame before the next key, so the pose stays and then snaps */
-          ...[['smooth', 'Smooth'], ['linear', 'Linear'], ['hold', 'Hold']].map(([v, t]) => el('option', { value: v, text: t, selected: easeNow(a, f) === v }))) : null)); }
+              const ks2 = a.nodeAnimations[AN.bone][k], ci = ks2.findIndex(x => x.time > f); const cp = ci >= 0 ? ks2[ci] : null; if (cp && JSON.stringify(cp.delta) === JSON.stringify(key.delta)) cp.hold = true; } } show(); queueSave(); render(); } })   /* the copy is marked, so it can follow its key */   /* the last key holds to the end */   /* Hold: a copy of the key one frame before the next key, so the pose stays and then snaps */ : null)); }
   function easeNow(a, f) { const tr = a.nodeAnimations[AN.bone] || {}; for (const k of A.TRACKS) { const ks = tr[k] || [], i = ks.map(x => x.time).lastIndexOf(f); if (i < 0) continue; const key = ks[i], nx = ks[i + 1];
       if (key.interpolationType === 'linear' && nx && JSON.stringify(nx.delta) === JSON.stringify(key.delta) && (nx.time === (ks[i + 2]?.time ?? a.duration + 1) - 1 || !ks[i + 2])) return 'hold'; return key.interpolationType || 'smooth'; } return 'smooth'; }   /* a held key reads back as Hold */
   // face and shape keys: stretch (eyelids close), texture slide (the mouth's expressions), visible
@@ -259,19 +312,24 @@ export function createAnimate(ctx) {
         el('label', { class: 'chk' }, el('input', { type: 'checkbox', checked: vis !== false, onchange: e => { step(); const f0 = frame(), ks = AN.a.nodeAnimations[AN.bone]?.shapeVisible || []; if (f0 > 0 && !ks.some(x => x.time < f0)) A.setKey(AN.a, AN.bone, 'shapeVisible', 0, !e.target.checked, 'linear');   /* the frames before keep the other state */
           A.setKey(AN.a, AN.bone, 'shapeVisible', f0, e.target.checked, 'linear'); show(); queueSave(); refreshBox(); } }), el('span', { text: 'Visible' })))]; }
   function refreshBox() { const slot = document.querySelector('.boneslot'); if (slot) slot.replaceChildren(...[boneBox()].filter(Boolean)); const [u, r] = [...document.querySelectorAll('.animedit button')].filter(b => b.textContent === '↶' || b.textContent === '↷'); if (u) u.disabled = !AN?.hist.length; if (r) r.disabled = !AN?.fut.length; }   /* Undo/Redo follow typed edits */
-  function boneList(bones) { const a = AN.a; return el('div', { class: 'bonelist' }, bones.map(b => el('button', { class: 'bonerow' + (b.name === AN.bone ? ' on' : '') + (a.nodeAnimations[b.name] ? ' keyed' : ''), style: `padding-left:${6 + b.depth * 10}px`, text: b.name, onclick: () => { AN.bone = b.name; if (!CHAIN[b.name]) ikOn = false; placeGizmo(); render(); } }))); }
+  function boneList(bones) { const a = AN.a; return el('div', { class: 'bonelist' }, bones.map(b => el('button', { class: 'bonerow' + (b.name === AN.bone ? ' on' : '') + (a.nodeAnimations[b.name] ? ' keyed' : ''), style: `padding-left:${6 + b.depth * 10}px`, text: friendly(b.name), title: b.name, onclick: () => { AN.bone = b.name; if (!CHAIN[b.name]) ikOn = false; placeGizmo(); render(); } }))); }
   function editorShell(a, nameIn, len, loop, sel, list) {
-    return [head('Animate'), el('div', { class: 'pbody animedit' },
-      el('div', { class: 'row' }, nameIn, el('button', { class: 'btn ghost', text: '↶', title: 'Undo (Ctrl+Z)', disabled: !AN.hist.length, onclick: () => undo(false) }), el('button', { class: 'btn ghost', text: '↷', title: 'Redo (Ctrl+Y)', disabled: !AN.fut.length, onclick: () => undo(true) }), el('button', { class: 'btn primary', text: 'Done', disabled: recording, onclick: close })),
-      el('div', { class: 'row' }, el('label', { class: 'axf' }, el('span', { text: 'Frames' }), len), el('label', { class: 'chk' }, loop, el('span', { text: 'Loop' })),
+    return [head('Animate'), el('div', { class: 'pbody animedit' + (simple ? ' simple' : '') },
+      el('div', { class: 'row' }, nameIn, el('button', { class: 'btn ghost', text: '↶', title: 'Undo (Ctrl+Z)', disabled: !AN.hist.length, onclick: () => undo(false) }), el('button', { class: 'btn ghost', text: '↷', title: 'Redo (Ctrl+Y)', disabled: !AN.fut.length, onclick: () => undo(true) }), el('button', { class: 'btn ghost', text: '?', title: 'Tips', 'aria-label': 'Show tips', onclick: () => { guideStep = 0; render(); } }), el('button', { class: 'btn primary', text: 'Done', disabled: recording, onclick: close })),
+      guideBox(),
+      el('div', { class: 'row' }, el('label', { class: 'axf' }, el('span', { text: 'Length' }), len, el('span', { class: 'dim', text: 's' })), el('label', { class: 'chk' }, loop, el('span', { text: 'Loop' })),
+        el('button', { class: 'btn ghost' + (simple ? '' : ' on'), text: simple ? 'More tools' : 'Fewer tools', 'aria-pressed': String(!simple), onclick: () => { simple = !simple; lsSet('se_anim_simple', simple ? '1' : '0'); render(); } })),
+      poseTrack(),
+      simple ? null : el('div', { class: 'row' },
         el('button', { class: 'btn ghost', text: 'Mirror', onclick: () => { step(); AN.a = A.mirror(AN.a, b => !!group(b)); show(); queueSave(); render(); } }),
         el('button', { class: 'btn ghost', text: 'Match ends', disabled: !!a.holdLastKeyframe, onclick: matchEnds }),
         el('button', { class: 'btn ghost', text: 'Loosen', onclick: loosen }),
-        el('select', { 'aria-label': 'Held item', onchange: e => { held = e.target.value; ctx.hold?.(held, 'R'); } }, el('option', { value: '', text: 'No item', selected: !held }), ...(ctx.props || []).map(k => el('option', { value: k, text: ({ battleaxe: 'Battleaxe', wizstaff: 'Wizard staff', staff: 'Staff', block: 'Block', potion: 'Potion', book: 'Spellbook', pickaxe: 'Pickaxe', sword: 'Sword', mace: 'Mace', bow: 'Bow', shield: 'Shield', torch: 'Torch' })[k] || nice(k), selected: held === k }))),
+        pickList(el, { label: 'Held item', value: held || '', items: [{ value: '', text: 'No item' }, ...(ctx.props || []).map(k => ({ value: k, text: PROPNAME[k] || nice(k) }))], onPreview: v => ctx.hold?.(v === null ? held : v, 'R'), onChoose: v => { held = v; ctx.hold?.(held, 'R'); } }),   /* the figure holds the item under the pointer */
         el('button', { class: 'btn ghost' + (ghostsOn ? ' on' : ''), text: 'Ghosts', 'aria-pressed': String(ghostsOn), title: 'O', onclick: () => { ghostsOn = !ghostsOn; ghosts(); render(); } }),
         el('button', { class: 'btn ghost', text: recording ? 'Recording…' : 'Video', disabled: recording, onclick: () => recordVideo().catch(e => { recording = false; st.recordMode?.(false); say(e.message, true); render(); }) }),
         el('button', { class: 'btn ghost', text: 'Copy pose', title: 'Ctrl+C', onclick: copyPose }), el('button', { class: 'btn ghost', text: 'Paste pose', title: 'Ctrl+V (Ctrl+Shift+V mirrored)', disabled: !clip, onclick: () => pastePose(false) })),
-      sel, el('div', { class: 'tlwrap', onscroll: e => e.currentTarget.querySelector('canvas.timeline')?.redraw?.() }, timeline()), el('div', { class: 'checkslot' }, checkRow()), el('h3', { text: 'Bones' }), list)];
+      AN.bone ? sel : guideStep === 0 ? null : el('p', { class: 'dim hint', text: 'Click a body part on the figure to pose it.' }),
+      simple ? null : el('div', { class: 'tlwrap', onscroll: e => e.currentTarget.querySelector('canvas.timeline')?.redraw?.() }, timeline()), el('div', { class: 'checkslot' }, checkRow()), simple ? null : el('h3', { text: 'Body parts' }), simple ? null : list)];
   }
   // one loop of the animation as a WebM video of the stage, from the current view
   async function recordVideo() {
@@ -320,7 +378,7 @@ export function createAnimate(ctx) {
     if ((e.ctrlKey || e.metaKey) && k === 'c') { e.preventDefault(); copyPose(); } else if ((e.ctrlKey || e.metaKey) && k === 'v') { e.preventDefault(); pastePose(e.shiftKey); }   /* Ctrl+Shift+V pastes it mirrored */
     else if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); undo(e.shiftKey); } else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); undo(true); }
     else if (e.ctrlKey || e.metaKey || e.altKey) return;
-    else if (k === 'k' && AN.bone) { e.preventDefault(); keyNow(AN.bone); } else if (k === 'delete' && AN.bone && (e.target === document.body || e.target.matches?.('input[type=range]'))) { e.preventDefault(); deleteNow(AN.bone); }
+    else if (k === 'k' && (simple || !AN.bone)) { e.preventDefault(); addPose(); } else if (k === 'k' && AN.bone) { e.preventDefault(); keyNow(AN.bone); } else if (k === 'delete' && AN.bone && (e.target === document.body || e.target.matches?.('input[type=range]'))) { e.preventDefault(); deleteNow(AN.bone); }
     else if (k === 'o') { ghostsOn = !ghostsOn; ghosts(); render(); } else if (k === 'r') { mode = 'rotate'; placeGizmo(); render(); } else if (k === 'g') { mode = 'move'; placeGizmo(); render(); } });
 
   rescue().then(() => store.syncFolder()).catch(() => {});   // a rescued edit is saved at start, not when the tab is opened
@@ -331,5 +389,5 @@ export function createAnimate(ctx) {
       if (src && typeof src === 'object' && src.nodeAnimations && typeof src.nodeAnimations === 'object' && !Array.isArray(src.nodeAnimations)) { const na = {}; for (const [b, tr] of Object.entries(src.nodeAnimations)) { if (!tr || typeof tr !== 'object') continue; na[b] = {}; for (const k of A.TRACKS) { const by = new Map(); for (const x of Array.isArray(tr[k]) ? tr[k] : []) if (x && Number.isFinite(x.time)) by.set(Math.round(x.time), { ...x, time: Math.round(x.time) }); na[b][k] = [...by.values()]; } } src = { ...src, nodeAnimations: na }; }   /* whole frames before the length check; two keys on one frame keep the later */
       const a = A.read(src); for (const tr of Object.values(a.nodeAnimations)) for (const k of A.TRACKS) { const ks = tr[k]; for (const x of ks) { x.time = Math.round(x.time); if (k === 'position' && x.delta) for (const c of ['x', 'y', 'z']) x.delta[c] = Math.max(-256, Math.min(256, x.delta[c])); } ks.sort((p, q) => p.time - q.time); }   /* whole frames, moves like the fields allow */
       await create(a, name); } catch (e) { say(e.message, true); } }
-  return { reload: async () => { await loadLib(); if (!AN) render(); }, names: () => (LIB || []).map(x => x.name.toLowerCase()), cleanImport, cleanName: t => animName(t), importAnim, debug: () => ({ ghostsOn, AN, mode, ikSolve, group }), panel, pickAt, active: () => !!AN, leave: () => { if (AN) close(); }, refresh: () => { if (AN) placeGizmo(); } };
+  return { simple: () => simple, reload: async () => { await loadLib(); if (!AN) render(); }, names: () => (LIB || []).map(x => x.name.toLowerCase()), cleanImport, cleanName: t => animName(t), importAnim, debug: () => ({ ghostsOn, AN, mode, ikSolve, group }), panel, pickAt, active: () => !!AN, leave: () => { if (AN) close(); }, refresh: () => { if (AN) placeGizmo(); } };
 }
