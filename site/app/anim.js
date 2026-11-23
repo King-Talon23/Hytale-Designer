@@ -177,3 +177,36 @@ export function mirror(a, has = () => true) {
   }
   return out;
 } // a bone the model has without a partner (R-Ear2) stays itself, mirrored in place
+
+// What a game animation is, for the Animate tab's two start lists: 'move' (it travels or moves the body), 'pose' (it holds
+// still) or 'face' (only the face changes). Travel, climbing and damage are moves even when the file holds one key, because
+// the game moves the player through them. Elsewhere the body's largest turn decides: a game "pose" may sway up to 45 degrees
+// (a drawn bow), anything else stays a pose only below 12 (sitting, sleeping, a held dab).
+const MOVE_FOLDERS = new Set(['Default', 'Climb', 'Mantle', 'Dash', 'Roll', 'Slide', 'Fly', 'Glide', 'Swim', 'Mount', 'Damage', 'Hypixel']);
+const FACE_BONE = /^(Mouth|.*Eye|.*Eyelid.*|.*Eyelash.*|.*Eyebrow.*)$/;
+export function motionKind(group, a, name = '') {
+  const tracks = Object.entries(a?.nodeAnimations || {}).filter(([, tr]) => TRACKS.some(k => (tr[k] || []).length));
+  const body = tracks.filter(([b]) => !FACE_BONE.test(b));
+  if (!body.length) return tracks.length ? 'face' : 'pose';
+  // looking up, down or around is the head moving, however little
+  if (MOVE_FOLDERS.has(String(group).split('/')[0]) || /(^|_)Look(_|$)/.test(name)) return 'move';
+  let turn = 0,
+    shift = 0;
+  for (const [, tr] of body) {
+    const qs = (tr.orientation || []).map(k => k.delta || {}),
+      ps = (tr.position || []).map(k => k.delta || {});
+    for (let i = 0; i < qs.length; i++)
+      for (let j = i + 1; j < qs.length; j++) {
+        const d = Math.min(
+          1,
+          Math.abs(['x', 'y', 'z', 'w'].reduce((t, c) => t + (qs[i][c] ?? (c === 'w' ? 1 : 0)) * (qs[j][c] ?? (c === 'w' ? 1 : 0)), 0))
+        );
+        turn = Math.max(turn, (2 * Math.acos(d) * 180) / Math.PI);
+      }
+    for (let i = 0; i < ps.length; i++)
+      for (let j = i + 1; j < ps.length; j++)
+        shift = Math.max(shift, Math.hypot(...['x', 'y', 'z'].map(c => (ps[i][c] || 0) - (ps[j][c] || 0))));
+  }
+  const limit = String(group).split('/')[0] === 'Poses' ? 45 : 12;
+  return turn > limit || shift > 4 ? 'move' : 'pose';
+}

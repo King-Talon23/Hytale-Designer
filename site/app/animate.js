@@ -35,7 +35,8 @@ function fromEuler(ex, ey, ez) {
 
 export function createAnimate(ctx) {
   const { el, st, render, say, ask, head, nice } = ctx;
-  let GAMEANIMS = null;
+  let GAMEANIMS = null,
+    KINDS = {};
   let AN = null,
     LIB = null,
     RIG = null,
@@ -102,15 +103,19 @@ export function createAnimate(ctx) {
   // poses: every frame with a key is a pose of the whole figure
   function addPose() {
     const f = frame(),
-      bones = [...new Set([...poseBones(), ...(AN.bone ? [AN.bone] : [])])];
-    if (!bones.length) {
-      say('Click a body part on the figure first');
+      moving = [...new Set([...poseBones(), ...(AN.bone ? [AN.bone] : [])])],
+      // nothing keyed yet (a blank start): the pose is the whole body as it stands now
+      bones = moving.length ? moving : (RIG || []).map(b => b.name).filter(n => group(n) && !/Mouth|Eye/.test(n));
+    const todo = bones.filter(b => pose(b) && group(b) && !A.TRACKS.some(k => A.keyAt(AN.a, b, k, f)));
+    if (!todo.length) {
+      say(
+        bones.length ? 'There is a pose here already. Click further along the pose strip, then Add pose.' : 'The figure is still loading'
+      );
       return;
     }
     step();
-    for (const b of bones) {
+    for (const b of todo) {
       const p = pose(b);
-      if (!p || A.TRACKS.some(k => A.keyAt(AN.a, b, k, f))) continue;
       const g = group(b),
         q = g.userData.rest.q.clone().invert().multiply(g.quaternion);
       setPose(b, 'orientation', { x: q.x, y: q.y, z: q.z, w: q.w });
@@ -284,6 +289,17 @@ export function createAnimate(ctx) {
       (out[m[1]] ||= []).push(m[2]);
     }
     for (const g in out) out[g].sort();
+    // what each one is (move, pose or face), from the file itself, so the two start lists never mix them up
+    const kinds = {};
+    await Promise.all(
+      Object.entries(out).flatMap(([g, ns]) =>
+        ns.map(async n => {
+          const src = await game.json(`Common/Characters/Animations/${g}/${n}.blockyanim`).catch(() => null);
+          kinds[g + '|' + n] = src ? A.motionKind(g, src, n) : 'move';
+        })
+      )
+    );
+    KINDS = kinds;
     GAMEANIMS = out;
   }
   // ---- library (meta store, key anim:<id>)
@@ -1423,14 +1439,18 @@ export function createAnimate(ctx) {
       const [g, n] = v.split('|');
       ctx.play?.(g, n);
     }; /* the figure plays the animation under the pointer */
+    // a game move lists everything that moves (faces too); a still pose lists only the ones that hold still
+    const fits = (g, n) => (startMode === 'pose' ? KINDS[g + '|' + n] === 'pose' : KINDS[g + '|' + n] !== 'pose');
     const pick = {
       items: groups.flatMap(g =>
-        GAMEANIMS[g].map(n => ({
-          value: g + '|' + n,
-          text: label(g, n),
-          group: g.split('/').map(nice).join(' / '),
-          icon: ctx.thumb ? () => ctx.thumb(g, n) : null,
-        }))
+        GAMEANIMS[g]
+          .filter(n => fits(g, n))
+          .map(n => ({
+            value: g + '|' + n,
+            text: label(g, n),
+            group: startMode === 'pose' && g === 'Flavor' ? 'Sit and lie' : g.split('/').map(nice).join(' / '),
+            icon: ctx.thumb ? () => ctx.thumb(g, n) : null,
+          }))
       ),
     }; /* every game move, with its picture; the figure plays the one under the pointer */
     const card = (k, t, pic, onclick) =>
@@ -1443,7 +1463,7 @@ export function createAnimate(ctx) {
     const chooser = startMode
       ? pickList(el, {
           label: 'Game animation',
-          placeholder: startMode === 'pose' ? 'Pick a move to take a pose from…' : 'Pick a game move…',
+          placeholder: startMode === 'pose' ? 'Pick a pose…' : 'Pick a game move…',
           search: true,
           value: null,
           items: pick.items || [],

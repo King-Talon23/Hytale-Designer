@@ -169,3 +169,21 @@ test('sameDelta agrees with comparing the JSON text', () => {
   ];
   for (const [p, q] of pairs) assert.equal(A.sameDelta(p, q), JSON.stringify(p) === JSON.stringify(q), JSON.stringify([p, q]));
 });
+
+test('motionKind: travel, climbing and damage are moves; still stances are poses; face-only is face', () => {
+  const key = (time, delta) => ({ time, delta, interpolationType: 'smooth' });
+  const still = { nodeAnimations: { Pelvis: { orientation: [key(0, { x: 0, y: 0, z: 0, w: 1 })] } } };
+  const swing = {
+    nodeAnimations: { 'R-Arm': { orientation: [key(0, { x: 0, y: 0, z: 0, w: 1 }), key(30, { x: 0.5, y: 0, z: 0, w: 0.866 })] } },
+  };
+  const face = { nodeAnimations: { Mouth: { orientation: [key(0, { x: 0, y: 0, z: 0, w: 1 })] } } };
+  assert.equal(A.motionKind('Dash', still, 'Dash_Forward'), 'move');
+  assert.equal(A.motionKind('Climb', still, 'Climb_Idle'), 'move');
+  assert.equal(A.motionKind('Damage/Default', still, 'Hurt'), 'move');
+  assert.equal(A.motionKind('Poses', still, 'Sword'), 'pose');
+  assert.equal(A.motionKind('Emote', still, 'Dab_Left'), 'pose');
+  assert.equal(A.motionKind('Emote', swing, 'Wave'), 'move');
+  assert.equal(A.motionKind('Poses/Hero', swing, 'Hero_Sword_Slash'), 'move');
+  assert.equal(A.motionKind('Flavor', still, 'Look_Up'), 'move');
+  assert.equal(A.motionKind('Expressions', face, 'Smile'), 'face');
+});
