@@ -10,6 +10,15 @@
   Cross-Origin-Resource-Policy: same-origin
   ! Access-Control-Allow-Origin
 
+# The moving page passes saved things from the old address to the new one in a tab it opens, which needs the two tabs to
+# stay linked (window.opener), so it alone drops the opener isolation.
+/move.html
+  ! Cross-Origin-Opener-Policy
+  Cross-Origin-Opener-Policy: unsafe-none
+/move
+  ! Cross-Origin-Opener-Policy
+  Cross-Origin-Opener-Policy: unsafe-none
+
 # Code and styles: always ask the server whether they changed (cheap with ETags), so a deploy never leaves a browser
 # running a mix of old and new files. Fonts and the pinned three.js keep the host's default caching.
 /app/*

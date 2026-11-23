@@ -145,7 +145,12 @@ export function createHelp(app) {
             })
           )
         ),
-        MOD_URL ? sec('Skin Editor Sync', '', el('div', { class: 'row' }, modLink('primary'))) : null,
+        sec(
+          'Used the old address?',
+          'Skins and items you made on hytale-skin-editor.com are still saved in this browser under that address.',
+          el('div', { class: 'row' }, el('a', { class: 'btn ghost', href: 'https://hytale-skin-editor.com/move', text: 'Bring them over' }))
+        ),
+        MOD_URL ? sec('Hytale Designer Sync', '', el('div', { class: 'row' }, modLink('primary'))) : null,
         sec(
           'Backup',
           '',
@@ -156,7 +161,7 @@ export function createHelp(app) {
               class: 'btn ghost',
               text: 'Download backup',
               onclick: guard(async () =>
-                download('skin-editor-backup.json', {
+                download('hytale-designer-backup.json', {
                   ...(await store.exportAll()),
                   favourites: [...LOCK.favs],
                   emotes: app.EMOTES || undefined,

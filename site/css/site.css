@@ -138,21 +138,6 @@ button {
   color: var(--dim);
   text-transform: uppercase;
 }
-.brand .for {
-  color: var(--text);
-  font-weight: 800;
-}
-.brand .hy {
-  display: inline-block;
-  vertical-align: -12px;
-  margin: -9px 2px -6px;
-}
-.brand .hy img {
-  display: block;
-  height: 30px;
-  width: auto;
-  filter: drop-shadow(0 1px 1px #000c);
-}
 nav {
   display: flex;
   gap: 4px;
@@ -2258,7 +2243,7 @@ footer {
 } /* the tool tip sits above the facing label, not under it */
 
 /* between the stacked phone layout and a wide screen the top bar ran past the window and dragged the page wider: tighten it */
-@media (max-width: 1180px) and (min-width: 981px) {
+@media (max-width: 1340px) and (min-width: 981px) {
   .topbar {
     gap: 12px;
     padding: 0 14px;
@@ -2272,6 +2257,25 @@ footer {
   }
   .conn {
     padding: 9px;
+  }
+  .brand {
+    gap: 7px;
+  }
+  .brand span {
+    font-size: 15px;
+    letter-spacing: 0.04em;
+  }
+  .brand small {
+    display: none;
+  }
+  .brand svg {
+    height: 30px;
+  }
+}
+/* just the HD mark where the full name would push the menu off the right edge */
+@media (max-width: 1060px) and (min-width: 981px) {
+  .brand span {
+    display: none;
   }
 }
 

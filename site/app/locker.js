@@ -341,7 +341,7 @@ export function createLocker(app) {
       el(
         'ol',
         {},
-        row(1, !!app.FOLDER.mod, 'Skin Editor Sync mod', '', modLink('ghost')),
+        row(1, !!app.FOLDER.mod, 'Hytale Designer Sync mod', '', modLink('ghost')),
         row(
           2,
           linked,

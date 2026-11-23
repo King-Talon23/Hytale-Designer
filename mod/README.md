@@ -1,10 +1,10 @@
-# Skin Editor Sync (companion mod for Hytale)
+# Hytale Designer Sync (companion mod for Hytale)
 
-Shows the skin you are wearing on https://hytale-skin-editor.com on your character in your own worlds, custom assets
+Shows the skin you are wearing on https://hytaledesigner.com on your character in your own worlds, custom assets
 included. No commands. Unofficial; not affiliated with or endorsed by Hypixel Studios.
 
 ## Use
-1. Put `SkinEditor-<version>.jar` in your mods folder and enable it for the world.
+1. Put `HytaleDesignerSync-<version>.jar` in your mods folder and enable it for the world.
 2. On the website, Locker -> **Save skins to a folder** and pick (or make) `Documents\Hytale Skins`.
 3. Turn on **In game** (next to Front, under the character). Whatever you wear in the Wardrobe now shows on your character in
    game within a second, and keeps showing after you close the website. Turn it off and your own skin comes back.
@@ -22,7 +22,7 @@ Everyone in the world sees you dressed, because the server sends it.
   a paid cosmetic on anyone.
 
 ## Build
-`bash build.sh` (JDK 25, compiles against your installed `HytaleServer.jar`) gives `out/SkinEditor-<version>.jar`. Released on CurseForge from 1.0.0.
+`bash build.sh` (JDK 25, compiles against your installed `HytaleServer.jar`) gives `out/HytaleDesignerSync-<version>.jar`. Released on CurseForge from 1.0.0.
 
 ## License
 MIT (see `LICENSE` in this folder). This covers the mod only; the website code is not licensed for reuse.

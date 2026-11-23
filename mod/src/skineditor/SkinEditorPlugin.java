@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * Companion mod for the Skin Editor website. No commands: it dresses you automatically.
+ * Companion mod for the Hytale Designer website. No commands: it dresses you automatically.
  *
  * The website writes to a skins folder on this PC (default Documents/Hytale Skins): your custom assets in "Custom assets", and,
  * while its "Show in game" switch is on, what you are wearing on the site in "Wearing.json". Once a second this mod reads that
@@ -87,18 +87,18 @@ public final class SkinEditorPlugin extends JavaPlugin {
         try { var cfg = com.hypixel.hytale.server.core.HytaleServer.get().getConfig().getModConfig();
             var id = new com.hypixel.hytale.common.plugin.PluginIdentifier("SkinEditorPack", "Live"); var mc = cfg.get(id);
             if (mc == null || mc.getEnabled() == null) { if (mc == null) mc = new com.hypixel.hytale.server.core.config.ModConfig(); mc.setEnabled(true); cfg.put(id, mc); }
-        } catch (Throwable e) { System.err.println("[SkinEditor] could not switch the live pack on: " + e); }
+        } catch (Throwable e) { System.err.println("[Hytale Designer Sync] could not switch the live pack on: " + e); }
     }
 
     @Override
     protected void setup() {
-        try { locate(); ensureLivePack(); syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not prepare: " + e); }
+        try { locate(); ensureLivePack(); syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not prepare: " + e); }
         tick = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "SkinEditor"); t.setDaemon(true); return t; });
         tick.scheduleWithFixedDelay(this::step, 2, 1, TimeUnit.SECONDS);
-        // the website saves straight into the skins folder through this (no folder picking): this computer only, the Skin Editor site only
+        // the website saves straight into the skins folder through this (no folder picking): this computer only, the Hytale Designer site only
         try { boolean dev = Files.exists(getDataDirectory().resolve("dev-origins"));
-            bridge = new SkinBridge(() -> skinsDir, VERSION, dev, msg -> getLogger().atInfo().log("[SkinEditor] " + msg)); bridge.start();
-        } catch (Throwable e) { getLogger().atWarning().log("[SkinEditor] website bridge off: " + e); }
+            bridge = new SkinBridge(() -> skinsDir, VERSION, dev, msg -> getLogger().atInfo().log("[Hytale Designer Sync] " + msg)); bridge.start();
+        } catch (Throwable e) { getLogger().atWarning().log("[Hytale Designer Sync] website bridge off: " + e); }
     }
 
     private SkinBridge bridge;
@@ -132,8 +132,8 @@ public final class SkinEditorPlugin extends JavaPlugin {
         Path best = null; long bestT = -1;
         for (Path d : docs) { Path p = d.resolve("Hytale Skins"); if (!Files.isDirectory(p)) continue; long t = lastUsed(p); if (t > bestT) { best = p; bestT = t; } }
         if (best == null) { if (!create) return; Path base = docs.stream().filter(Files::isDirectory).findFirst().orElse(home.resolve("Documents")); best = base.resolve("Hytale Skins");
-            try { Files.createDirectories(best); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not make " + best + ": " + e); } }
-        if (!best.equals(skinsDir)) { if (skinsDir != null) getLogger().atInfo().log("[SkinEditor] skins folder is now " + best); skinsDir = best; markedOn = null; }
+            try { Files.createDirectories(best); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not make " + best + ": " + e); } }
+        if (!best.equals(skinsDir)) { if (skinsDir != null) getLogger().atInfo().log("[Hytale Designer Sync] skins folder is now " + best); skinsDir = best; markedOn = null; }
     }
 
     // ------------------------------------------------------------------ once a second
@@ -141,15 +141,15 @@ public final class SkinEditorPlugin extends JavaPlugin {
     private void step() {
         if (++steps % 10 == 0) chooseFolder(false);   // follow the folder the site actually writes to
         markFolder();
-        try { syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] sync: " + e); }
+        try { syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] sync: " + e); }
         try {
             UUID me = localPlayer(); if (me == null) return;
             PlayerRef pr = Universe.get().getPlayer(me); if (pr == null) return;
             Ref<EntityStore> ref = pr.getReference(); if (ref == null || !ref.isValid()) return;
             Wearing want = readWearing(); Map<String, Asset> all = assets();
             World w = ref.getStore().getExternalData().getWorld();
-            w.execute(() -> { try { apply(ref.getStore(), ref, me, want, all); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not dress: " + e); } });
-        } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] step: " + e); }
+            w.execute(() -> { try { apply(ref.getStore(), ref, me, want, all); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not dress: " + e); } });
+        } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] step: " + e); }
     }
 
     /** "Skin Editor Sync.json" in the skins folder tells the website this mod is installed and has run (once a day, only if the folder exists) */
@@ -157,7 +157,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
         String today = java.time.LocalDate.now().toString(); if (today.equals(markedOn) || skinsDir == null || !Files.isDirectory(skinsDir)) return;
         String body = "{\n \"format\": \"skin-editor-sync\",\n \"version\": \"" + VERSION + "\",\n \"seen\": \"" + today + "\"\n}\n";
         try { Files.writeString(skinsDir.resolve("Skin Editor Sync.json"), body); markedOn = today; }
-        catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not write the folder marker: " + e); markedOn = today; }
+        catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not write the folder marker: " + e); markedOn = today; }
     }
 
     /** the account this PC plays as: the newest skin the game cached in UserData/CachedPlayerSkins */
@@ -204,7 +204,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
             put(skin, f, v);
         }
         if (custom.isEmpty()) {
-            try { CosmeticsModule.get().validateSkin(skin); } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] the website's skin has parts this game version lacks"); dressedWith.put(who, key); return; }
+            try { CosmeticsModule.get().validateSkin(skin); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] the website's skin has parts this game version lacks"); dressedWith.put(who, key); return; }
             applied.put(who, new PlayerSkin(skin)); plain(store, ref, skin);
         } else {
             applied.remove(who);
@@ -235,7 +235,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
         Path m = live.resolve("manifest.json");
         // "DisabledByDefault": false: a pack that appears after the world was made is otherwise skipped as disabled (fresh installs)
         if (!Files.isRegularFile(m) || !Files.readString(m).contains("DisabledByDefault")) Files.writeString(m, "{\n \"Group\": \"SkinEditorPack\",\n \"Name\": \"Live\",\n \"Version\": \"1.0.0\",\n"
-            + " \"Description\": \"Kept up to date by the Skin Editor mod from your skins folder. Do not edit.\",\n \"Authors\": [{ \"Name\": \"Skin Editor\" }],\n \"ServerVersion\": \"*\",\n \"DisabledByDefault\": false\n}\n");
+            + " \"Description\": \"Kept up to date by the Hytale Designer Sync mod from your skins folder. Do not edit.\",\n \"Authors\": [{ \"Name\": \"Hytale Designer Sync\" }],\n \"ServerVersion\": \"*\",\n \"DisabledByDefault\": false\n}\n");
     }
 
     /** copies "<skins folder>/Custom assets" into the live pack; each texture is named after its content, so a repaint is a new file */
@@ -324,7 +324,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
                 String baseId = str(json, "baseId"), tone = str(json, "tone"); if (baseId != null && !WORD.matcher(baseId).matches()) baseId = null; if (tone != null && !WORD.matcher(tone).matches()) tone = null;
                 if (Files.isRegularFile(live.resolve("Common").resolve(tex))) out.put(id, new Asset(id, field, model, tex, baseId, tone));
             }
-        } catch (Exception e) { getLogger().atWarning().log("[SkinEditor] could not read the live pack: " + e); }
+        } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not read the live pack: " + e); }
         return out;
     }
 

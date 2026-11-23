@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 
 /**
  * The website saves straight into the skins folder through this, so nobody has to pick a folder: a tiny web server on this computer
- * only (127.0.0.1), answering only the Skin Editor website, and only inside "Hytale Skins" (its four subfolders and Wearing.json).
+ * only (127.0.0.1), answering only the Hytale Designer website, and only inside "Hytale Skins" (its four subfolders and Wearing.json).
  *   GET    /v1/hello                 { app, version }
  *   GET    /v1/list?dir=<subfolder>  [ { name, size } ]
  *   GET    /v1/file?path=<sub/name>  the file
@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
  */
 final class SkinBridge {
     static final int[] PORTS = { 47815, 47816, 47817 };
-    private static final Set<String> SITES = Set.of("https://hytale-skin-editor.com", "https://www.hytale-skin-editor.com");
+    private static final Set<String> SITES = Set.of("https://hytaledesigner.com", "https://www.hytaledesigner.com", "https://hytale-skin-editor.com", "https://www.hytale-skin-editor.com");
     private static final Pattern DEV = Pattern.compile("^http://([a-z0-9-]+\\.)?localhost:\\d{2,5}$");   // the local test server, only when dev-origins is switched on
     private static final Set<String> DIRS = Set.of("My skins", "In-game slots", "Custom assets", "Animations");
     private static final Set<String> TOP_READ = Set.of("Wearing.json", "Skin Editor Sync.json"), TOP_WRITE = Set.of("Wearing.json");
@@ -59,7 +59,7 @@ final class SkinBridge {
     private void handle(HttpExchange x) throws IOException {
         try (x) {
             String origin = x.getRequestHeaders().getFirst("Origin"), host = x.getRequestHeaders().getFirst("Host");
-            // only this computer's own address in Host (no website can rename itself to us), only the Skin Editor in Origin
+            // only this computer's own address in Host (no website can rename itself to us), only Hytale Designer in Origin
             if (host == null || !(host.equals("127.0.0.1:" + port) || host.equals("localhost:" + port)) || !allowed(origin)) { send(x, 403, "{\"error\":\"not allowed\"}"); return; }
             var h = x.getResponseHeaders(); h.set("Access-Control-Allow-Origin", origin); h.set("Vary", "Origin"); h.set("Cache-Control", "no-store"); h.set("X-Content-Type-Options", "nosniff");
             String m = x.getRequestMethod(), path = x.getRequestURI().getPath();

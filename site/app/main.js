@@ -1,3 +1,5 @@
+// the old address forwards to hytaledesigner.com before anything else runs
+import './fwd.js';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import * as game from './game.js';
 import * as db from './db.js';
@@ -33,13 +35,13 @@ const modLink = cls =>
 function getModHelp() {
   // the in-game mod browser first (no web link can open it), CurseForge as the other way
   ask(
-    'Get the Skin Editor Sync mod',
+    'Get the Hytale Designer Sync mod',
     [
       el(
         'ol',
         { class: 'modhow' },
         el('li', { text: 'In Hytale, open Mods from the main menu.' }),
-        el('li', { text: 'Go to Browse and search "Skin Editor Sync".' }),
+        el('li', { text: 'Go to Browse and search "Hytale Designer Sync".' }),
         el('li', { text: 'Install it, then start your world.' })
       ),
       el(
@@ -721,7 +723,7 @@ function drawGameSwitch() {
   b.classList.toggle('primary', SHOWGAME);
   b.classList.toggle('ghost', !SHOWGAME);
   b.textContent = SHOWGAME ? 'In game: on' : 'In game: off';
-  b.title = 'Skin Editor Sync mod';
+  b.title = 'Hytale Designer Sync mod';
 }
 const persist = c => (c.kind === 'game' ? store.saveGame(c.slot, c.name, c.skin) : store.saveCustom(c.name, c.skin, c.id));
 function autosave() {

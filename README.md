@@ -1,4 +1,4 @@
-# Skin Editor for Hytale (unofficial)
+# Hytale Designer (unofficial)
 
 Design, save and preview Hytale avatar skins outside the game. The site hosts no Hytale assets. Its only server part is a small
 API for published skins (optional, needs Sign in with Hytale). Each player connects their own `Assets.zip`; the editor reads the character files out of it in

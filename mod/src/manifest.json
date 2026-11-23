@@ -2,13 +2,13 @@
   "Group": "KingTalon23",
   "Name": "SkinEditor",
   "Version": "1.2.0",
-  "Description": "Shows the skin and custom assets you are wearing on hytale-skin-editor.com in your own worlds. Unofficial; not affiliated with Hypixel Studios.",
+  "Description": "Hytale Designer Sync: shows the skin and custom assets you are wearing on hytaledesigner.com in your own worlds. Unofficial; not affiliated with Hypixel Studios.",
   "Authors": [
     {
       "Name": "KingTalon23"
     }
   ],
-  "Website": "https://hytale-skin-editor.com",
+  "Website": "https://hytaledesigner.com",
   "Main": "skineditor.SkinEditorPlugin",
   "ServerVersion": "*",
   "Dependencies": {},

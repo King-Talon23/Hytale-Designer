@@ -168,7 +168,7 @@ async function takeAsset(meta, bytes, have) {
 export async function importAll(data) {
   // adds to what is there; never overwrites a filled in-game slot
   if (!data || data.format !== 'skin-editor-backup' || !Array.isArray(data.custom))
-    throw new Error('That file is not a Skin Editor backup.');
+    throw new Error('That file is not a Hytale Designer backup.');
   const cur = await list();
   let added = 0,
     skipped = 0,
@@ -290,10 +290,10 @@ export async function folderState() {
   const on = dir && (await h.queryPermission({ mode: 'readwrite' })) === 'granted';
   return { state: on ? 'on' : 'ask', name: h.name, mod: on ? await modSeen() : null }; // mod: the companion mod's marker, when it has run
 }
-// the skins folder is always Documents/Hytale Skins, where the Skin Editor Sync mod looks: picking Documents makes (or finds) it there,
+// the skins folder is always Documents/Hytale Skins, where the Hytale Designer Sync mod looks: picking Documents makes (or finds) it there,
 // picking the Hytale Skins folder itself is fine, and any other folder is turned down so the mod never misses the skins
 export const FOLDER_NAME = 'Hytale Skins';
-// ---- the mod as the folder: with Hytale running, the Skin Editor Sync mod (1.2+) answers on this computer (127.0.0.1) and writes into
+// ---- the mod as the folder: with Hytale running, the Hytale Designer Sync mod (1.2+) answers on this computer (127.0.0.1) and writes into
 // Documents/Hytale Skins itself, so no folder has to be picked and any browser works. It looks like a folder to the code below.
 const BRIDGE_PORTS = [47815, 47816, 47817];
 let bridgeBase = null,
@@ -426,7 +426,7 @@ async function autoConnect() {
 }
 export async function connectMod() {
   const j = await findBridge();
-  if (!j) throw new Error('Start Hytale with the Skin Editor Sync mod (1.2 or newer) turned on, then try again.');
+  if (!j) throw new Error('Start Hytale with the Hytale Designer Sync mod (1.2 or newer) turned on, then try again.');
   bridgeWanted = true;
   await db.put('meta', 'bridge', true);
   await db.del('meta', 'folder');
