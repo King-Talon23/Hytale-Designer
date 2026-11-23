@@ -581,10 +581,10 @@ export function stage(canvas, Controls) {
   // bd: { top, fog } colours from the zone's weather at noon, sc: its entry in SCENES, tint: the biome's grass colour
   // a picture of the stage as it is now, at twice the screen's pixels: with its background, or the character alone on transparency
   let recPr = null; api.recordMode = on => { const w = canvas.clientWidth, h = canvas.clientHeight; if (on && recPr === null) { recPr = renderer.getPixelRatio(); renderer.setPixelRatio(Math.max(2, recPr)); renderer.setSize(w, h, false); } else if (!on && recPr !== null) { renderer.setPixelRatio(recPr); recPr = null; renderer.setSize(w, h, false); } };   // videos at twice the screen's pixels
-  api.capture = transparent => { const hide = transparent ? [sky, world, disc].filter(o => o && o.visible) : [], fog = scene.fog, pr = renderer.getPixelRatio(), w = canvas.clientWidth, h = canvas.clientHeight;
-    hide.forEach(o => { o.visible = false; }); if (transparent) scene.fog = null; renderer.setPixelRatio(Math.max(2, pr)); renderer.setSize(w, h, false);
+  api.capture = transparent => { const hide = transparent ? [sky, world, disc, grid, wallG, mist, setPiece].filter(o => o && o.visible) : [], fog = scene.fog, bg = scene.background, pr = renderer.getPixelRatio(), w = canvas.clientWidth, h = canvas.clientHeight;
+    hide.forEach(o => { o.visible = false; }); if (transparent) { scene.fog = null; scene.background = null; } renderer.setPixelRatio(Math.max(2, pr)); renderer.setSize(w, h, false);
     try { renderer.render(scene, cam); return { url: renderer.domElement.toDataURL('image/png'), sky: !!sky }; }
-    finally { hide.forEach(o => { o.visible = true; }); scene.fog = fog; renderer.setPixelRatio(pr); renderer.setSize(w, h, false); renderer.render(scene, cam); } };
+    finally { hide.forEach(o => { o.visible = true; }); scene.fog = fog; scene.background = bg; renderer.setPixelRatio(pr); renderer.setSize(w, h, false); renderer.render(scene, cam); } };
   api.world = () => world; api.camera = cam; api.orbitTo = (az, el, dist) => { const t = ctl.target; cam.position.set(t.x + Math.sin(az) * Math.cos(el) * dist, t.y + Math.sin(el) * dist, t.z + Math.cos(az) * Math.cos(el) * dist); ctl.update(); };   // for tests
   api.setBackdrop = async (bd, sc, tint) => { const my = (api.setBackdrop.n = (api.setBackdrop.n || 0) + 1);
     let built = null; if (bd) try { built = await buildWorld(sc, tint); } catch (e) { console.warn('scene', e); if (my === api.setBackdrop.n) throw new Error('scene files missing'); return; }   // the caller says what is missing
