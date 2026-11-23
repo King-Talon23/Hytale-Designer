@@ -1,5 +1,6 @@
 // the old address forwards to hytaledesigner.com before anything else runs
 import './fwd.js';
+import './bug.js';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import * as game from './game.js';
 import * as db from './db.js';
