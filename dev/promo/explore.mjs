@@ -5,7 +5,7 @@ import { execFileSync } from 'child_process';
 import { launch, sleep } from './cdp.mjs';
 const SITE = process.env.SITE || 'https://hytaledesigner.com/';
 const [name, ...steps] = process.argv.slice(2);
-const p = await launch();
+const p = await launch({ w: +process.env.VW || 1920, h: +process.env.VH || 1080 });
 const find = t =>
   `[...document.querySelectorAll('button,[role=button],a,.tile,.card,label,li,div')].filter(e=>{const r=e.getBoundingClientRect();return r.width&&r.height&&r.y>=0&&r.y<1080&&e.textContent.trim().replace(/\\s+/g,' ').includes(${JSON.stringify(t)})}).sort((a,b)=>a.textContent.length-b.textContent.length)[0]`;
 try {

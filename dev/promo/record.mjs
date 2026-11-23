@@ -4,7 +4,7 @@
 import { launch, sleep } from './cdp.mjs';
 const SITE = process.env.SITE || 'https://hytaledesigner.com/';
 const only = process.argv.slice(2);
-const p = await launch();
+const p = await launch({ w: +process.env.VW || 1920, h: +process.env.VH || 1080 });
 
 const RESET = `new Promise(r => { const q = indexedDB.open('skin-editor'); q.onsuccess = () => {
   const d = q.result, t = d.transaction(['meta', 'skins', 'assets'], 'readwrite');
@@ -74,16 +74,22 @@ async function drag(x0, y0, x1, y1, ms = 900) {
   my = y1;
 }
 const cap = (t, x) => p.eval(`__promo.cap(${JSON.stringify(t)}, ${x || 0})`);
-const btn = t => `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(t)}&&b.getBoundingClientRect().width)`;
+const btn = t =>
+  `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(t)}&&b.getBoundingClientRect().width)`;
 const slot = t => `[...document.querySelectorAll('button.slot')].find(b=>b.textContent.includes(${JSON.stringify(t)}))`;
-const item = t => (typeof t === 'number' ? `document.querySelectorAll('button.lcard.t0')[${t}]` : `document.querySelector('button.lcard[aria-label=${JSON.stringify(t)}]')`);
+const item = t =>
+  typeof t === 'number'
+    ? `document.querySelectorAll('button.lcard.t0')[${t}]`
+    : `document.querySelector('button.lcard[aria-label=${JSON.stringify(t)}]')`;
+const titled = t =>
+  `[...document.querySelectorAll('button')].find(b=>(b.title||'').startsWith(${JSON.stringify(t)})&&b.getBoundingClientRect().width)`;
 const tab = t => p.eval(`document.querySelector('[data-tab=${t}]').click()`);
 
 async function fresh() {
   await p.call('Page.setBypassCSP', { enabled: true });
   await p.go(SITE + 'privacy.html', 2500);
   await p.eval(RESET);
-  await p.eval('localStorage.clear()');
+  await p.eval('localStorage.clear(); sessionStorage.clear()');
   await p.go(SITE, 7000);
   for (let i = 0; i < 60 && !(await p.eval("document.body.innerText.includes('Game files connected')")); i++) await sleep(500);
   await p.eval(OVERLAY);
@@ -91,6 +97,18 @@ async function fresh() {
   await sleep(1500);
   await p.mouse('mouseMoved', mx, my);
   await sleep(800);
+}
+
+// the promo profile joins the Hytale Designer Sync mod (Hytale must be running with it) and shows the outfit in game
+async function liveSetup() {
+  await tab('wardrobe');
+  await sleep(1200);
+  await p.eval(btn('Connect to the mod') + '.click()');
+  for (let i = 0; i < 30 && (await p.eval('document.getElementById("ingame").hidden')); i++) await sleep(500);
+  if (!(await p.eval('document.getElementById("ingame").textContent.includes("on")')))
+    await p.eval('document.getElementById("ingame").click()');
+  await tab('editor');
+  await sleep(+(process.env.LIVE_WAIT || 6000));
 }
 
 const takes = {
@@ -119,7 +137,10 @@ const takes = {
   async places() {
     await cap('See it in the <b>world</b>');
     for (const place of ['Meadow', 'Desert']) {
-      await click('$document.querySelector(".bdbtn") || [...document.querySelectorAll("button")].find(b=>/^(Studio|Meadow|Snow|Desert|Jungle)/.test(b.textContent.trim()))', { after: 400 });
+      await click(
+        '$document.querySelector(".bdbtn") || [...document.querySelectorAll("button")].find(b=>/^(Studio|Meadow|Snow|Desert|Jungle)/.test(b.textContent.trim()))',
+        { after: 400 }
+      );
       await click('$[...document.querySelectorAll(".bdopt")].find(b=>b.textContent.includes("' + place + '"))', { after: 1200 });
       if (place === 'Meadow') {
         await drag(1250, 620, 1600, 630, 1500);
@@ -133,7 +154,9 @@ const takes = {
   async animations() {
     await click('$document.querySelector("[data-tab=animations]")', { after: 700 });
     await cap('Every <b>animation</b> in the game');
-    await click('$' + btn('Emote').replace("b.textContent.trim()===", "b.textContent.trim().startsWith("), { after: 400 }).catch(() => click('Emote'));
+    await click('$' + btn('Emote').replace('b.textContent.trim()===', 'b.textContent.trim().startsWith('), { after: 400 }).catch(() =>
+      click('Emote')
+    );
     await click('Dance Boogie', { after: 2700 });
     await click('Moves', { after: 400 });
     await click('Sprint', { after: 2900 });
@@ -143,7 +166,10 @@ const takes = {
   async create() {
     await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
     await cap('Paint your <b>own items</b>', 1085);
-    await click('$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Arming"))', { after: 2600 });
+    await click(
+      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Arming"))',
+      { after: 2600 }
+    );
     await click('$document.querySelector("button[title=\'#f4d24a\']")', { after: 400 });
     await click('$' + btn('Symmetry'), { after: 400 });
     const r = await where('$[...document.querySelectorAll("input[type=range]")].find(i=>i.getBoundingClientRect().x>1500)');
@@ -157,23 +183,80 @@ const takes = {
     await sleep(1000);
     await cap('');
   },
+  // 4b. combine two game items into one (a monocle + a face mask, worn as one face item)
+  async combine() {
+    await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
+    await cap('<b>Combine</b> items into new ones', 1085);
+    await click('$document.querySelector(".anysearch")', { after: 200 });
+    await p.type('monocle', 90);
+    await sleep(700);
+    await click('$[...document.querySelectorAll(".anyitem button")].find(b=>/edit a copy/i.test(b.textContent))', { after: 2600 });
+    await click('$' + titled('Move'), { after: 700 });
+    await click('$' + titled('Add item'), { after: 900 });
+    await p.type('face mask', 90);
+    await sleep(700);
+    await click('$[...document.querySelectorAll(".combinegrid button")].find(b=>b.textContent.trim()==="Face Mask")', { after: 600 });
+    await click('$[...document.querySelectorAll("#dlgbtns button")].find(b=>b.value==="yes")', { after: 1800 });
+    await click('$' + btn('Item only'), { after: 1200 });
+    await drag(1250, 650, 1450, 620, 1300);
+    await sleep(1000);
+    await click('$' + btn('Done'), { after: 2200 });
+    await cap('');
+  },
+  // 4c. live in game: the site on the left, Hytale on the right (gamecap.ps1 records the game at the same time; VW=1280)
+  async live() {
+    await tab('editor');
+    await sleep(1500);
+    await click('$' + slot('Haircut'));
+    await click('$' + item('Ponytail'), { after: 600 });
+    await click('$document.querySelector(".swatches button[title=Black], .swatches button:nth-child(2)")', { after: 2200 });
+    await click('$' + btn('‹ Wardrobe'), { after: 400 });
+    await click('$' + slot('Overtop'));
+    await click('$' + item('Arming Jacket'), { after: 3000 });
+    await click('$' + btn('‹ Wardrobe'), { after: 400 });
+    await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
+    await click(
+      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Arming"))',
+      { after: 2600 }
+    );
+    await click('$document.querySelector("button[title=\'#f4d24a\']")', { after: 400 });
+    await click('$' + btn('Symmetry'), { after: 400 });
+    const r = await where('$[...document.querySelectorAll("input[type=range]")].find(i=>i.getBoundingClientRect().x>900)');
+    await move(r.x - r.w / 2 + 4, r.y, 400);
+    await p.mouse('mousePressed', mx, my);
+    await p.glide(mx, my, mx + r.w * 0.28, my, 400, true);
+    await p.mouse('mouseReleased', mx + r.w * 0.28, my);
+    mx += r.w * 0.28;
+    await sleep(300);
+    const c = await where('$document.getElementById("view")').catch(() => ({ x: 640, y: 560 }));
+    for (const dy of [-40, 20, 80]) await drag(c.x - 90, c.y + dy, c.x + 90, c.y + dy + 25, 600);
+    await sleep(4000);
+    await click('$' + btn('Done'), { after: 4000 });
+  },
   // 5. make your own animations
   async animate() {
     await click('$document.querySelector("[data-tab=animate]")', { after: 800 });
     await click('$' + btn('Front'), { after: 500 });
     await cap('Make your own <b>animations</b>');
     await click('Start from a game move', { after: 600 });
-    await click('$[...document.querySelectorAll("input")].find(i=>i.placeholder==="Search"&&i.getBoundingClientRect().width)', { after: 200 });
+    await click('$[...document.querySelectorAll("input")].find(i=>i.placeholder==="Search"&&i.getBoundingClientRect().width)', {
+      after: 200,
+    });
     await p.type('wave', 110);
     await sleep(500);
-    await click('$[...document.querySelectorAll("span")].find(e=>e.textContent.trim()==="Wave"&&e.getBoundingClientRect().width)', { after: 1500 });
+    await click('$[...document.querySelectorAll("span")].find(e=>e.textContent.trim()==="Wave"&&e.getBoundingClientRect().width)', {
+      after: 1500,
+    });
     await click('$' + btn('Front'), { after: 900 });
     await move(1200, 560, 500);
     await p.click(1200, 560);
     await sleep(900);
     await drag(1205, 512, 1330, 400, 1000);
     await sleep(700);
-    await click('$[...document.querySelectorAll("button")].find(b=>/^play$/i.test(b.getAttribute("aria-label")||b.title||"")) || [...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="▶")', { after: 2800 }).catch(() => sleep(2800));
+    await click(
+      '$[...document.querySelectorAll("button")].find(b=>/^play$/i.test(b.getAttribute("aria-label")||b.title||"")) || [...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="▶")',
+      { after: 2800 }
+    ).catch(() => sleep(2800));
     await cap('');
   },
   // 6. randomize a few looks
@@ -187,7 +270,7 @@ const takes = {
   async end() {
     await click('$document.querySelector("[data-tab=animations]")', { after: 500 });
     await move(1990, 600, 300);
-    await p.eval('__promo.end(true)');
+    await p.eval("document.getElementById('pc').style.display = 'none'; __promo.end(true)");
     await sleep(4200);
   },
 };
@@ -196,6 +279,7 @@ try {
   await fresh();
   for (const [name, fn] of Object.entries(takes)) {
     if (only.length && !only.includes(name)) continue;
+    if (name === 'live') await liveSetup();
     const stop = await p.record('takes/' + name);
     await sleep(300);
     try {

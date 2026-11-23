@@ -10,9 +10,16 @@ const args = ['-loglevel', 'error', '-y'];
 for (const [n] of pick) args.push('-i', `${dir}/${n}.jpg`);
 const cols = 4;
 const f = pick
-  .map(([n, t], i) => `[${i}]scale=480:-1,drawtext=fontfile=out/arial.ttf:text='${n} ${(t - t0).toFixed(1)}s':x=6:y=6:fontsize=20:fontcolor=yellow:box=1:boxcolor=black@0.6[v${i}]`)
+  .map(
+    ([n, t], i) =>
+      `[${i}]scale=480:270:force_original_aspect_ratio=decrease,pad=480:270:(ow-iw)/2:0,drawtext=fontfile=out/arial.ttf:text='${n} ${(t - t0).toFixed(1)}s':x=6:y=6:fontsize=20:fontcolor=yellow:box=1:boxcolor=black@0.6[v${i}]`
+  )
   .join(';');
 const lay = pick.map((_, i) => `${(i % cols) * 480}_${Math.floor(i / cols) * 270}`).join('|');
-args.push('-filter_complex', `${f};${pick.map((_, i) => `[v${i}]`).join('')}xstack=inputs=${pick.length}:layout=${lay}`, `out/sheet-${take}.jpg`);
+args.push(
+  '-filter_complex',
+  `${f};${pick.map((_, i) => `[v${i}]`).join('')}xstack=inputs=${pick.length}:layout=${lay}`,
+  `out/sheet-${take}.jpg`
+);
 execFileSync('ffmpeg', args);
 console.log(`out/sheet-${take}.jpg`, list.length, 'frames', (list.at(-1)[1] - t0).toFixed(1) + 's');

@@ -1,47 +1,152 @@
 // Cuts the recorded takes into the promo: node cut.mjs -> out/hytaledesigner-promo.mp4 (1920x1080, 30 fps, H.264, for X)
-// Each piece: [take, from s, to s, speed]. Frames keep the real time Edge painted them (times.json), then are resampled to 30 fps.
+// Each piece: [take, from s, to s, speed]. Frames keep the real time they were painted (times.json), then are resampled to 30 fps.
+// A split piece ['split', siteTake, gameTake, from, to, speed] puts the site (left) beside Hytale (right) at the same moments:
+// both takes' times.json hold wall-clock seconds, so the game frames are picked by the site take's own clock.
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 
+const SPLIT_CAP = 'Every change shows up in game, live';
 const CUT = [
-  ['wardrobe', 0.4, 24.6, 2.1],
-  ['places', 1.6, 16.2, 1.7],
-  ['animations', 0.6, 14.3, 1.25],
-  ['create', 2.0, 19.6, 1.8],
-  ['animate', 2.6, 7.6, 1.8],
-  ['animate', 12.9, 23.0, 1.9],
-  ['randomize', 1.6, 8.7, 1.15],
-  ['end', 1.6, 7.2, 1],
+  ['wardrobe', 0.4, 24.6, 3.0],
+  ['places', 1.6, 16.2, 2.3],
+  ['animations', 0.6, 14.3, 1.8],
+  ['combine', 2.0, 17.5, 3.2],
+  ['combine', 17.5, 27.5, 1.8],
+  ['split', 'live', 'live-game', 1.5, 13.0, 2.4],
+  ['split', 'live', 'live-game', 13.0, 22.2, 3.5],
+  ['split', 'live', 'live-game', 22.2, 41.5, 2.5],
+  ['animate', 2.6, 7.2, 2.2],
+  ['animate', 12.9, 23.0, 2.2],
+  ['end', 1.6, 6.2, 1],
 ];
 const FPS = 30;
+const ff = args => execFileSync('ffmpeg', ['-loglevel', 'error', '-y', ...args]);
+const times = take => JSON.parse(fs.readFileSync(path.resolve('takes', take, 'times.json')));
 fs.mkdirSync('out/parts', { recursive: true });
-const parts = [];
-CUT.forEach(([take, a, b, speed], k) => {
+
+// frames of a take between absolute times t1..t2 -> an mp4 at 30 fps (each frame held until the next one, sped up)
+function piece(take, t1, t2, speed, out, vf) {
   const dir = path.resolve('takes', take);
-  const list = JSON.parse(fs.readFileSync(path.join(dir, 'times.json')));
-  const t0 = list[0][1];
-  const rows = list.filter(([, t]) => t - t0 >= a && t - t0 <= b);
+  const rows = times(take).filter(([, t]) => t >= t1 && t <= t2);
   let txt = 'ffconcat version 1.0\n';
   rows.forEach(([n, t], i) => {
-    const next = rows[i + 1] ? rows[i + 1][1] : t + 1 / 60;
-    txt += `file '${path.join(dir, n + '.jpg').replace(/\\/g, '/')}'\nduration ${((next - t) / speed).toFixed(5)}\n`;
+    const next = rows[i + 1] ? rows[i + 1][1] : t2;
+    txt += `file '${path.join(dir, n + '.jpg').replace(/\\/g, '/')}'\nduration ${(Math.max(next - t, 1 / 240) / speed).toFixed(5)}\n`;
   });
   txt += `file '${path.join(dir, rows.at(-1)[0] + '.jpg').replace(/\\/g, '/')}'\n`;
-  const cf = `out/parts/${k}.txt`,
-    out = `out/parts/${k}.mp4`;
-  fs.writeFileSync(cf, txt);
-  execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', cf, '-vf', `fps=${FPS},scale=1920:1080:flags=lanczos,format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-r', String(FPS), out]);
+  fs.writeFileSync(out + '.txt', txt);
+  ff([
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    out + '.txt',
+    '-vf',
+    `fps=${FPS},${vf},format=yuv420p`,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'slow',
+    '-crf',
+    '14',
+    '-r',
+    String(FPS),
+    out,
+  ]);
+  return rows.length;
+}
+
+const parts = [];
+CUT.forEach((c, k) => {
+  const out = `out/parts/${k}.mp4`;
+  if (c[0] !== 'split') {
+    const [take, a, b, speed] = c;
+    const t0 = times(take)[0][1];
+    const n = piece(take, t0 + a, t0 + b, speed, out, 'scale=1920:1080:flags=lanczos');
+    console.log(take, n, 'frames ->', ((b - a) / speed).toFixed(1) + 's');
+  } else {
+    const [, site, game, a, b, speed] = c;
+    const t0 = times(site)[0][1];
+    // both halves 960x810: the site's 1280x1080 window, and a 1280x1080 crop of the game window around the character
+    const s = piece(site, t0 + a, t0 + b, speed, `out/parts/${k}s.mp4`, 'scale=960:810:flags=lanczos');
+    const g = piece(
+      game,
+      t0 + a,
+      t0 + b,
+      speed,
+      `out/parts/${k}g.mp4`,
+      'crop=ih*1280/1080:ih:(iw-ih*1280/1080)/2:0,scale=960:810:flags=lanczos'
+    );
+    const font = f => path.resolve('out', f).replace(/\\/g, '/').replace(':', '\\:');
+    const label = (t, x) => `drawtext=fontfile='${font('regular.ttf')}':text='${t}':fontsize=34:fontcolor=0xc9d6ea:x=${x}-tw/2:y=1012`;
+    ff([
+      '-i',
+      `out/parts/${k}s.mp4`,
+      '-i',
+      `out/parts/${k}g.mp4`,
+      '-filter_complex',
+      `color=c=0x0b1526:s=1920x1080:r=${FPS}[bg];[bg][0]overlay=0:168:shortest=1[a];[a][1]overlay=960:168:shortest=1,` +
+        `drawbox=x=958:y=168:w=4:h=810:color=0xf4c452:t=fill,` +
+        `drawtext=fontfile='${font('bold.ttf')}':text='${SPLIT_CAP}':fontsize=60:fontcolor=white:x=(w-tw)/2:y=52,` +
+        `drawbox=x=(1920-520)/2:y=136:w=520:h=5:color=0xf4c452:t=fill,` +
+        `${label('hytaledesigner.com', 480)},${label('Hytale with the Hytale Designer Sync mod', 1440)},format=yuv420p`,
+      '-c:v',
+      'libx264',
+      '-preset',
+      'slow',
+      '-crf',
+      '14',
+      '-r',
+      String(FPS),
+      out,
+    ]);
+    console.log('split', s, '+', g, 'frames ->', ((b - a) / speed).toFixed(1) + 's');
+  }
   parts.push(out);
-  console.log(take, rows.length, 'frames ->', ((b - a) / speed).toFixed(1) + 's');
 });
 fs.writeFileSync('out/parts/all.txt', parts.map(p => `file '${path.resolve(p).replace(/\\/g, '/')}'`).join('\n'));
-execFileSync('ffmpeg', [
-  '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', 'out/parts/all.txt',
-  '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
-  '-vf', 'fade=in:st=0:d=0.3',
-  '-map', '0:v', '-map', '1:a', '-shortest',
-  '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-r', String(FPS),
-  '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', 'out/hytaledesigner-promo.mp4',
+ff([
+  '-f',
+  'concat',
+  '-safe',
+  '0',
+  '-i',
+  'out/parts/all.txt',
+  '-f',
+  'lavfi',
+  '-i',
+  'anullsrc=r=48000:cl=stereo',
+  '-vf',
+  'fade=in:st=0:d=0.3',
+  '-map',
+  '0:v',
+  '-map',
+  '1:a',
+  '-shortest',
+  '-c:v',
+  'libx264',
+  '-preset',
+  'slow',
+  '-crf',
+  '18',
+  '-profile:v',
+  'high',
+  '-pix_fmt',
+  'yuv420p',
+  '-r',
+  String(FPS),
+  '-c:a',
+  'aac',
+  '-b:a',
+  '128k',
+  '-movflags',
+  '+faststart',
+  'out/hytaledesigner-promo.mp4',
 ]);
-console.log(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration,size', '-of', 'csv=p=0', 'out/hytaledesigner-promo.mp4']).toString().trim());
+console.log(
+  execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration,size', '-of', 'csv=p=0', 'out/hytaledesigner-promo.mp4'])
+    .toString()
+    .trim()
+);

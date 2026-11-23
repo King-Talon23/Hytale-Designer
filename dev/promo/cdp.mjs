@@ -90,7 +90,9 @@ export async function launch({ port = 9340, w = 1920, h = 1080, headless = true 
       await page.mouse('mouseReleased', x, y);
     },
     async box(sel) {
-      return page.eval(`(() => { const e = ${sel}; if (!e) return null; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height }; })()`);
+      return page.eval(
+        `(() => { const e = ${sel}; if (!e) return null; e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height }; })()`
+      );
     },
     async type(text, ms = 70) {
       for (const ch of text) {
@@ -122,6 +124,11 @@ export async function launch({ port = 9340, w = 1920, h = 1080, headless = true 
     };
   };
   page.close = () => {
+    try {
+      ws.send(JSON.stringify({ id: ++id, method: 'Browser.close' })); /* the whole browser, not just the launcher process */
+    } catch {
+      /* gone */
+    }
     try {
       ws.close();
     } catch {
