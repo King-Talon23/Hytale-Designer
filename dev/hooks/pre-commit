@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# The code standard, enforced on every commit (git config core.hooksPath dev/hooks):
+# formatted (Prettier), lint-clean with no warnings (ESLint), every script parses, and the tests pass.
+# Fix with: cd dev/tools && npm run format && npm run lint && npm run test
+set -u
+ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT" || exit 1
+T="dev/tools/node_modules"
+if [ ! -d "$T/prettier" ] || [ ! -d "$T/eslint" ]; then echo "pre-commit: dev tools missing. Run: cd dev/tools && npm install" >&2; exit 1; fi
+mapfile -t FILES < <(git diff --cached --name-only --diff-filter=ACMR | grep -E '^(site/app|lib|functions|dev/tests)/.*\.js$|^site/css/.*\.css$' | grep -v 'site/app/scene-data.js')
+fail=0
+if [ ${#FILES[@]} -gt 0 ]; then
+  node "$T/prettier/bin/prettier.cjs" --check "${FILES[@]}" >/dev/null 2>&1 || { echo "pre-commit: not formatted. Run: cd dev/tools && npm run format" >&2; node "$T/prettier/bin/prettier.cjs" --list-different "${FILES[@]}" >&2; fail=1; }
+  for f in "${FILES[@]}"; do case "$f" in *.js) node --check "$f" 2>/dev/null || { echo "pre-commit: syntax error in $f" >&2; fail=1; };; esac; done
+fi
+node "$T/eslint/bin/eslint.js" --max-warnings 0 site/app lib functions >/tmp/se-lint.txt 2>&1 || { echo "pre-commit: lint problems:" >&2; cat /tmp/se-lint.txt >&2; fail=1; }
+node --test "dev/tests/*.test.js" >/tmp/se-test.txt 2>&1 || { echo "pre-commit: tests failed:" >&2; grep -E "not ok|✖|Error" /tmp/se-test.txt | head -20 >&2; fail=1; }
+[ $fail -eq 0 ] || { echo "pre-commit: commit refused (the code standard is in CONTRIBUTING.md)" >&2; exit 1; }

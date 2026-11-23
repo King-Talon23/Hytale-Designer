@@ -1,0 +1,16 @@
+{
+  "name": "skin-site-dev-tools",
+  "private": true,
+  "type": "module",
+  "description": "Format, lint and test the site. Never deployed (Cloudflare publishes site/ only).",
+  "scripts": {
+    "format": "cd ../.. && node dev/tools/node_modules/prettier/bin/prettier.cjs --write \"site/app/**/*.js\" \"lib/**/*.js\" \"functions/**/*.js\" \"site/css/*.css\" \"dev/tests/*.js\" \"!site/app/scene-data.js\"",
+    "lint": "cd ../.. && node dev/tools/node_modules/eslint/bin/eslint.js site/app lib functions",
+    "test": "node --test \"../tests/*.test.js\""
+  },
+  "devDependencies": {
+    "prettier": "3.3.3",
+    "eslint": "9.13.0",
+    "globals": "15.11.0"
+  }
+}

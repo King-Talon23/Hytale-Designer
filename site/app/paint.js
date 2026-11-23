@@ -3,102 +3,494 @@
 const hex = (r, g, b) => '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
 const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 const clamp = v => Math.max(0, Math.min(255, Math.round(v)));
-function toHsl(r, g, b) { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; if (!d) return [0, 0, l];
-  const s = d / (1 - Math.abs(2 * l - 1)), h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return [h * 60, s, l]; }
-function fromHsl(h, s, l) { const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2, i = Math.floor(h / 60) % 6;
-  const [r, g, b] = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][i]; return [(r + m) * 255, (g + m) * 255, (b + m) * 255]; }
+function toHsl(r, g, b) {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const mx = Math.max(r, g, b),
+    mn = Math.min(r, g, b),
+    l = (mx + mn) / 2,
+    d = mx - mn;
+  if (!d) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1)),
+    h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function fromHsl(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s,
+    x = c * (1 - Math.abs(((h / 60) % 2) - 1)),
+    m = l - c / 2,
+    i = Math.floor(h / 60) % 6;
+  const [r, g, b] = [
+    [c, x, 0],
+    [x, c, 0],
+    [0, c, x],
+    [0, x, c],
+    [x, 0, c],
+    [c, 0, x],
+  ][i];
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
 
-export const SHAPES = new Set(['line', 'box', 'boxfill']), ONCE = new Set(['pick', 'fill', 'replace']);   // drag-out shapes; tools that act once per click
+export const SHAPES = new Set(['line', 'box', 'boxfill']),
+  ONCE = new Set(['pick', 'fill', 'replace']); // drag-out shapes; tools that act once per click
 
 export function createPainter(canvas, onChange, onPick) {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true }); let W = canvas.width, H = canvas.height;
-  const undo = [], redo = []; let img = null, base = null, start = null, touched = null, fresh = false, dirty = false, adjFrom = null, lastFill = null;
-  const copy = () => { const d = ctx.getImageData(0, 0, W, H); return new ImageData(new Uint8ClampedArray(d.data), W, H); };
-  function px(x, y) {   // one texel, once per stroke (so lighten, darken and see-through paint do not stack while the pointer rests)
-    if (x < 0 || y < 0 || x >= W || y >= H) return; const src = y * W + x; if (mapTo) { const t = mapTo(x, y); if (!t) return; x = t.x; y = t.y; }   /* Symmetry pass: each texel lands on its own twin */
-    const k = y * W + x; if (touched.has(k)) return; touched.add(k);
-    if (P.inside && P.mask && !P.mask[k]) return;   // outside the drawn area: never shows on the model
-    const d = img.data, i = k * 4, t = P.tool;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let W = canvas.width,
+    H = canvas.height;
+  const undo = [],
+    redo = [];
+  let img = null,
+    base = null,
+    start = null,
+    touched = null,
+    fresh = false,
+    dirty = false,
+    adjFrom = null,
+    lastFill = null;
+  const copy = () => {
+    const d = ctx.getImageData(0, 0, W, H);
+    return new ImageData(new Uint8ClampedArray(d.data), W, H);
+  };
+  function px(x, y) {
+    // one texel, once per stroke (so lighten, darken and see-through paint do not stack while the pointer rests)
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    const src = y * W + x;
+    if (mapTo) {
+      const t = mapTo(x, y);
+      if (!t) return;
+      x = t.x;
+      y = t.y;
+    } /* Symmetry pass: each texel lands on its own twin */
+    const k = y * W + x;
+    if (touched.has(k)) return;
+    touched.add(k);
+    if (P.inside && P.mask && !P.mask[k]) return; // outside the drawn area: never shows on the model
+    const d = img.data,
+      i = k * 4,
+      t = P.tool;
     if (t === 'erase') d[i + 3] = 0;
-    else if (t === 'light' || t === 'dark') { if (!d[i + 3]) return; const m = t === 'light' ? 1.12 : 0.88; for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] * m + (m > 1 ? 4 : -4)); }
-    else if (t === 'noise') { if (!d[i + 3]) return; let n = noiseAt.get(src); if (n === undefined) noiseAt.set(src, n = (Math.random() - 0.5) * 26);   /* the twin gets the same grain */ for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] + n); }
-    else { const [r, g, b] = rgb(P.color), a = d[i + 3] ? P.opacity : 1; d[i] = clamp(d[i] * (1 - a) + r * a); d[i + 1] = clamp(d[i + 1] * (1 - a) + g * a); d[i + 2] = clamp(d[i + 2] * (1 - a) + b * a); d[i + 3] = 255; }
+    else if (t === 'light' || t === 'dark') {
+      if (!d[i + 3]) return;
+      const m = t === 'light' ? 1.12 : 0.88;
+      for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] * m + (m > 1 ? 4 : -4));
+    } else if (t === 'noise') {
+      if (!d[i + 3]) return;
+      let n = noiseAt.get(src);
+      if (n === undefined) noiseAt.set(src, (n = (Math.random() - 0.5) * 26));
+      /* the twin gets the same grain */ for (let c = 0; c < 3; c++) d[i + c] = clamp(d[i + c] + n);
+    } else {
+      const [r, g, b] = rgb(P.color),
+        a = d[i + 3] ? P.opacity : 1;
+      d[i] = clamp(d[i] * (1 - a) + r * a);
+      d[i + 1] = clamp(d[i + 1] * (1 - a) + g * a);
+      d[i + 2] = clamp(d[i + 2] * (1 - a) + b * a);
+      d[i + 3] = 255;
+    }
   }
-  function dot(x, y) { const s = P.size, o = Math.floor((s - 1) / 2); for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) px(x - o + dx, y - o + dy); }
+  function dot(x, y) {
+    const s = P.size,
+      o = Math.floor((s - 1) / 2);
+    for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) px(x - o + dx, y - o + dy);
+  }
   // Symmetry: run the same drawing again with every texel sent to its twin on the other side (exact for any brush size, turned faces and shapes across faces)
-  let mapTo = null; const twins = new Map(), noiseAt = new Map();
-  function mirrored(fn) { if (!P.twinAt || !(P.symOn && P.symOn())) return; mapTo = (x, y) => { const k = y * W + x; if (!twins.has(k)) twins.set(k, P.twinAt(x, y)); return twins.get(k); }; try { fn(); } finally { mapTo = null; } }
-  function line(a, b) { let x = a.x, y = a.y; const dx = Math.abs(b.x - x), dy = -Math.abs(b.y - y), sx = x < b.x ? 1 : -1, sy = y < b.y ? 1 : -1; let e = dx + dy;
-    for (let n = 0; n < 4096; n++) { dot(x, y); if (x === b.x && y === b.y) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x += sx; } if (e2 <= dx) { e += dx; y += sy; } } }
-  function box(a, b, filled) { const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
-    if (filled) { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) px(x, y); return; }
-    for (const [p, q] of [[{ x: x0, y: y0 }, { x: x1, y: y0 }], [{ x: x1, y: y0 }, { x: x1, y: y1 }], [{ x: x1, y: y1 }, { x: x0, y: y1 }], [{ x: x0, y: y1 }, { x: x0, y: y0 }]]) line(p, q); }
-  const colourAt = (d, i) => [d[i], d[i + 1], d[i + 2], d[i + 3]], is = (d, i, c) => d[i] === c[0] && d[i + 1] === c[1] && d[i + 2] === c[2] && d[i + 3] === c[3];
-  function flood(x, y) {   // fills the connected area of one exact colour
-    const d = img.data, at = (X, Y) => (Y * W + X) * 4, from = colourAt(d, at(x, y)), [r, g, b] = rgb(P.color); if (is(d, at(x, y), [r, g, b, 255])) return;
-    const tol = P.tolerance >= 100 ? Infinity : P.tolerance * 3, near = i => from[3] ? d[i + 3] && Math.abs(d[i] - from[0]) + Math.abs(d[i + 1] - from[1]) + Math.abs(d[i + 2] - from[2]) <= tol : !d[i + 3];
-    const seen = new Uint8Array(W * H), stack = [[x, y]], box = P.faceRect ? P.faceRect(x, y) : null;   /* an area stays on the face it starts on, never runs into the face beside it on the texture */
-    while (stack.length) { const [X, Y] = stack.pop(); if (X < 0 || Y < 0 || X >= W || Y >= H) continue; if (box && (X < box.x || Y < box.y || X >= box.x + box.w || Y >= box.y + box.h)) continue; const k = Y * W + X, i = k * 4; if (seen[k] || !near(i)) continue; seen[k] = 1;
+  let mapTo = null;
+  const twins = new Map(),
+    noiseAt = new Map();
+  function mirrored(fn) {
+    if (!P.twinAt || !(P.symOn && P.symOn())) return;
+    mapTo = (x, y) => {
+      const k = y * W + x;
+      if (!twins.has(k)) twins.set(k, P.twinAt(x, y));
+      return twins.get(k);
+    };
+    try {
+      fn();
+    } finally {
+      mapTo = null;
+    }
+  }
+  function line(a, b) {
+    let x = a.x,
+      y = a.y;
+    const dx = Math.abs(b.x - x),
+      dy = -Math.abs(b.y - y),
+      sx = x < b.x ? 1 : -1,
+      sy = y < b.y ? 1 : -1;
+    let e = dx + dy;
+    for (let n = 0; n < 4096; n++) {
+      dot(x, y);
+      if (x === b.x && y === b.y) break;
+      const e2 = 2 * e;
+      if (e2 >= dy) {
+        e += dy;
+        x += sx;
+      }
+      if (e2 <= dx) {
+        e += dx;
+        y += sy;
+      }
+    }
+  }
+  function box(a, b, filled) {
+    const x0 = Math.min(a.x, b.x),
+      x1 = Math.max(a.x, b.x),
+      y0 = Math.min(a.y, b.y),
+      y1 = Math.max(a.y, b.y);
+    if (filled) {
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) px(x, y);
+      return;
+    }
+    for (const [p, q] of [
+      [
+        { x: x0, y: y0 },
+        { x: x1, y: y0 },
+      ],
+      [
+        { x: x1, y: y0 },
+        { x: x1, y: y1 },
+      ],
+      [
+        { x: x1, y: y1 },
+        { x: x0, y: y1 },
+      ],
+      [
+        { x: x0, y: y1 },
+        { x: x0, y: y0 },
+      ],
+    ])
+      line(p, q);
+  }
+  const colourAt = (d, i) => [d[i], d[i + 1], d[i + 2], d[i + 3]],
+    is = (d, i, c) => d[i] === c[0] && d[i + 1] === c[1] && d[i + 2] === c[2] && d[i + 3] === c[3];
+  function flood(x, y) {
+    // fills the connected area of one exact colour
+    const d = img.data,
+      at = (X, Y) => (Y * W + X) * 4,
+      from = colourAt(d, at(x, y)),
+      [r, g, b] = rgb(P.color);
+    if (is(d, at(x, y), [r, g, b, 255])) return;
+    const tol = P.tolerance >= 100 ? Infinity : P.tolerance * 3,
+      near = i =>
+        from[3] ? d[i + 3] && Math.abs(d[i] - from[0]) + Math.abs(d[i + 1] - from[1]) + Math.abs(d[i + 2] - from[2]) <= tol : !d[i + 3];
+    const seen = new Uint8Array(W * H),
+      stack = [[x, y]],
+      box = P.faceRect
+        ? P.faceRect(x, y)
+        : null; /* an area stays on the face it starts on, never runs into the face beside it on the texture */
+    while (stack.length) {
+      const [X, Y] = stack.pop();
+      if (X < 0 || Y < 0 || X >= W || Y >= H) continue;
+      if (box && (X < box.x || Y < box.y || X >= box.x + box.w || Y >= box.y + box.h)) continue;
+      const k = Y * W + X,
+        i = k * 4;
+      if (seen[k] || !near(i)) continue;
+      seen[k] = 1;
       if (P.inside && P.mask && !P.mask[k]) continue;
-      d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; (lastFill ||= []).push(k); stack.push([X + 1, Y], [X - 1, Y], [X, Y + 1], [X, Y - 1]); }
+      d[i] = r;
+      d[i + 1] = g;
+      d[i + 2] = b;
+      d[i + 3] = 255;
+      (lastFill ||= []).push(k);
+      stack.push([X + 1, Y], [X - 1, Y], [X, Y + 1], [X, Y - 1]);
+    }
   }
-  function replaceAll(x, y) {   // every texel of the clicked colour, wherever it is on the texture
-    const d = img.data, from = colourAt(d, (y * W + x) * 4), [r, g, b] = rgb(P.color); if (!from[3]) return;
-    for (let i = 0; i < d.length; i += 4) if (is(d, i, from) && !(P.inside && P.mask && !P.mask[i / 4])) { d[i] = r; d[i + 1] = g; d[i + 2] = b; }   /* Paint outside off: only what shows on the model */
+  function replaceAll(x, y) {
+    // every texel of the clicked colour, wherever it is on the texture
+    const d = img.data,
+      from = colourAt(d, (y * W + x) * 4),
+      [r, g, b] = rgb(P.color);
+    if (!from[3]) return;
+    for (let i = 0; i < d.length; i += 4)
+      if (is(d, i, from) && !(P.inside && P.mask && !P.mask[i / 4])) {
+        d[i] = r;
+        d[i + 1] = g;
+        d[i + 2] = b;
+      } /* Paint outside off: only what shows on the model */
   }
-  function fillSide(x, y) {   // the whole side of a box under the click, in one colour (the caller says where that side sits on the texture)
-    const r = P.faceAt && P.faceAt(x, y); if (!r) return flood(x, y); const d = img.data, [cr, cg, cb] = rgb(P.color);
-    const y0 = Math.max(0, Math.floor(r.y)), y1 = Math.min(H, Math.ceil(r.y + r.h)), x0 = Math.max(0, Math.floor(r.x)), x1 = Math.min(W, Math.ceil(r.x + r.w));
-    let solid = false; for (let Y = y0; Y < y1 && !solid; Y++) for (let X = x0; X < x1; X++) if (d[(Y * W + X) * 4 + 3]) { solid = true; break; }
-    const keepHoles = P.inside && solid;   // see-through gaps (a ragged edge) stay see-through unless "Paint outside the item" is on; an empty new side fills completely
-    for (let Y = y0; Y < y1; Y++) for (let X = x0; X < x1; X++) {
-      const i = (Y * W + X) * 4; if (keepHoles && !d[i + 3]) continue; d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = 255; } }
-  function fillEvery(x, y) {   // every texel close to the clicked colour, anywhere on the item ("Similar colours" sets how close)
-    const d = img.data, from = colourAt(d, (y * W + x) * 4), [r, g, b] = rgb(P.color), tol = P.tolerance >= 100 ? Infinity : P.tolerance * 3;   /* 100% = every colour */ if (!from[3]) return flood(x, y);
-    for (let i = 0; i < d.length; i += 4) { if (!d[i + 3] || Math.abs(d[i] - from[0]) + Math.abs(d[i + 1] - from[1]) + Math.abs(d[i + 2] - from[2]) > tol) continue;
-      if (P.inside && P.mask && !P.mask[i / 4]) continue; d[i] = r; d[i + 1] = g; d[i + 2] = b; } }
-  const show = () => { ctx.putImageData(img, 0, 0); dirty = true; onChange(false); };
-  function swap(from, to) { if (!from.length) return; to.push(copy()); ctx.putImageData(from.pop(), 0, 0); onChange(true); }
-  const P = { tool: 'brush', size: 1, color: '#e0b050', opacity: 1, inside: true, mask: null, tolerance: 24, fillMode: 'area', faceAt: null,   // tolerance: how far a colour may differ (0-100) and still count as the same for Fill
-    begin() { img = ctx.getImageData(0, 0, W, H); base = new ImageData(new Uint8ClampedArray(img.data), W, H); undo.push(base); touched = new Set(); twins.clear(); noiseAt.clear(); lastFill = null; fresh = true; dirty = false; start = null; },
-    stroke(a, b) { if (!img) return; const first = fresh, t = P.tool; fresh = false; if (first) start = a;
-      if (t === 'pick') { if (first) { const i = (b.y * W + b.x) * 4, d = img.data; if (d[i + 3]) { P.color = hex(d[i], d[i + 1], d[i + 2]); onPick && onPick(); } } return; }
-      if (t === 'fill' || t === 'replace') { if (first) { (t === 'replace' ? replaceAll : P.fillMode === 'side' ? fillSide : P.fillMode === 'every' ? fillEvery : flood)(b.x, b.y); show(); } return; }
-      if (SHAPES.has(t)) { img.data.set(base.data); touched.clear(); if (t === 'line') line(start, b); else box(start, b, t === 'boxfill');
-        mirrored(() => { if (t === 'line') line(start, b); else box(start, b, t === 'boxfill'); });
-        show(); return; }   // the shape is redrawn from where the drag began
-      line(a, b); mirrored(() => line(a, b)); show(); },
-    fillAlso(b) { if (!img || !b || P.tool !== 'fill' || P.fillMode === 'every') return;
-      if (P.fillMode !== 'side' && lastFill && P.twinAt) { const d = img.data, [r, g, bl] = rgb(P.color); for (const k of lastFill) { const t = P.twinAt(k % W, (k / W) | 0); if (!t) continue; const j = t.y * W + t.x, i = j * 4; if (P.inside && P.mask && !P.mask[j]) continue; d[i] = r; d[i + 1] = g; d[i + 2] = bl; d[i + 3] = 255; } show(); return; }   /* Area: every filled texel's own twin, not a second flood */ (P.fillMode === 'side' ? fillSide : flood)(b.x, b.y); show(); },   // Symmetry: the same fill at the mirrored spot, in the same step
-    end() { if (!img) return; if (dirty && base) { const a = img.data, b = base.data; let same = true; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { same = false; break; } if (same) dirty = false; }   /* a stroke that changed nothing is not a step */
-      if (dirty) { redo.length = 0; if (undo.length > 120) undo.shift(); onChange(true); } else undo.pop();   /* the oldest step goes only when a real one is added */ img = null; base = null; touched = null; },
-    undo() { swap(undo, redo); }, redo() { swap(redo, undo); },
-    keepSteps() { return { undo: undo.slice(), redo: redo.slice(), W, H }; },   // the undo steps, kept while the item is closed
-    takeSteps(k) { if (!k) return false; if (k.W >= W && k.H >= H && (k.W !== W || k.H !== H)) this.grow(k.H, k.W); if (k.W !== W || k.H !== H) return false;   /* the saved copy was trimmed: grow back so the kept steps fit */ undo.splice(0, undo.length, ...k.undo); redo.splice(0, redo.length, ...k.redo); return true; },
+  function fillSide(x, y) {
+    // the whole side of a box under the click, in one colour (the caller says where that side sits on the texture)
+    const r = P.faceAt && P.faceAt(x, y);
+    if (!r) return flood(x, y);
+    const d = img.data,
+      [cr, cg, cb] = rgb(P.color);
+    const y0 = Math.max(0, Math.floor(r.y)),
+      y1 = Math.min(H, Math.ceil(r.y + r.h)),
+      x0 = Math.max(0, Math.floor(r.x)),
+      x1 = Math.min(W, Math.ceil(r.x + r.w));
+    let solid = false;
+    for (let Y = y0; Y < y1 && !solid; Y++)
+      for (let X = x0; X < x1; X++)
+        if (d[(Y * W + X) * 4 + 3]) {
+          solid = true;
+          break;
+        }
+    const keepHoles = P.inside && solid; // see-through gaps (a ragged edge) stay see-through unless "Paint outside the item" is on; an empty new side fills completely
+    for (let Y = y0; Y < y1; Y++)
+      for (let X = x0; X < x1; X++) {
+        const i = (Y * W + X) * 4;
+        if (keepHoles && !d[i + 3]) continue;
+        d[i] = cr;
+        d[i + 1] = cg;
+        d[i + 2] = cb;
+        d[i + 3] = 255;
+      }
+  }
+  function fillEvery(x, y) {
+    // every texel close to the clicked colour, anywhere on the item ("Similar colours" sets how close)
+    const d = img.data,
+      from = colourAt(d, (y * W + x) * 4),
+      [r, g, b] = rgb(P.color),
+      tol = P.tolerance >= 100 ? Infinity : P.tolerance * 3;
+    /* 100% = every colour */ if (!from[3]) return flood(x, y);
+    for (let i = 0; i < d.length; i += 4) {
+      if (!d[i + 3] || Math.abs(d[i] - from[0]) + Math.abs(d[i + 1] - from[1]) + Math.abs(d[i + 2] - from[2]) > tol) continue;
+      if (P.inside && P.mask && !P.mask[i / 4]) continue;
+      d[i] = r;
+      d[i + 1] = g;
+      d[i + 2] = b;
+    }
+  }
+  const show = () => {
+    ctx.putImageData(img, 0, 0);
+    dirty = true;
+    onChange(false);
+  };
+  function swap(from, to) {
+    if (!from.length) return;
+    to.push(copy());
+    ctx.putImageData(from.pop(), 0, 0);
+    onChange(true);
+  }
+  const P = {
+    tool: 'brush',
+    size: 1,
+    color: '#e0b050',
+    opacity: 1,
+    inside: true,
+    mask: null,
+    tolerance: 24,
+    fillMode: 'area',
+    faceAt: null, // tolerance: how far a colour may differ (0-100) and still count as the same for Fill
+    begin() {
+      img = ctx.getImageData(0, 0, W, H);
+      base = new ImageData(new Uint8ClampedArray(img.data), W, H);
+      undo.push(base);
+      touched = new Set();
+      twins.clear();
+      noiseAt.clear();
+      lastFill = null;
+      fresh = true;
+      dirty = false;
+      start = null;
+    },
+    stroke(a, b) {
+      if (!img) return;
+      const first = fresh,
+        t = P.tool;
+      fresh = false;
+      if (first) start = a;
+      if (t === 'pick') {
+        if (first) {
+          const i = (b.y * W + b.x) * 4,
+            d = img.data;
+          if (d[i + 3]) {
+            P.color = hex(d[i], d[i + 1], d[i + 2]);
+            onPick && onPick();
+          }
+        }
+        return;
+      }
+      if (t === 'fill' || t === 'replace') {
+        if (first) {
+          (t === 'replace' ? replaceAll : P.fillMode === 'side' ? fillSide : P.fillMode === 'every' ? fillEvery : flood)(b.x, b.y);
+          show();
+        }
+        return;
+      }
+      if (SHAPES.has(t)) {
+        img.data.set(base.data);
+        touched.clear();
+        if (t === 'line') line(start, b);
+        else box(start, b, t === 'boxfill');
+        mirrored(() => {
+          if (t === 'line') line(start, b);
+          else box(start, b, t === 'boxfill');
+        });
+        show();
+        return;
+      } // the shape is redrawn from where the drag began
+      line(a, b);
+      mirrored(() => line(a, b));
+      show();
+    },
+    fillAlso(b) {
+      if (!img || !b || P.tool !== 'fill' || P.fillMode === 'every') return;
+      if (P.fillMode !== 'side' && lastFill && P.twinAt) {
+        const d = img.data,
+          [r, g, bl] = rgb(P.color);
+        for (const k of lastFill) {
+          const t = P.twinAt(k % W, (k / W) | 0);
+          if (!t) continue;
+          const j = t.y * W + t.x,
+            i = j * 4;
+          if (P.inside && P.mask && !P.mask[j]) continue;
+          d[i] = r;
+          d[i + 1] = g;
+          d[i + 2] = bl;
+          d[i + 3] = 255;
+        }
+        show();
+        return;
+      }
+      /* Area: every filled texel's own twin, not a second flood */ (P.fillMode === 'side' ? fillSide : flood)(b.x, b.y);
+      show();
+    }, // Symmetry: the same fill at the mirrored spot, in the same step
+    end() {
+      if (!img) return;
+      if (dirty && base) {
+        const a = img.data,
+          b = base.data;
+        let same = true;
+        for (let i = 0; i < a.length; i++)
+          if (a[i] !== b[i]) {
+            same = false;
+            break;
+          }
+        if (same) dirty = false;
+      } /* a stroke that changed nothing is not a step */
+      if (dirty) {
+        redo.length = 0;
+        if (undo.length > 120) undo.shift();
+        onChange(true);
+      } else undo.pop();
+      /* the oldest step goes only when a real one is added */ img = null;
+      base = null;
+      touched = null;
+    },
+    undo() {
+      swap(undo, redo);
+    },
+    redo() {
+      swap(redo, undo);
+    },
+    keepSteps() {
+      return { undo: undo.slice(), redo: redo.slice(), W, H };
+    }, // the undo steps, kept while the item is closed
+    takeSteps(k) {
+      if (!k) return false;
+      if (k.W >= W && k.H >= H && (k.W !== W || k.H !== H)) this.grow(k.H, k.W);
+      if (k.W !== W || k.H !== H) return false;
+      /* the saved copy was trimmed: grow back so the kept steps fit */ undo.splice(0, undo.length, ...k.undo);
+      redo.splice(0, redo.length, ...k.redo);
+      return true;
+    },
     // the texture gets taller: the picture and every undo step keep their pixels where they were, the new rows are empty
-    grow(h2, w2 = W) { const old = copy(); canvas.width = w2; canvas.height = h2; W = w2; H = h2; ctx.putImageData(old, 0, 0);   // taller and/or wider, keeping every pixel where it was
-      const pad = im => { if (im.width >= w2 && im.height >= h2) return im;   /* shrinking (undo of a grow): steps keep their bigger size, so redo still has every pixel */ const n = new ImageData(w2, h2), cw = Math.min(im.width, w2) * 4; for (let y = 0; y < Math.min(im.height, h2); y++) n.data.set(im.data.subarray(y * im.width * 4, y * im.width * 4 + cw), y * w2 * 4); return n; }; for (const a of [undo, redo]) a.forEach((im, i) => { a[i] = pad(im); }); if (adjFrom) adjFrom = pad(adjFrom); },
+    grow(h2, w2 = W) {
+      const old = copy();
+      canvas.width = w2;
+      canvas.height = h2;
+      W = w2;
+      H = h2;
+      ctx.putImageData(old, 0, 0); // taller and/or wider, keeping every pixel where it was
+      const pad = im => {
+        if (im.width >= w2 && im.height >= h2) return im;
+        /* shrinking (undo of a grow): steps keep their bigger size, so redo still has every pixel */ const n = new ImageData(w2, h2),
+          cw = Math.min(im.width, w2) * 4;
+        for (let y = 0; y < Math.min(im.height, h2); y++) n.data.set(im.data.subarray(y * im.width * 4, y * im.width * 4 + cw), y * w2 * 4);
+        return n;
+      };
+      for (const a of [undo, redo])
+        a.forEach((im, i) => {
+          a[i] = pad(im);
+        });
+      if (adjFrom) adjFrom = pad(adjFrom);
+    },
     // a shape dragged out on the 3D model: the texels under points along the drag, joined where they sit next to each other
-    trace(points, reach) { if (!img) return; fresh = false; img.data.set(base.data); touched.clear(); let prev = null;
-      const run = () => { prev = null; for (const p of points) { if (!p) { prev = null; continue; } if (prev && Math.abs(prev.x - p.x) + Math.abs(prev.y - p.y) <= reach) line(prev, p); else dot(p.x, p.y); prev = p; } };
-      run(); mirrored(run);   /* Symmetry on the model: the traced shape on the other side too */
-      show(); },
-    write(fn) { undo.push(copy()); if (undo.length > 120) undo.shift(); redo.length = 0; const d = ctx.getImageData(0, 0, W, H); fn(d.data, W, H); ctx.putImageData(d, 0, 0); onChange(true); },   // copy-paste and box paint areas
-    replace(source) { undo.push(copy()); redo.length = 0; ctx.clearRect(0, 0, W, H); ctx.drawImage(source, 0, 0, W, H); onChange(true); },
+    trace(points, reach) {
+      if (!img) return;
+      fresh = false;
+      img.data.set(base.data);
+      touched.clear();
+      let prev = null;
+      const run = () => {
+        prev = null;
+        for (const p of points) {
+          if (!p) {
+            prev = null;
+            continue;
+          }
+          if (prev && Math.abs(prev.x - p.x) + Math.abs(prev.y - p.y) <= reach) line(prev, p);
+          else dot(p.x, p.y);
+          prev = p;
+        }
+      };
+      run();
+      mirrored(run); /* Symmetry on the model: the traced shape on the other side too */
+      show();
+    },
+    write(fn) {
+      undo.push(copy());
+      if (undo.length > 120) undo.shift();
+      redo.length = 0;
+      const d = ctx.getImageData(0, 0, W, H);
+      fn(d.data, W, H);
+      ctx.putImageData(d, 0, 0);
+      onChange(true);
+    }, // copy-paste and box paint areas
+    replace(source) {
+      undo.push(copy());
+      redo.length = 0;
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(source, 0, 0, W, H);
+      onChange(true);
+    },
     // recolour the whole item: hue in degrees, saturation and brightness from -1 to 1. Previews from the picture as it was when the sliders were first moved.
     adjust(h, s, l, commit) {
-      adjFrom ||= copy(); const out = new ImageData(new Uint8ClampedArray(adjFrom.data), W, H), d = out.data;
-      for (let i = 0; i < d.length; i += 4) { if (!d[i + 3]) continue; let [H0, S0, L0] = toHsl(d[i], d[i + 1], d[i + 2]);
-        H0 = ((H0 + h) % 360 + 360) % 360; S0 = Math.max(0, Math.min(1, s > 0 ? S0 + (1 - S0) * s : S0 * (1 + s))); L0 = Math.max(0, Math.min(1, l > 0 ? L0 + (1 - L0) * l * 0.6 : L0 * (1 + l * 0.6)));
-        const [r, g, b] = fromHsl(H0, S0, L0); d[i] = clamp(r); d[i + 1] = clamp(g); d[i + 2] = clamp(b); }
+      adjFrom ||= copy();
+      const out = new ImageData(new Uint8ClampedArray(adjFrom.data), W, H),
+        d = out.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (!d[i + 3]) continue;
+        let [H0, S0, L0] = toHsl(d[i], d[i + 1], d[i + 2]);
+        H0 = (((H0 + h) % 360) + 360) % 360;
+        S0 = Math.max(0, Math.min(1, s > 0 ? S0 + (1 - S0) * s : S0 * (1 + s)));
+        L0 = Math.max(0, Math.min(1, l > 0 ? L0 + (1 - L0) * l * 0.6 : L0 * (1 + l * 0.6)));
+        const [r, g, b] = fromHsl(H0, S0, L0);
+        d[i] = clamp(r);
+        d[i + 1] = clamp(g);
+        d[i + 2] = clamp(b);
+      }
       ctx.putImageData(out, 0, 0);
-      if (commit) { if (h || s || l) { undo.push(adjFrom); if (undo.length > 120) undo.shift(); redo.length = 0; } else ctx.putImageData(adjFrom, 0, 0); adjFrom = null; }
-      onChange(!!commit && !!(h || s || l)); },
-    palette(n = 14) {   // the texture's own most used colours, to paint with
-      const d = ctx.getImageData(0, 0, W, H).data, count = new Map();
-      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200 && !(P.mask && P.mask.length === W * H && !P.mask[i / 4])) { const k = hex(d[i], d[i + 1], d[i + 2]);   /* only colours that show on the model */ count.set(k, (count.get(k) || 0) + 1); }
-      const out = [], rgb = k => [1, 3, 5].map(i => parseInt(k.slice(i, i + 2), 16));   // most used first, skipping shades too close to one already picked
-      for (const [k] of [...count].sort((a, b) => b[1] - a[1])) { const c = rgb(k); if (out.every(o => Math.abs(o[1][0] - c[0]) + Math.abs(o[1][1] - c[1]) + Math.abs(o[1][2] - c[2]) > 24)) out.push([k, c]); if (out.length >= n) break; }
-      return out.map(o => o[0]); } };
+      if (commit) {
+        if (h || s || l) {
+          undo.push(adjFrom);
+          if (undo.length > 120) undo.shift();
+          redo.length = 0;
+        } else ctx.putImageData(adjFrom, 0, 0);
+        adjFrom = null;
+      }
+      onChange(!!commit && !!(h || s || l));
+    },
+    palette(n = 14) {
+      // the texture's own most used colours, to paint with
+      const d = ctx.getImageData(0, 0, W, H).data,
+        count = new Map();
+      for (let i = 0; i < d.length; i += 4)
+        if (d[i + 3] > 200 && !(P.mask && P.mask.length === W * H && !P.mask[i / 4])) {
+          const k = hex(d[i], d[i + 1], d[i + 2]);
+          /* only colours that show on the model */ count.set(k, (count.get(k) || 0) + 1);
+        }
+      const out = [],
+        rgb = k => [1, 3, 5].map(i => parseInt(k.slice(i, i + 2), 16)); // most used first, skipping shades too close to one already picked
+      for (const [k] of [...count].sort((a, b) => b[1] - a[1])) {
+        const c = rgb(k);
+        if (out.every(o => Math.abs(o[1][0] - c[0]) + Math.abs(o[1][1] - c[1]) + Math.abs(o[1][2] - c[2]) > 24)) out.push([k, c]);
+        if (out.length >= n) break;
+      }
+      return out.map(o => o[0]);
+    },
+  };
   return P;
 }
