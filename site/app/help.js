@@ -145,6 +145,21 @@ export function createHelp(app) {
             })
           )
         ),
+        sec(
+          'Waiting on Hytale',
+          "These need Sign in with Hytale, which waits on Hytale's approval for 3rd party sites:",
+          el(
+            'ul',
+            {},
+            [
+              'Connecting your Hytale account',
+              'In-game slots syncing with your Hytale presets',
+              'Publishing skins and animations to Players',
+              'The Owned only filter',
+              'Editing paid items you own, and showing them in game',
+            ].map(t => el('li', { text: t }))
+          )
+        ),
         MOD_URL ? sec('Hytale Designer Sync', '', el('div', { class: 'row' }, modLink('primary'))) : null,
         sec(
           'Backup',

@@ -62,7 +62,7 @@ const V3 = [
 // (the in-game editor has it). Split pieces: ['split', site, game, from, to, speed, crop, caption]
 const SWAP_CROP = '1066:900:432:40',
   SWAP_CAP = 'Save up to 45 skins. Swap them in game, live.',
-  PAINT_CAP = 'Paint it here. Wear it in Hytale, live.';
+  PAINT_CAP = 'Updates live in Hytale';
 const V4 = [
   // the shelf (16 / 45), then Pirate Captain (site 5.40, game 6.66)
   ['split', 'liveSwap', 'live-swap-game', 3.4, 7.3, 1.0, SWAP_CROP, SWAP_CAP],
@@ -87,18 +87,18 @@ const V4 = [
 ];
 // v5 (user 2026-11-24: "make your own version of my monocle with mask to show how it's done"): the combine is made on camera
 // (take combineMake): Edit a copy of the Monocle, Add item... Ragged Bandana, the monocle brought just in front of the mask (Z 16.6),
-// name, Done, worn. The half-drawn and the empty view right after Done (24.30, 24.316) are skipped. From Done on the character is
+// name, Done, worn. The half-drawn and the empty view right after Done (24.483, 24.5) are skipped. From Done on the character is
 // shown (idle animation), so 1.0x
 const COMBINE = [
-  ['combineMake', 2.0, 7.87, 3.0],
-  ['combineMake', 7.883, 13.72, 2.4],
-  ['combineMake', 13.75, 16.8, 3.0],
+  ['combineMake', 2.0, 7.95, 3.0],
+  ['combineMake', 7.966, 13.69, 2.4],
+  ['combineMake', 13.716, 16.9, 3.0],
   // Glasses front selected, Z 15.1 -> 16.6
-  ['combineMake', 16.8, 19.8, 1.6],
-  ['combineMake', 19.8, 24.29, 3.2],
+  ['combineMake', 16.9, 19.9, 1.6],
+  ['combineMake', 19.9, 24.47, 3.2],
   // Done: the view flies out from the masked face to the whole character; cut to the zoomed view with the caption and the orbit
-  ['combineMake', 24.333, 25.8, 1.0],
-  ['combineMake', 28.7, 31.9, 1.0],
+  ['combineMake', 24.516, 26.0, 1.0],
+  ['combineMake', 28.9, 32.1, 1.0],
 ];
 const V5 = V4.flatMap(c => (c[0] !== 'combine' ? [c] : COMBINE));
 // x15 (user 2026-11-24: "a 15 second cut for X, the first 12 seconds can be cut"): no 45-skins hook; paint -> live in game, the
@@ -107,11 +107,11 @@ const X15 = [
   ['create', 10.4, 21.3, 5.0],
   ['split', 'live', 'live-game', 22.6, 23.91, 1.0, LIVE_CROP, PAINT_CAP],
   ['split', 'live', 'live-game', 23.925, 25.6, 1.0, LIVE_CROP, PAINT_CAP],
-  ['combineMake', 6.4, 7.87, 3.0],
-  ['combineMake', 7.883, 13.72, 4.5],
-  ['combineMake', 13.75, 19.5, 4.5],
-  ['combineMake', 24.333, 25.3, 1.0],
-  ['combineMake', 29.0, 30.2, 1.0],
+  ['combineMake', 6.5, 7.95, 3.0],
+  ['combineMake', 7.966, 13.69, 4.5],
+  ['combineMake', 13.716, 19.6, 4.5],
+  ['combineMake', 24.516, 25.5, 1.0],
+  ['combineMake', 29.2, 30.4, 1.0],
   ['record', 25.0, 26.0, 1.0],
   ['emote-game', 0.3, 2.8, 1.0, '...and use them in game'],
   ['end', 3.1, 4.5, 1],

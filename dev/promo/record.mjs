@@ -439,7 +439,7 @@ const takes = {
       await p.call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: mx, y: my, deltaX: 0, deltaY: -120 });
       await sleep(300);
     }
-    await cap('Your own <b>new item</b>, worn', 0, LOW);
+    await cap('Your own <b>new item</b>', 0, LOW);
     await sleep(900);
     await drag(1180, 560, 1290, 556, 1100);
     await sleep(1200);

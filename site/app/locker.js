@@ -238,7 +238,6 @@ export function createLocker(app) {
           ]
         : kind === 'custom'
           ? [
-              app.hasCustom(rec.skin) ? null : act('Send to game', () => toGame(rec)),
               act('Rename', () => renameSkin(rec)),
               act('Copy', () => duplicate(rec)),
               pubButton(rec),
@@ -522,17 +521,6 @@ export function createLocker(app) {
     }
     render();
   }
-  const slotButtons = () => app.WARD.game.map((r, i) => ({ label: `Slot ${i + 1}${r ? ': ' + r.name : ' (empty)'}`, value: String(i) }));
-  const toGame = guard(async rec => {
-    rec = liveRec(rec);
-    if (app.hasCustom(rec.skin)) throw new Error("Custom items can't go in game slots");
-    const v = await ask('Send to game', app.WARD.game.some(Boolean) ? el('p', { text: 'The skin in that slot moves to My skins.' }) : [], [
-      ...slotButtons(),
-      { label: 'Cancel', value: '' },
-    ]);
-    if (v === '') return;
-    await sendToSlot(rec, +v);
-  });
   // a skin from My skins into a slot; what the slot held moves to My skins (under the sent skin's id)
   const sendToSlot = guard(async (rec, v) => {
     rec = liveRec(rec);
