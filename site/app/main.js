@@ -401,7 +401,8 @@ let cur = { id: null, kind: null, slot: null, name: '', skin: null },
   WARD = { game: [], custom: [] };
 let FOLDER = { state: 'none' },
   ACCOUNT = null,
-  SHOWGAME = false;
+  SHOWGAME = false,
+  EDITWEAR = null; // while the Creator has an item open: the outfit to wear in game (the editor takes off what covers the item)
 // the tab modules change the shared state through these
 const setR = v => (R = v),
   setTabValue = v => (tab = v),
@@ -707,10 +708,9 @@ function pushWearing() {
   clearTimeout(pushWearing.t);
   pushWearing.t = setTimeout(async () => {
     if (FOLDER.state !== 'on') return;
+    const skin = EDITWEAR || cur.skin;
     try {
-      await store.writeWearing(
-        SHOWGAME ? { on: true, name: cur.name || 'New skin', keepOwn: store.keepOwnOf(cur.skin), skin: cur.skin } : { on: false }
-      );
+      await store.writeWearing(SHOWGAME ? { on: true, name: cur.name || 'New skin', keepOwn: store.keepOwnOf(skin), skin } : { on: false });
     } catch (e) {
       console.warn(e);
     }
@@ -1293,6 +1293,10 @@ const app = {
   plate,
   portrait,
   pushWearing,
+  setEditWear(s) {
+    EDITWEAR = s;
+    pushWearing();
+  },
   readJsonFile,
   rebuild,
   reconnect,

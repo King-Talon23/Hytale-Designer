@@ -348,6 +348,10 @@ export function createCreator(app) {
     registerAssets();
     ED.before = beforeEdit || app.cur.skin;
     beforeEdit = null;
+    app.setEditWear({
+      ...ED.before,
+      [a.field]: 'Custom_' + a.id + '.Mine',
+    }); /* in game the outfit stays whole, with the item being edited */
     {
       const s = { ...app.cur.skin, [a.field]: 'Custom_' + a.id + '.Mine' },
         cov = (HIDE[a.field] || []).filter(f => s[f]);
@@ -658,6 +662,7 @@ export function createCreator(app) {
       return;
     } /* a failing save keeps the editor open (and a rescue copy) instead of dropping the work */
     ED = null;
+    app.setEditWear(null);
     /* nothing changed: nothing is re-saved */ if ($('viewhint')) $('viewhint').hidden = true;
     registerAssets();
     const mark = editMark;
