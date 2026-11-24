@@ -23,6 +23,8 @@ export async function launch({ port = 9340, w = 1920, h = 1080, headless = true 
     '--ignore-gpu-blocklist',
     '--use-angle=d3d11',
     `--window-size=${w},${h}`,
+    // the live takes reach the mod on 127.0.0.1 from https://hytaledesigner.com: a person allows that in a prompt, headless can't
+    '--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessRespectPreflightResults,BlockInsecurePrivateNetworkRequests',
     ...(headless ? ['--headless=new'] : []),
     'about:blank',
   ];

@@ -11,9 +11,9 @@ const { x, y, z } = pos;
 const yaw = process.env.YAW !== undefined ? +process.env.YAW : pos.yaw;
 const at = (d, s) => ({
   x: x - Math.sin(yaw) * d + Math.cos(yaw) * s,
-  y: y + 1.7,
+  y: y + +(process.env.CAMY || 1.7),
   z: z - Math.cos(yaw) * d - Math.sin(yaw) * s,
-  lookAt: { x, y: y + 1.0, z },
+  lookAt: { x, y: y + +(process.env.LOOKY || 1.0), z },
   fov: +(process.env.FOV || 45),
   roll: 0.01,
 });

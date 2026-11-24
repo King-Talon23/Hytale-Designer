@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 
-const SPLIT_CAP = 'Every change shows up in game, live';
+const SPLIT_CAP = process.argv[2] === 'v3' ? 'Edit on the web. See it in Hytale, live.' : 'Every change shows up in game, live';
 const V2 = [
   ['wardrobe', 0.4, 24.6, 3.0],
   ['places', 1.6, 16.2, 2.3],
@@ -22,7 +22,12 @@ const V2 = [
 ];
 // v3 (2026-11-24): every take in the user's own skin. Site takes only so far; the live split hook and the in-game emote shot go in
 // when they are recorded (promo-plan-v3.md)
+// the live split (v3 hook): painting starts with the gold pads in game; then the last fill, Done, and the crest in game. The game
+// half is a 900x760 crop around the character (the take's camera stands back)
+const LIVE_CROP = '900:760:510:150';
 const V3 = [
+  ['split', 'live', 'live-game', 3.0, 14.0, 2.6, LIVE_CROP],
+  ['split', 'live', 'live-game', 32.8, 40.5, 1.5, LIVE_CROP],
   ['wardrobe', 2.0, 25.0, 2.6],
   ['create', 12.5, 40.0, 3.2],
   ['create', 44.3, 47.0, 1.3],
@@ -87,18 +92,11 @@ CUT.forEach((c, k) => {
     const n = piece(take, t0 + a, t0 + b, speed, out, 'scale=1920:1080:flags=lanczos');
     console.log(take, n, 'frames ->', ((b - a) / speed).toFixed(1) + 's');
   } else {
-    const [, site, game, a, b, speed] = c;
+    const [, site, game, a, b, speed, crop = 'ih*1280/1080:ih:(iw-ih*1280/1080)/2:0'] = c;
     const t0 = times(site)[0][1];
-    // both halves 960x810: the site's 1280x1080 window, and a 1280x1080 crop of the game window around the character
+    // both halves 960x810: the site's 1280x1080 window, and a 1280:1080 crop of the game window around the character
     const s = piece(site, t0 + a, t0 + b, speed, `out/parts/${k}s.mp4`, 'scale=960:810:flags=lanczos');
-    const g = piece(
-      game,
-      t0 + a,
-      t0 + b,
-      speed,
-      `out/parts/${k}g.mp4`,
-      'crop=ih*1280/1080:ih:(iw-ih*1280/1080)/2:0,scale=960:810:flags=lanczos'
-    );
+    const g = piece(game, t0 + a, t0 + b, speed, `out/parts/${k}g.mp4`, `crop=${crop},scale=960:810:flags=lanczos`);
     const font = f => path.resolve('out', f).replace(/\\/g, '/').replace(':', '\\:');
     const label = (t, x) => `drawtext=fontfile='${font('regular.ttf')}':text='${t}':fontsize=34:fontcolor=0xc9d6ea:x=${x}-tw/2:y=1012`;
     ff([
@@ -109,6 +107,10 @@ CUT.forEach((c, k) => {
       '-filter_complex',
       `color=c=0x0b1526:s=1920x1080:r=${FPS}[bg];[bg][0]overlay=0:168:shortest=1[a];[a][1]overlay=960:168:shortest=1,` +
         `drawbox=x=958:y=168:w=4:h=810:color=0xf4c452:t=fill,` +
+        // a "LIVE GAMEPLAY" tag on the game half (user 2026-11-24): red badge, white dot and text
+        `drawbox=x=990:y=192:w=318:h=58:color=0xd92b2b@0.95:t=fill,` +
+        `drawbox=x=1010:y=213:w=16:h=16:color=white:t=fill,` +
+        `drawtext=fontfile='${font('bold.ttf')}':text='LIVE GAMEPLAY':fontsize=34:fontcolor=white:x=1040:y=204,` +
         `drawtext=fontfile='${font('bold.ttf')}':text='${SPLIT_CAP}':fontsize=60:fontcolor=white:x=(w-tw)/2:y=52,` +
         `drawbox=x=(1920-520)/2:y=136:w=520:h=5:color=0xf4c452:t=fill,` +
         `${label('hytaledesigner.com', 480)},${label('Hytale with the Hytale Designer Sync mod', 1440)},format=yuv420p`,

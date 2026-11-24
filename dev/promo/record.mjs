@@ -180,6 +180,8 @@ const tab = t => p.eval(`document.querySelector('[data-tab=${t}]').click()`);
 
 async function fresh() {
   await p.call('Page.setBypassCSP', { enabled: true });
+  // the live site's /app files come with max-age=14400 (Cloudflare), so a fresh deploy would not reach this profile for hours
+  await p.call('Network.clearBrowserCache').catch(() => {});
   await p.go(SITE + 'privacy.html', 2500);
   await p.eval(RESET);
   await p.eval('localStorage.clear(); sessionStorage.clear()');
@@ -192,7 +194,10 @@ async function fresh() {
 }
 
 // the promo profile joins the Hytale Designer Sync mod (Hytale must be running with it) and shows the outfit in game
+let joined = false;
 async function liveSetup() {
+  if (joined) return;
+  joined = true;
   await tab('wardrobe');
   await sleep(1200);
   await p.eval(btn('Connect to the mod') + '.click()');
@@ -201,6 +206,39 @@ async function liveSetup() {
     await p.eval('document.getElementById("ingame").click()');
   await tab('editor');
   await sleep(+(process.env.LIVE_WAIT || 6000));
+}
+
+// a crest on the Kneepads' knee block front, painted on the big texture view (both knees share it): dark base, gold border, a red
+// diamond outlined in gold. The front is texture pixels x 18-28, y 14-23 (11 x 10); px(c, r) is a pixel of it on screen.
+// Needs the Kneepads copy open in the Creator; leaves the texture view big and the Fill tool on
+async function crest() {
+  await click('$' + btn('Bigger'), { after: 700 });
+  const T = await where('$[...document.querySelectorAll("canvas")].find(c=>c.width===32&&c.getBoundingClientRect().width)');
+  const s = T.w / 32,
+    px = (c, r) => [T.x - T.w / 2 + (18 + c + 0.5) * s, T.y - T.h / 2 + (14 + r + 0.5) * s];
+  const colour = c => click(`$document.querySelector("button[title='${c}']")`, { ms: 300, after: 250 });
+  const stroke = async (a, b, ms = 320) => {
+    await move(...px(...a), 260);
+    await drag(...px(...a), ...px(...b), ms);
+    await sleep(150);
+  };
+  await click('$' + btn('More'), { after: 300 });
+  await click('$' + titled('Filled'), { after: 250 });
+  await colour('#502002');
+  await stroke([0, 0], [10, 9], 600);
+  await click('$' + titled('Rectangle'), { after: 250 });
+  await colour('#f4cc17');
+  await stroke([0, 0], [10, 9], 600);
+  await click('$' + titled('Line'), { after: 250 });
+  await stroke([5, 2], [8, 5]);
+  await stroke([8, 5], [5, 8]);
+  await stroke([5, 8], [2, 5]);
+  await stroke([2, 5], [5, 2]);
+  await click('$' + titled('Fill'), { after: 250 });
+  await colour('#e23b3b');
+  await move(...px(5, 5), 400);
+  await p.click(mx, my);
+  await sleep(1200);
 }
 
 const takes = {
@@ -263,35 +301,7 @@ const takes = {
       '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Kneepads"))',
       { after: 2400 }
     );
-    // a crest on the knee block's front, painted on the big texture view (both knees share it): dark base, gold border, a red
-    // diamond outlined in gold. The front is texture pixels x 18-28, y 14-23 (11 x 10); px(c, r) is a pixel of it on screen
-    await click('$' + btn('Bigger'), { after: 700 });
-    const T = await where('$[...document.querySelectorAll("canvas")].find(c=>c.width===32&&c.getBoundingClientRect().width)');
-    const s = T.w / 32,
-      px = (c, r) => [T.x - T.w / 2 + (18 + c + 0.5) * s, T.y - T.h / 2 + (14 + r + 0.5) * s];
-    const colour = c => click(`$document.querySelector("button[title='${c}']")`, { ms: 300, after: 250 });
-    const stroke = async (a, b, ms = 320) => {
-      await move(...px(...a), 260);
-      await drag(...px(...a), ...px(...b), ms);
-      await sleep(150);
-    };
-    await click('$' + btn('More'), { after: 300 });
-    await click('$' + titled('Filled'), { after: 250 });
-    await colour('#502002');
-    await stroke([0, 0], [10, 9], 600);
-    await click('$' + titled('Rectangle'), { after: 250 });
-    await colour('#f4cc17');
-    await stroke([0, 0], [10, 9], 600);
-    await click('$' + titled('Line'), { after: 250 });
-    await stroke([5, 2], [8, 5]);
-    await stroke([8, 5], [5, 8]);
-    await stroke([5, 8], [2, 5]);
-    await stroke([2, 5], [5, 2]);
-    await click('$' + titled('Fill'), { after: 250 });
-    await colour('#e23b3b');
-    await move(...px(5, 5), 400);
-    await p.click(mx, my);
-    await sleep(1200);
+    await crest();
     await click('$' + btn('Smaller'), { after: 700 });
     // turn the view with the right button (the left one paints while a paint tool is on)
     await move(1250, 640, 350);
@@ -314,7 +324,7 @@ const takes = {
     await sleep(2200);
     await cap('');
   },
-  // 4b. combine (v3, user 2026-11-23): the Face Mask alone, the Monocle alone, then the user's own combined "Monocle with mask"
+  // 4b. combine (v3, user 2026-11-23/24): the Ragged Bandana alone (the mask in their asset), the Monocle alone, then the user's own combined "Monocle with mask"
   // (their asset, seeded from USER_ASSETS), close on the face. Hovering a card previews it on the character, so the items are found
   // with Search (each lands in the first card) and the cursor goes round under the row to their asset
   async combine() {
@@ -336,8 +346,8 @@ const takes = {
     await sleep(300);
     await cap('<b>Combine</b> items into new ones', 0, LOW);
     await click('$' + slot('Face Accessory'), { after: 150 });
-    await search('mask');
-    await click('$' + item('Face Mask'), { after: 1500 });
+    await search('ragged');
+    await click('$' + item('Ragged Bandana'), { after: 1500 });
     await search('monocle');
     await click('$' + item('Monocle'), { after: 1500 });
     const own = await where('$' + item('Monocle with mask'));
@@ -349,34 +359,28 @@ const takes = {
     await cap('');
   },
   // 4c. live in game: the site on the left, Hytale on the right (gamecap.ps1 records the game at the same time; VW=1280)
-  async live() {
-    await tab('editor');
-    await sleep(1500);
-    await click('$' + slot('Haircut'));
-    await click('$' + item('Ponytail'), { after: 600 });
-    await click('$document.querySelector(".swatches button[title=Black], .swatches button:nth-child(2)")', { after: 2200 });
-    await click('$' + btn('‹ Wardrobe'), { after: 400 });
-    await click('$' + slot('Overtop'));
-    await click('$' + item('Arming Jacket'), { after: 3000 });
-    await click('$' + btn('‹ Wardrobe'), { after: 400 });
+  // joins the mod and does nothing else: node record.mjs +liveJoin +record saves "Big Wave" into the skins folder through the mod
+  async liveJoin() {},
+  // run unrecorded first (node record.mjs +livePrep live): makes the Kneepads copy and sends it to the game. While a brand-new copy
+  // is open, the game's outfit points at an item it doesn't have yet and the legs show bare until Done (mod-side, 2026-11-24)
+  async livePrep() {
     await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
     await click(
-      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Arming"))',
-      { after: 2600 }
+      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Kneepads"))',
+      { after: 2400 }
     );
-    await click('$document.querySelector("button[title=\'#f4d24a\']")', { after: 400 });
-    await click('$' + btn('Symmetry'), { after: 400 });
-    const r = await where('$[...document.querySelectorAll("input[type=range]")].find(i=>i.getBoundingClientRect().x>900)');
-    await move(r.x - r.w / 2 + 4, r.y, 400);
-    await p.mouse('mousePressed', mx, my);
-    await p.glide(mx, my, mx + r.w * 0.28, my, 400, true);
-    await p.mouse('mouseReleased', mx + r.w * 0.28, my);
-    mx += r.w * 0.28;
-    await sleep(300);
-    const c = await where('$document.getElementById("view")').catch(() => ({ x: 640, y: 560 }));
-    for (const dy of [-40, 20, 80]) await drag(c.x - 90, c.y + dy, c.x + 90, c.y + dy + 25, 600);
-    await sleep(4000);
-    await click('$' + btn('Done'), { after: 4000 });
+    await click('$' + btn('Done'), { after: 9000 });
+  },
+  // (v3) the same crest as the create take, painted on the user's Kneepads copy while the game shows their knees; Done sends it in
+  async live() {
+    await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
+    await click(
+      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit"&&b.getBoundingClientRect().width).find(b=>b.parentElement.parentElement.textContent.includes("Kneepads"))',
+      { after: 2400 }
+    );
+    await crest();
+    await click('$' + btn('Smaller'), { after: 600 });
+    await click('$' + btn('Done'), { after: 9000 });
   },
   // 5. make your own animations
   async animate() {
@@ -522,7 +526,7 @@ try {
     const name = arg.replace(/^\+/, ''),
       fn = takes[name];
     if (!fn) throw new Error('no take ' + name);
-    if (name === 'live') await liveSetup();
+    if (name.startsWith('live')) await liveSetup();
     if (arg.startsWith('+')) {
       await fn();
       continue;
