@@ -313,21 +313,9 @@ export function createLocker(app) {
             say(NEED(feature));
           },
         }); // not disabled: a click says why it can't be used yet
+  // the connect button lives in the top bar; once signed in the Locker shows who and has sign out
   function accountRow() {
-    if (!auth.enabled)
-      return el(
-        'div',
-        { class: 'folder account' },
-        el('div', {}, el('b', { text: 'Hytale account' })),
-        wip('Connect Hytale account', 'btn primary', () => say(NEED('connecting your Hytale account')))
-      );
-    if (!app.ACCOUNT)
-      return el(
-        'div',
-        { class: 'folder account' },
-        el('div', {}, el('b', { text: 'Hytale account' })),
-        el('button', { class: 'btn primary', text: 'Connect Hytale account', onclick: guard(() => auth.start()) })
-      );
+    if (!auth.enabled || !app.ACCOUNT) return null;
     return el(
       'div',
       { class: 'folder account on' },

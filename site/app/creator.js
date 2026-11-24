@@ -1000,6 +1000,7 @@ export function createCreator(app) {
     return !!have && need.length > 0 && need.every(x => have.includes(x));
   };
   const paidLocked = e => tierOf(e) > 0 && !owns(e);
+  const paidTip = () => (app.ACCOUNT ? 'Your Hytale account does not own this item' : 'Connect Hytale account to verify ownership');
   const lockedBase = a => {
     const it = app.CAT.items[a.field].find(e => e.Id === a.baseId);
     return it && paidLocked(it) ? tierOf(it) : 0;
@@ -1375,7 +1376,14 @@ export function createCreator(app) {
       }
       if (!q && at >= 0 && list[at][2]) anyItem.picks[slot.value] = list[at][2].Id; // whatever is shown first stays shown (wearing something new doesn't swap it)
       item.setItems(
-        list.map(([n, , , paid], i) => ({ value: i, text: n, disabled: paid, note: paid ? 'Paid' : null, cls: paid ? 'paid' : null })),
+        list.map(([n, , , paid], i) => ({
+          value: i,
+          text: n,
+          disabled: paid,
+          note: paid ? 'Paid' : null,
+          cls: paid ? 'paid' : null,
+          tip: paid ? paidTip() : null,
+        })),
         at
       );
       label();

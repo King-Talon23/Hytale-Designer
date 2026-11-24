@@ -2880,6 +2880,7 @@ export function createWorkspace(app) {
       playAnim(g, n, 1);
     }
   }
+  const PAIDTIP = () => (app.ACCOUNT ? 'Your Hytale account does not own this item' : 'Connect Hytale account to verify ownership');
   function panelCreator() {
     if (!app.ED) {
       const worn = game.FIELDS.filter(f => app.cur.skin[f] && app.R.find(f, app.cur.skin[f])); /* a haircut under a hood still counts */
@@ -2894,7 +2895,7 @@ export function createWorkspace(app) {
           paid = paidIn(f);
         return el(
           'div',
-          { class: 'skin starttile' + (paid ? ' paid' : '') },
+          { class: 'skin starttile' + (paid ? ' paid' : ''), title: paid ? PAIDTIP() : null },
           el('div', { class: 'pic' }, itemThumb(f, it, p.color, p.variant)),
           el('b', { text: itemName(it) }),
           el('small', { text: LABEL[f] }),

@@ -2,7 +2,7 @@
 // re-sort...), and closing without choosing puts back what was there. A plain <select> can't do this: it never says what is under the pointer.
 //   pickList(el, { items: [{ value, text, group?, icon? }], value, placeholder, label, search, onPreview(value | null), onChoose(value) })
 // onPreview(null) means "show the chosen one again". The returned button has .value, .setItems(items, value) and .close().
-// Optional: an item can be { disabled, note, cls } (shown greyed with a short note; it previews but can't be chosen);
+// Optional: an item can be { disabled, note, cls, tip } (shown greyed with a short note; it previews but can't be chosen);
 // placeholder can be a function; minWidth (220) and maxHeight (380) size the list; markChosen: false leaves the chosen row plain.
 export function pickList(el, o) {
   let items = o.items || [],
@@ -60,7 +60,12 @@ export function pickList(el, o) {
       rows.push(it);
       const r = el(
         'div',
-        { class: 'anyopt' + (it.group ? ' ingroup' : '') + (it.cls ? ' ' + it.cls : ''), role: 'option', data: { i: String(i) } },
+        {
+          class: 'anyopt' + (it.group ? ' ingroup' : '') + (it.cls ? ' ' + it.cls : ''),
+          role: 'option',
+          title: it.tip || null,
+          data: { i: String(i) },
+        },
         ...(it.icon ? [iconOf(it.icon)] : []),
         el('span', { text: it.text }),
         it.note ? el('small', { text: it.note }) : null

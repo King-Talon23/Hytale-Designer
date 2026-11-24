@@ -216,29 +216,42 @@ async function crest() {
   const T = await where('$[...document.querySelectorAll("canvas")].find(c=>c.width===32&&c.getBoundingClientRect().width)');
   const s = T.w / 32,
     px = (c, r) => [T.x - T.w / 2 + (18 + c + 0.5) * s, T.y - T.h / 2 + (14 + r + 0.5) * s];
-  const colour = c => click(`$document.querySelector("button[title='${c}']")`, { ms: 300, after: 250 });
-  const stroke = async (a, b, ms = 320) => {
-    await move(...px(...a), 260);
-    await drag(...px(...a), ...px(...b), ms);
-    await sleep(150);
+  // one flowing hand (user 2026-11-24: no pauses): glide time follows the distance, a click is a quick tap with no wait after,
+  // and the strokes are chained (each starts where the last ended, the button only lifts and presses again)
+  const glideTo = (x, y) => move(x, y, Math.round(Math.min(420, Math.max(160, Math.hypot(x - mx, y - my) * 0.5))));
+  const tap = async sel => {
+    const b = await where('$' + sel);
+    await glideTo(b.x, b.y);
+    await p.mouse('mousePressed', mx, my);
+    await sleep(40);
+    await p.mouse('mouseReleased', mx, my);
+    await sleep(40);
   };
-  await click('$' + btn('More'), { after: 300 });
-  await click('$' + titled('Filled'), { after: 250 });
+  const colour = c => tap(`document.querySelector("button[title='${c}']")`);
+  const strokes = async (pts, ms = 260) => {
+    await glideTo(...px(...pts[0]));
+    for (let i = 1; i < pts.length; i++) {
+      await p.mouse('mousePressed', mx, my);
+      await p.glide(mx, my, ...px(...pts[i]), ms, true);
+      [mx, my] = px(...pts[i]);
+      await p.mouse('mouseReleased', mx, my);
+      await sleep(30);
+    }
+  };
+  await tap(btn('More'));
+  await tap(titled('Filled'));
   await colour('#502002');
-  await stroke([0, 0], [10, 9], 600);
-  await click('$' + titled('Rectangle'), { after: 250 });
+  await strokes([[0, 0], [10, 9]], 480);
+  await tap(titled('Rectangle'));
   await colour('#f4cc17');
-  await stroke([0, 0], [10, 9], 600);
-  await click('$' + titled('Line'), { after: 250 });
-  await stroke([5, 2], [8, 5]);
-  await stroke([8, 5], [5, 8]);
-  await stroke([5, 8], [2, 5]);
-  await stroke([2, 5], [5, 2]);
-  await click('$' + titled('Fill'), { after: 250 });
+  await strokes([[0, 0], [10, 9]], 480);
+  await tap(titled('Line'));
+  await strokes([[5, 2], [8, 5], [5, 8], [2, 5], [5, 2]]);
+  await tap(titled('Fill'));
   await colour('#e23b3b');
-  await move(...px(5, 5), 400);
+  await glideTo(...px(5, 5));
   await p.click(mx, my);
-  await sleep(1200);
+  await sleep(900);
 }
 
 const takes = {

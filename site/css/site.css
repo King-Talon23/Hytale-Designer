@@ -181,8 +181,12 @@ nav button.on::after {
   box-shadow: 0 0 12px var(--gold);
   border-radius: 3px 3px 0 0;
 }
-.conn {
+#acct {
   margin-left: auto;
+}
+.conn {
+  white-space: nowrap;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2281,11 +2285,9 @@ footer {
     padding: 0 9px;
     font-size: 13px;
   }
-  .conn span {
-    display: none;
-  }
   .conn {
-    padding: 9px;
+    padding: 7px 9px;
+    font-size: 12px;
   }
   .brand {
     gap: 7px;

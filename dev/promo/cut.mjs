@@ -27,21 +27,30 @@ const V2 = [
 const LIVE_CROP = '900:760:510:150';
 const V3 = [
   ['split', 'live', 'live-game', 3.0, 14.0, 2.6, LIVE_CROP],
-  ['split', 'live', 'live-game', 32.8, 40.5, 1.5, LIVE_CROP],
+  // (user 2026-11-24) anything where a character animation plays runs at 1.0x; only UI clicking is sped up, time comes from shorter pieces
+  ['split', 'live', 'live-game', 32.8, 38.0, 1.0, LIVE_CROP],
   ['wardrobe', 2.0, 25.0, 2.6],
-  ['create', 12.5, 40.0, 3.2],
-  ['create', 44.3, 47.0, 1.3],
+  // create: open + tools, the painting (one flowing hand), turn + Done, then the pads on the character at 1.0x
+  // (the view draws one blank frame on Bigger at 7.033 and on Smaller at 22.7: both skipped)
+  ['create', 3.0, 7.02, 3.2],
+  ['create', 7.045, 10.4, 3.2],
+  ['create', 10.4, 21.3, 2.4],
+  ['create', 21.3, 22.69, 3.2],
+  ['create', 22.71, 27.7, 3.2],
+  ['create', 27.7, 31.6, 1.0],
   ['combine', 7.6, 22.4, 1.6],
   ['record', 9.7, 20.6, 2.4],
-  ['record', 20.8, 28.6, 2.8],
-  ['record', 28.9, 32.2, 1.2],
+  ['record', 20.8, 25.0, 2.8],
+  // Play: the recorded wave, then Keep and the keyed playback, at 1.0x
+  ['record', 25.0, 31.6, 1.0],
   // the same Big Wave as an emote in Hytale (mod 1.2.1), with a caption and the live tag
   ['emote-game', 0.3, 7.6, 1.0, '...and use them in game'],
-  ['montage', 11.4, 15.5, 2.0],
-  ['montage', 19.5, 22.0, 1.5],
-  ['montage', 24.2, 27.0, 1.5],
-  ['montage', 28.5, 31.5, 1.4],
-  ['montage', 35.2, 37.6, 1.3],
+  // montage at 1.0x: horse ride, the picture, Desert ride, Fall Far, the walk
+  ['montage', 13.0, 15.6, 1.0],
+  ['montage', 19.4, 20.9, 1.0],
+  ['montage', 24.3, 26.3, 1.0],
+  ['montage', 28.6, 30.8, 1.0],
+  ['montage', 35.2, 37.4, 1.0],
   ['end', 3.1, 6.8, 1],
 ];
 const v = process.argv[2] === 'v3' ? 'v3' : '';

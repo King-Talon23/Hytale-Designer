@@ -31,7 +31,9 @@
       <button data-tab="animate" class="make"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4.5" r="2"/><path d="M8 21l3-6 3 2v4M7 11l3-3h4l3 3 3 1M11 8l-1 7"/></svg>Animate</button>
     </span>
   </nav>
-  <button id="conn" class="conn"><i></i><span>Not connected</span></button>
+  <span id="acct"></span>
+  <!-- for browsers still running a cached main.js from before 2026-11-24, which writes into #conn; remove after a few days -->
+  <span id="conn" hidden><span></span></span>
 </header>
 
 <main>

@@ -183,7 +183,6 @@ function showConnect() {
   const had = R && META;
   $('app').hidden = true;
   $('connect').hidden = false;
-  if (!had) setConn(null);
   $('connback')?.remove();
   if (had)
     $('connect').prepend(
@@ -278,7 +277,6 @@ async function checkGameUpdate(force) {
     CAT = await game.catalog();
     R = rules(CAT);
     registerAssets();
-    setConn(META);
     rebuild();
     render();
     say('Game files updated.');
@@ -370,21 +368,26 @@ addEventListener('drop', e => {
     });
   if (R) importSkinFiles(fs);
 });
-function setConn(meta) {
-  const c = $('conn');
-  c.classList.toggle('ok', !!meta);
-  c.lastElementChild.textContent = meta ? 'Game files connected' : 'Not connected';
-  c.onclick = () => {
-    if (meta) return setTab('help');
-    showConnect();
-    const b = document.querySelector('#connect .btn.primary');
-    if (b) {
-      b.focus();
-      b.classList.remove('flash');
-      void b.offsetWidth;
-      b.classList.add('flash');
-    }
-  }; /* already on the steps: point at the button */
+// top bar: the Hytale account (connect, or who is signed in; the Locker has sign out)
+function drawAcct() {
+  const box = $('acct');
+  if (!box) return;
+  box.replaceChildren(
+    !auth.enabled
+      ? el(
+          'button',
+          {
+            class: 'conn locked wip',
+            'aria-disabled': 'true',
+            'aria-label': 'Connect Hytale account (WIP)',
+            onclick: () => say("Coming soon: waiting on Hytale's 3rd party site approval"),
+          },
+          el('span', { class: 'lbl', text: 'Connect Hytale account' })
+        )
+      : !ACCOUNT
+        ? el('button', { class: 'conn', text: 'Connect Hytale account', onclick: guard(() => auth.start()) })
+        : el('button', { class: 'conn ok', text: ACCOUNT.username, onclick: () => setTab('wardrobe') })
+  );
 }
 
 // ---------------------------------------------------------------- app state
@@ -412,14 +415,16 @@ const setR = v => (R = v),
   setDirty = v => (dirty = v),
   setWard = v => (WARD = v),
   setFolder = v => (FOLDER = v),
-  setAccount = v => (ACCOUNT = v),
+  setAccount = v => {
+    ACCOUNT = v;
+    drawAcct();
+  },
   setShowGame = v => (SHOWGAME = v);
 
 async function startApp() {
   META = await game.status();
   CAT = await game.catalog();
   R = rules(CAT);
-  setConn(META);
   setAssets(await assets.list().catch(() => []));
   registerAssets();
   await applyRescue().catch(e => console.warn(e));
@@ -562,6 +567,7 @@ async function startApp() {
   FOLDER = await store.folderState();
   WARD = await store.list();
   ACCOUNT = await auth.account().catch(() => null);
+  drawAcct();
   await loadPub();
   const movedOut = {};
   for (const g of WARD.game)
@@ -1604,6 +1610,7 @@ const claimTab = () =>
         TABS.postMessage({ hi: TAB_ID, t: BORN });
       }); /* another tab answers 'wait' at once, then 'bye' once saved */
 (async function boot() {
+  drawAcct();
   try {
     await claimTab();
     // Local development only: read the developer's own Assets.zip through the dev server (dev/ is never deployed).
