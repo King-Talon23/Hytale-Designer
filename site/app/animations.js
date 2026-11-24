@@ -210,6 +210,9 @@ export function createAnimations(app) {
         g === 'Flavor' && /^Sleep/.test(n) ? -24 : 0
       );
       app.st.scenery(...sceneryFor(g, n));
+      app.tempBackdrop?.(
+        g === 'Swim' ? 'ocean' : null
+      ); /* swimming takes the character out to sea; any other move brings back the chosen place */
       app.st.plantClear(g === 'Swim' ? 99 : (g === 'Flavor' && /^(Sit_Ground|Sleep|Lay|Lie)/.test(n)) || /Crawl|Prone/.test(n) ? 1.9 : 0);
       if (facesAway(g, n) && !facesAway(playing.group, playing.name)) app.st.behind();
       else if (!facesAway(g, n) && facesAway(playing.group, playing.name)) app.st.toFront();

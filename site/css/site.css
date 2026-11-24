@@ -1099,6 +1099,34 @@ button.tag {
     0 0 0 2px #fff8,
     0 0 14px #ffffff33;
 }
+/* the skin being worn: its card says so; gold while the mod shows it in game */
+.skin .worn {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: #e8eef8;
+  color: #0b1526;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.skin.ingame {
+  border-color: var(--gold);
+  box-shadow:
+    0 0 0 2px var(--gold),
+    0 0 18px #f4c45255;
+}
+.skin.ingame .worn {
+  background: var(--gold);
+}
+.shelf.game.off {
+  opacity: 0.45;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
 .skin.empty {
   cursor: default;
   opacity: 0.6;
@@ -2468,18 +2496,6 @@ input.hex {
   border: 1px solid #fff8;
   background: #0f1d30;
 } /* a hint of the picked place: sky over ground */
-.bdchip.bd-meadow {
-  background: linear-gradient(#077ad9 50%, #5d8f2a 50%);
-}
-.bdchip.bd-desert {
-  background: linear-gradient(#0081b2 50%, #d9c38a 50%);
-}
-.bdchip.bd-tundra {
-  background: linear-gradient(#699bd4 50%, #eef3f7 50%);
-}
-.bdchip.bd-volcanic {
-  background: linear-gradient(#67352c 50%, #4f7d2a 50%);
-}
 .stage.clean .nameplate,
 .stage.clean .emotes,
 .stage.clean .bar,
@@ -2554,6 +2570,9 @@ input.hex {
   flex-direction: column;
   gap: 2px;
   min-width: 150px;
+  width: min(330px, calc(100cqw - 20px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   background: #0d1826f4;
   border: 1px solid var(--line2);
@@ -2582,6 +2601,31 @@ input.hex {
 }
 .bdopt.on {
   color: var(--gold);
+}
+/* the places under their zone's name, two to a row where there is room */
+.bdzone {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line2);
+}
+.bdzhead {
+  padding: 0 10px 4px;
+  color: var(--dim);
+  font: 700 10px var(--b);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.bdgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 2px;
+}
+.bdgrid .bdopt b {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Creator in a narrower desktop window: slimmer side columns so the model view keeps room */

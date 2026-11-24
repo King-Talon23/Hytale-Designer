@@ -8,6 +8,13 @@ import * as prefs from './prefs.js';
 export function createStage(app) {
   const { $, el, say, animThumb, viewInset } = app;
   const BACKDROPS = [['dark', 'Studio'], ...Object.entries(game.SCENES).map(([k, b]) => [k, b.name])];
+  // a place's chip: its noon sky over its ground (Studio keeps the plain dark one)
+  const chip = k => {
+    const c = el('span', { class: 'bdchip' }),
+      s = game.SCENES[k]?.chip;
+    if (s) c.style.background = `linear-gradient(${s[0]} 50%, ${s[1]} 50%)`;
+    return c;
+  };
   const hexIn = v => {
     const m = /#([0-9a-f]{6})/i.exec(String(v || ''));
     return m ? '#' + m[1].toLowerCase() : null;
@@ -102,6 +109,13 @@ export function createStage(app) {
     a.click();
     a.remove();
   }
+  // a background a move brings with it (the sea for swimming), shown without changing the saved choice; null goes back to that
+  let tempBd = null;
+  function tempBackdrop(k) {
+    if (tempBd === (k || null)) return;
+    tempBd = k || null;
+    drawStageBtns();
+  }
   function drawStageBtns() {
     const box = $('stagebtns'),
       stg = $('view').parentElement;
@@ -134,7 +148,7 @@ export function createStage(app) {
       });
       box._ro.observe(box);
     } // the Creator's view buttons keep clear of the background button
-    let bd = prefs.get('se_backdrop');
+    let bd = tempBd || prefs.get('se_backdrop');
     if (!BACKDROPS.some(b => b[0] === bd)) bd = 'dark';
     showBackdrop(bd);
     const name = BACKDROPS.find(b => b[0] === bd)[1],
@@ -156,7 +170,7 @@ export function createStage(app) {
               drawStageBtns();
             },
           },
-          el('span', { class: 'bdchip bd-' + bd }),
+          chip(bd),
           el('b', { text: name }),
           el('span', { class: 'caret', text: '▾' })
         ),
@@ -173,33 +187,58 @@ export function createStage(app) {
                     drawStageBtns();
                     return;
                   }
-                  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+                  if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
                   e.preventDefault();
                   const os = [...e.currentTarget.querySelectorAll('.bdopt')],
                     i = os.indexOf(document.activeElement),
                     n = os.length;
-                  os[e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + n) % n]?.focus();
+                  os[
+                    e.key === 'Home'
+                      ? 0
+                      : e.key === 'End'
+                        ? n - 1
+                        : (i + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1) + n) % n
+                  ]?.focus();
                 },
               },
-              /* arrows move through the backgrounds */ BACKDROPS.map(([k, n]) =>
-                el(
-                  'button',
-                  {
-                    class: 'bdopt' + (k === bd ? ' on' : ''),
-                    role: 'option',
-                    'aria-selected': String(k === bd),
-                    onclick: e => {
-                      e.stopPropagation();
-                      box._open = false;
-                      box._focus = 'btn';
-                      prefs.set('se_backdrop', k);
-                      drawStageBtns();
+              /* arrows move through the backgrounds; the places are grouped by the game's zones */ (() => {
+                const opt = (k, n) =>
+                  el(
+                    'button',
+                    {
+                      class: 'bdopt' + (k === bd ? ' on' : ''),
+                      role: 'option',
+                      'aria-selected': String(k === bd),
+                      onclick: e => {
+                        e.stopPropagation();
+                        box._open = false;
+                        box._focus = 'btn';
+                        tempBd = null;
+                        prefs.set('se_backdrop', k);
+                        drawStageBtns();
+                      },
                     },
-                  },
-                  el('span', { class: 'bdchip bd-' + k }),
-                  el('b', { text: n })
-                )
-              )
+                    chip(k),
+                    el('b', { text: n })
+                  );
+                return [
+                  opt('dark', 'Studio'),
+                  ...Object.entries(game.ZONES).map(([z, zn]) =>
+                    el(
+                      'div',
+                      { class: 'bdzone', role: 'group', 'aria-label': zn },
+                      el('div', { class: 'bdzhead', text: zn }),
+                      el(
+                        'div',
+                        { class: 'bdgrid' },
+                        Object.entries(game.SCENES)
+                          .filter(([, s]) => String(s.zone) === z)
+                          .map(([k, s]) => opt(k, s.name))
+                      )
+                    )
+                  ),
+                ];
+              })()
             )
           : null,
         app.ED
@@ -266,6 +305,10 @@ export function createStage(app) {
             ),
       ].filter(Boolean)
     );
+    {
+      const m = box.querySelector('.bdmenu:not(.shotmenu)');
+      if (m) m.style.maxHeight = Math.max(160, stg.getBoundingClientRect().bottom - m.getBoundingClientRect().top - 12) + 'px';
+    } /* the list scrolls inside the stage rather than running off its bottom */
     if (box._focus) {
       const f = box._focus;
       box._focus = null;
@@ -332,6 +375,7 @@ export function createStage(app) {
     BD_MADE,
     setBdShown,
     drawStageBtns,
+    tempBackdrop,
     get EMOTES() {
       return EMOTES;
     },

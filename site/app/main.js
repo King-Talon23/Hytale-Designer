@@ -198,8 +198,17 @@ function showConnect() {
       })
     ); /* already connected: the files are still here, so Back returns to the app */
   const os = /Mac/i.test(navigator.platform) ? 'mac' : /Linux/i.test(navigator.platform) ? 'linux' : 'win';
+  // the browser can't open its file window in the game folder, so choosing Assets.zip copies the path for this OS first
+  const KEYS = { win: 'Ctrl+V, Enter', mac: '⌘⇧G, ⌘V, Return', linux: 'Ctrl+L, Ctrl+V, Enter' };
   const pick = o => {
     $('path').textContent = PATHS[o];
+    $('ziphow').replaceChildren(
+      'Clicking copies the game folder path. In the file window press ',
+      el('b', { text: KEYS[o] }),
+      ', then pick ',
+      el('b', { text: 'Assets.zip' }),
+      '. Or drop it here.'
+    );
     for (const b of $('os').children) b.classList.toggle('on', b.dataset.os === o);
   };
   for (const b of $('os').children) b.onclick = () => pick(b.dataset.os);
@@ -213,6 +222,9 @@ function showConnect() {
     }
     setTimeout(() => ($('copypath').textContent = 'Copy path'), 1800);
   };
+  const copyPath = () =>
+    navigator.clipboard?.writeText($('path').textContent).catch(() => {}); /* not awaited: the file window opens on the same click */
+  $('zipfile').parentElement.addEventListener('click', copyPath);
   $('zipfile').onchange = e => {
     const f = e.target.files[0];
     e.target.value = '';
@@ -570,8 +582,26 @@ async function startApp() {
   drawAcct();
   await loadPub();
   const movedOut = {};
+  // the in-game slots wait for Hytale accounts (they will be the account's presets): skins kept in them move to My skins
+  if (!(auth.enabled && ACCOUNT))
+    for (const g of WARD.game)
+      if (g) {
+        try {
+          const used = new Set((await store.list()).custom.map(r => r.name));
+          let nm = g.name,
+            k = 2;
+          while (used.has(nm)) nm = cleanName(clip(g.name, 37) + ' ' + k++);
+          const r = await store.saveCustom(nm, g.skin);
+          if (r) {
+            await store.remove(g.id);
+            movedOut[g.id] = r;
+          }
+        } catch (e) {
+          console.warn(e);
+        }
+      }
   for (const g of WARD.game)
-    if (g && hasCustom(g.skin)) {
+    if (g && !movedOut[g.id] && hasCustom(g.skin)) {
       try {
         const r = await store.saveGame(g.slot, g.name, g.skin);
         if (r.kind === 'custom') {

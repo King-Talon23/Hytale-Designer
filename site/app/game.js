@@ -28,9 +28,9 @@ export const SCENERY_TEX = {
   stone: 'BlockTextures/Rock_Stone.png',
 };
 // backgrounds behind the character and the set pieces of the moves: built from the game's own files (see scene-data.js)
-export { SCENES, SET_PIECES } from './scene-data.js';
+export { SCENES, SET_PIECES, ZONES } from './scene-data.js';
 // which set of files a connect reads; raised when the site starts needing more, so a remembered Assets.zip is read again
-export const FILES_V = 5;
+export const FILES_V = 7;
 const PROP_FILES = new Set(
   [...Object.values(PROPS).flat(), ...Object.values(SCENERY_TEX)]
     .filter(p => typeof p === 'string')

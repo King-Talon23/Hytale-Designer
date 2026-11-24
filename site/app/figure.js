@@ -729,8 +729,9 @@ const blockParts = (name, tint) =>
     const b = BLOCKS[name];
     if (!b) throw new Error('unknown block ' + name);
     if (b.cube) {
-      const side0 = await canvasOf(b.cube.side),
-        bottom = blockMat(await canvasOf(b.cube.bottom), false, 0.6);
+      const all = async c => (b.tint ? tinted(c, b.tint) : c), // a block tinted whole (moss) takes its colour on every face
+        side0 = await all(await canvasOf(b.cube.side)),
+        bottom = blockMat(await all(await canvasOf(b.cube.bottom)), false, 0.6);
       let side = side0;
       if (b.cube.sideMask) {
         side = document.createElement('canvas');
@@ -746,7 +747,7 @@ const blockParts = (name, tint) =>
       return Promise.all(
         tops.map(async t => ({
           geo,
-          mat: [sideM, sideM, blockMat(b.tintUp ? tinted(await canvasOf(t), tint) : await canvasOf(t)), bottom, sideM, sideM],
+          mat: [sideM, sideM, blockMat(b.tintUp ? tinted(await canvasOf(t), tint) : await all(await canvasOf(t))), bottom, sideM, sideM],
         }))
       );
     }
@@ -770,6 +771,23 @@ export async function blockModel(name) {
   return m;
 } // one piece of furniture (a chair, a ladder ...)
 // block geometries and materials are shared and cached, only the instance lists go (and the few meshes a world made for itself, whose textures are the shared blocks')
+// still water, one surface tile per cell: the game's water texture, see-through, coloured the way the game shows open water
+const WATER_KEY = '~water|0';
+const waterParts = () =>
+  once('water', async () => {
+    const t = new THREE.CanvasTexture(await canvasOf(game.SCENERY_TEX.water));
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.magFilter = t.minFilter = THREE.NearestFilter;
+    const mat = new THREE.MeshLambertMaterial({
+      map: t,
+      color: 0x6aa6e8,
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    return [{ geo: new THREE.PlaneGeometry(BLOCK, BLOCK).rotateX(-Math.PI / 2), mat }];
+  });
 const disposeTree = root =>
   root.traverse(o => {
     if (o.isInstancedMesh) o.dispose();
@@ -894,7 +912,7 @@ async function buildWorld(sc, tint) {
   const taken = new Set(),
     trees = await Promise.all(sc.trees.map(p => game.json(p))),
     placed = [];
-  for (let i = 0, tries = 0; placed.length < 30 && tries < 2400; tries++) {
+  for (let i = 0, tries = 0; trees.length && placed.length < (sc.treeCount ?? 30) && tries < 2400; tries++) {
     const tb = trees[i % trees.length].blocks,
       reach = Math.max(0, ...tb.map(b => Math.hypot(b.x, b.z)));
     const a = rnd() * TAU,
@@ -941,10 +959,39 @@ async function buildWorld(sc, tint) {
         if (name) put(name + '|0', x + (rnd() - 0.5) * 0.5, top, z + (rnd() - 0.5) * 0.5, rnd() * TAU, true, false);
       }
     }
+  // water on the plain: a river winding across behind the character, a shore with the water beyond it, or open sea round a
+  // little island. Its cells are dug two blocks down to the bed and the banks walled with the under-ground block, so the water
+  // has depth (sc.water.depth blocks, 2 if not given); the pattern repeats every P blocks like the rest of the plain (the seam is far out, under the fixed land)
+  const wet = (() => {
+    const k = sc.water?.kind,
+      bend = x => Math.sin((TAU * x) / 64);
+    if (k === 'river') return (x, z) => Math.abs(sym(z) - (-17 + 4 * bend(sym(x)))) < 4.5;
+    if (k === 'shore') return (x, z) => sym(z) < -9 + 3 * bend(sym(x));
+    if (k === 'sea') return (x, z) => sym(x) * sym(x) + sym(z) * sym(z) > 20;
+    return () => false;
+  })();
+  const DEEP = sc.water?.depth || 2;
+  const pickWet = () => {
+    const from = sc.water?.plants || [];
+    let r = rnd() * from.reduce((t, p) => t + p[1], 0);
+    for (const [n, w] of from) if ((r -= w) <= 0) return n;
+    return null;
+  };
   // the plain: one ground block per cell and its plants, repeating every P blocks, sliding with the move
   for (let x = 0; x < P; x++)
     for (let z = 0; z < P; z++) {
+      if (wet(x, z)) {
+        put(sc.water.bed + '|0', x, -1 - DEEP, z, null, false, true);
+        put(WATER_KEY, x, -0.15, z, null, false, true);
+        if (rnd() < (sc.water.density || 0)) {
+          const name = pickWet();
+          if (name) put(name + '|0', x + (rnd() - 0.5) * 0.5, -DEEP, z + (rnd() - 0.5) * 0.5, rnd() * TAU, true, true);
+        }
+        continue;
+      }
       put(sc.ground + '|' + Math.floor(rnd() * nTops), x, -1, z, null, false, true);
+      if (wet(x + 1, z) || wet(x - 1, z) || wet(x, z + 1) || wet(x, z - 1))
+        for (let y = -2; y >= -DEEP; y--) put(sc.under + '|0', x, y, z, null, false, true); // the bank
       if (rnd() >= sc.density) continue;
       const r = rnd(),
         name = pick(r < 0.45 ? 1 : r < 0.8 ? 2 : 0);
@@ -959,7 +1006,7 @@ async function buildWorld(sc, tint) {
   const sets = [];
   for (const [, { name: key, plant, slide, list }] of items) {
     const [name, k] = key.split('|'),
-      parts = await blockParts(name, tint),
+      parts = name === WATER_KEY.split('|')[0] ? await waterParts() : await blockParts(name, tint),
       p = parts[+k] || parts[0];
     const im = new THREE.InstancedMesh(p.geo, p.mat, list.length);
     im.frustumCulled = false;

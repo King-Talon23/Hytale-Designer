@@ -44,14 +44,14 @@
     </div>
     <div class="steps">
       <div class="card step">
-        <b class="num">1</b><h3>Copy the game folder path</h3>
+        <b class="num">1</b><h3>Your game folder</h3>
         <div class="os" id="os"><button data-os="win" class="on">Windows</button><button data-os="mac">macOS</button><button data-os="linux">Linux</button></div>
         <code id="path"></code>
         <button id="copypath" class="btn ghost">Copy path</button>
       </div>
       <div class="card step">
         <b class="num">2</b><h3>Choose Assets.zip</h3>
-        <p>Paste the path in the file window and pick <b>Assets.zip</b>, or drop it here.</p>
+        <p id="ziphow">The game folder path is copied when you click. In the file window paste it, press Enter and pick <b>Assets.zip</b>, or drop it here.</p>
         <label class="btn primary big">Choose Assets.zip<input type="file" id="zipfile" accept=".zip,application/zip" hidden></label>
       </div>
       <div class="card step">

@@ -59,6 +59,7 @@ export function createLocker(app) {
     }
   }
   const savePubMap = () => db.put('meta', 'published', PUBMAP).catch(() => {});
+  const slotsOn = () => auth.enabled && !!app.ACCOUNT; // the in-game slots are the account's presets: nothing to show before sign-in
   const canPublish = () => auth.enabled && PUB.on && PUB.signedIn;
   const publish = guard(async (rec, quiet) => {
     if (app.hasCustom(rec.skin))
@@ -253,6 +254,9 @@ export function createLocker(app) {
                 saveAs();
               }),
             ];
+    // the skin open in the Wardrobe is the one worn, and the one the mod shows in game while In game is on
+    const worn = kind !== 'pub' && kind !== 'found' && !!app.cur.id && app.cur.id === rec.id,
+      inGame = worn && app.SHOWGAME && app.FOLDER.state === 'on' && !!app.FOLDER.mod;
     const menu =
       acts.filter(Boolean).length > 1 ? app.cardMenu(acts.filter(Boolean)) : null; /* card actions live in a ⋯ menu, as in file browsers */
     return el(
@@ -260,7 +264,7 @@ export function createLocker(app) {
       {
         ...dragFrom(rec, kind),
         ...dropOn(kind, kind === 'game' ? rec.slot : null),
-        class: 'skin ' + kind + (app.cur.id && app.cur.id === rec.id ? ' on' : ''),
+        class: 'skin ' + kind + (worn ? ' on' : '') + (worn && inGame ? ' ingame' : ''),
         tabIndex: 0,
         data: { rid: String(rec.id) },
         onclick: () => {
@@ -269,7 +273,7 @@ export function createLocker(app) {
             return render();
           }
           open(rec, kind === 'found');
-          setTab('editor');
+          render(); /* wearing it here: the model beside the Locker and the mod switch to it, the Locker stays open */
         },
         onkeydown: e => {
           if (e.key === 'Enter' && e.target === e.currentTarget) e.currentTarget.click();
@@ -278,6 +282,7 @@ export function createLocker(app) {
       el('div', { class: 'pic' }, portrait(rec.skin)),
       el('b', { text: rec.name }),
       kind === 'game' ? el('small', { text: 'Slot ' + (rec.slot + 1) }) : null,
+      worn ? el('span', { class: 'worn', text: inGame ? 'In game' : 'Wearing' }) : null,
       menu || el('div', { class: 'acts' }, acts)
     );
   }
@@ -481,22 +486,35 @@ export function createLocker(app) {
         gameSteps(),
         folderRow(),
         accountRow(),
-        el(
-          'div',
-          { class: 'shelf game' },
-          el(
-            'h3',
-            {},
-            el('span', { text: 'In-game slots' }),
-            el('em', { text: `${app.WARD.game.filter(Boolean).length} / ${store.GAME_SLOTS}` })
-          ),
-          /* once connected these 5 slots are the account's in-game presets: they load on their own and every change is written back */
-          el(
-            'div',
-            { class: 'cards' },
-            app.WARD.game.map((r, i) => card(r, 'game', i))
-          )
-        ),
+        slotsOn()
+          ? el(
+              'div',
+              { class: 'shelf game' },
+              el(
+                'h3',
+                {},
+                el('span', { text: 'In-game slots' }),
+                el('em', { text: `${app.WARD.game.filter(Boolean).length} / ${store.GAME_SLOTS}` })
+              ),
+              /* once connected these 5 slots are the account's in-game presets: they load on their own and every change is written back */
+              el(
+                'div',
+                { class: 'cards' },
+                app.WARD.game.map((r, i) => card(r, 'game', i))
+              )
+            )
+          : el(
+              'div',
+              { class: 'shelf game off', onclick: () => say(NEED('your in-game presets')) },
+              el('h3', {}, el('span', { text: 'In-game slots' }), el('em', { text: 'WIP' })),
+              el(
+                'div',
+                { class: 'cards' },
+                Array.from({ length: store.GAME_SLOTS }, (_, i) =>
+                  el('div', { class: 'skin empty game' }, el('div', { class: 'pic' }), el('b', { text: 'Slot ' + (i + 1) }))
+                )
+              )
+            ),
         el(
           'div',
           { class: 'shelf custom', ...shelfDrop },
@@ -642,7 +660,13 @@ export function createLocker(app) {
     }
     await store.remove(rec.id);
     /* a pending autosave can't bring it back */ await refreshWard();
-    if (wasOpen) {
+    const first = wasOpen
+      ? app.WARD.custom[0] || app.WARD.game.find(Boolean)
+      : null; /* the worn skin went: the first one in the Locker is worn instead */
+    if (first) {
+      open(first);
+      render();
+    } else if (wasOpen) {
       Object.assign(app.cur, { id: null, kind: null, slot: null, name: '', auto: false });
       keepDraft();
       plate();
@@ -654,7 +678,11 @@ export function createLocker(app) {
         GONE.delete(rec.id);
         const back = await store.saveCustom(await store.uniqueName(rec.name, rec.id), rec.skin, rec.id);
         await refreshWard();
-        if (!app.cur.id && JSON.stringify(app.cur.skin) === JSON.stringify(app.R.fit(rec.skin))) {
+        const again = first && app.cur.id === first.id && app.WARD.custom.find(r => r.id === rec.id);
+        if (again) {
+          open(again);
+          render();
+        } else if (!app.cur.id && JSON.stringify(app.cur.skin) === JSON.stringify(app.R.fit(rec.skin))) {
           Object.assign(app.cur, { id: rec.id, kind: 'custom', slot: null, name: back.name });
           keepDraft();
           plate();
@@ -734,7 +762,7 @@ export function createLocker(app) {
       value: slot === null ? 'custom' : String(slot),
       items: [
         { value: 'custom', text: `My skins (${app.WARD.custom.length} / ${store.CUSTOM_MAX})`, icon: () => portrait(app.cur.skin) },
-        ...app.WARD.game.map((r, i) => ({
+        ...(slotsOn() ? app.WARD.game : []).map((r, i) => ({
           value: String(i),
           text: `In-game slot ${i + 1}${r ? ', replaces "' + r.name + '"' : ' (empty)'}`,
           icon: r ? () => portrait(r.skin) : null,
