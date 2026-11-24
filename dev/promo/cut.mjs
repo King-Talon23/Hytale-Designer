@@ -85,8 +85,39 @@ const V4 = [
   ['split', 'live', 'live-game', 23.925, 28.4, 1.0, LIVE_CROP, PAINT_CAP],
   ...V3.slice(V3.findIndex(c => c[0] === 'combine')),
 ];
-const v = ['v3', 'v4'].includes(process.argv[2]) ? process.argv[2] : '';
-const CUT = { v3: V3, v4: V4 }[v] || V2;
+// v5 (user 2026-11-24: "make your own version of my monocle with mask to show how it's done"): the combine is made on camera
+// (take combineMake): Edit a copy of the Monocle, Add item... Ragged Bandana, the monocle brought just in front of the mask (Z 16.6),
+// name, Done, worn. The half-drawn and the empty view right after Done (24.30, 24.316) are skipped. From Done on the character is
+// shown (idle animation), so 1.0x
+const COMBINE = [
+  ['combineMake', 2.0, 7.87, 3.0],
+  ['combineMake', 7.883, 13.72, 2.4],
+  ['combineMake', 13.75, 16.8, 3.0],
+  // Glasses front selected, Z 15.1 -> 16.6
+  ['combineMake', 16.8, 19.8, 1.6],
+  ['combineMake', 19.8, 24.29, 3.2],
+  // Done: the view flies out from the masked face to the whole character; cut to the zoomed view with the caption and the orbit
+  ['combineMake', 24.333, 25.8, 1.0],
+  ['combineMake', 28.7, 31.9, 1.0],
+];
+const V5 = V4.flatMap(c => (c[0] !== 'combine' ? [c] : COMBINE));
+// x15 (user 2026-11-24: "a 15 second cut for X, the first 12 seconds can be cut"): no 45-skins hook; paint -> live in game, the
+// combine, animation -> emote in game, end card. UI is sped, every character animation at 1.0x
+const X15 = [
+  ['create', 10.4, 21.3, 5.0],
+  ['split', 'live', 'live-game', 22.6, 23.91, 1.0, LIVE_CROP, PAINT_CAP],
+  ['split', 'live', 'live-game', 23.925, 25.6, 1.0, LIVE_CROP, PAINT_CAP],
+  ['combineMake', 6.4, 7.87, 3.0],
+  ['combineMake', 7.883, 13.72, 4.5],
+  ['combineMake', 13.75, 19.5, 4.5],
+  ['combineMake', 24.333, 25.3, 1.0],
+  ['combineMake', 29.0, 30.2, 1.0],
+  ['record', 25.0, 26.0, 1.0],
+  ['emote-game', 0.3, 2.8, 1.0, '...and use them in game'],
+  ['end', 3.1, 4.5, 1],
+];
+const v = ['v3', 'v4', 'v5', 'x15'].includes(process.argv[2]) ? process.argv[2] : '';
+const CUT = { v3: V3, v4: V4, v5: V5, x15: X15 }[v] || V2;
 const OUT = 'out/hytaledesigner-promo' + (v ? '-' + v : '') + '.mp4';
 const FPS = 30;
 const ff = args => execFileSync('ffmpeg', ['-loglevel', 'error', '-y', ...args]);
@@ -218,8 +249,4 @@ ff([
   '+faststart',
   OUT,
 ]);
-console.log(
-  execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration,size', '-of', 'csv=p=0', OUT])
-    .toString()
-    .trim()
-);
+console.log(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration,size', '-of', 'csv=p=0', OUT]).toString().trim());

@@ -54,13 +54,14 @@ export function createStage(app) {
   const setBdShown = v => (bdShown = v);
   async function showBackdrop(key) {
     if (!app.st || key === bdShown) return;
+    const wave = bdShown != null; /* a change while the stage is up spreads out from the character; the first one just appears */
     bdShown = key;
-    if (key === 'dark') return app.st.setBackdrop(null);
+    if (key === 'dark') return app.st.setBackdrop(null, null, null, wave);
     const stg = $('view').parentElement,
       slow = setTimeout(() => stg.classList.add('loading'), 250); // a place that takes a moment to build says so
     try {
       const spec = await backdropSpec(key);
-      if (bdShown === key) await app.st.setBackdrop(spec.sky, spec.sc, spec.tint);
+      if (bdShown === key) await app.st.setBackdrop(spec.sky, spec.sc, spec.tint, wave);
     } catch (e) {
       console.warn('backdrop', e);
       bdShown = 'dark';

@@ -247,12 +247,30 @@ async function crest() {
   await tap(btn('More'));
   await tap(titled('Filled'));
   await colour('#502002');
-  await strokes([[0, 0], [10, 9]], 480);
+  await strokes(
+    [
+      [0, 0],
+      [10, 9],
+    ],
+    480
+  );
   await tap(titled('Rectangle'));
   await colour('#f4cc17');
-  await strokes([[0, 0], [10, 9]], 480);
+  await strokes(
+    [
+      [0, 0],
+      [10, 9],
+    ],
+    480
+  );
   await tap(titled('Line'));
-  await strokes([[5, 2], [8, 5], [5, 8], [2, 5], [5, 2]]);
+  await strokes([
+    [5, 2],
+    [8, 5],
+    [5, 8],
+    [2, 5],
+    [5, 2],
+  ]);
   await tap(titled('Fill'));
   await colour('#e23b3b');
   await glideTo(...px(5, 5));
@@ -375,6 +393,56 @@ const takes = {
     await click('$' + item('Monocle with mask'), { ms: 250, after: 2000 });
     await drag(1180, 560, 1290, 556, 1100);
     await sleep(900);
+    await cap('');
+  },
+  // 4b'. combine made on camera (v5, user 2026-11-24: "make your own version of my monocle with mask to show how it's done"): Edit a
+  // copy of their Monocle, Move tool, Add item... Ragged Bandana (the mask in their asset; both free), name it, Done, then worn and
+  // close on the face with a small orbit
+  async combineMake() {
+    await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
+    await cap('<b>Combine</b> items into new ones', 1085);
+    await click(
+      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Monocle"))',
+      { after: 1600 }
+    );
+    await click('$' + titled('Move'), { after: 500 });
+    await click('$document.querySelector("button[aria-label=\'Add item\']")', { after: 700 });
+    await click('$document.querySelector("#dlg input[placeholder=Search]")', { after: 150 });
+    await p.type('ragged', 85);
+    await sleep(500);
+    await click('$[...document.querySelectorAll("#dlg .skin")].find(b=>b.textContent.trim()==="Ragged Bandana")', { after: 400 });
+    await click('$[...document.querySelectorAll("#dlgbtns button")].find(b=>b.value==="yes")', { after: 2200 });
+    // (user 2026-11-24) the monocle sits just in front of the mask: Glasses front from Z 15.1 to 16.6 (the mask's top edge covered
+    // its lower rim)
+    await click('$[...document.querySelectorAll(".partrow")].find(r=>r.textContent.includes("Glasses front")).querySelector("button")', {
+      after: 600,
+    });
+    await click(
+      '$[...document.querySelectorAll("input")].find(x=>{const r=x.getBoundingClientRect();return r.width&&r.x>1780&&r.x<1840&&r.y>480&&r.y<540})',
+      { after: 150 }
+    );
+    await p.eval('document.activeElement.select()');
+    await p.type('16.6', 110);
+    await p.eval('document.activeElement.blur()');
+    await sleep(1000);
+    await click('$document.querySelector("input[aria-label=Name], input[placeholder=Name]")', { after: 150 });
+    await p.eval('document.activeElement.select()');
+    // (their own "Monocle with mask" is in the profile too, so the same name would come out as "... 2")
+    await p.type('Masked Monocle', 70);
+    await p.eval('document.activeElement.blur()');
+    await sleep(500);
+    await cap('');
+    // Done flies the view out from the face to the whole character; then four notches in (more puts the head out of frame)
+    await click('$' + btn('Done'), { after: 1800 });
+    await move(1280, 250, 450);
+    for (let i = 0; i < 4; i++) {
+      await p.call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: mx, y: my, deltaX: 0, deltaY: -120 });
+      await sleep(300);
+    }
+    await cap('Your own <b>new item</b>, worn', 0, LOW);
+    await sleep(900);
+    await drag(1180, 560, 1290, 556, 1100);
+    await sleep(1200);
     await cap('');
   },
   // 4c. live in game: the site on the left, Hytale on the right (gamecap.ps1 records the game at the same time; VW=1280)

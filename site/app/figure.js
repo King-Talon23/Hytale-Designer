@@ -649,6 +649,9 @@ export async function loadAnim(group, name) {
 }
 
 // ---- the game's blocks as meshes, drawn many at a time: a cube block's six faces, or a block model baked into one geometry
+const REV_EDGE = 92 * 64, // how far a background change runs: past the mountain ring (scene units)
+  WAVE_SPREAD = 1.25, // seconds from the character's feet to the mountains
+  WAVE_POP = 0.42; // seconds one block takes to shrink away or pop up
 const BLOCK = 64; // one block in the figure's units (block models are made at 32 to a block, so they are doubled)
 const SHADE = 0.72; // the scene's lights are set for the figure; scenery takes this much of them so a sunlit top shows the block's own colour
 const canvasOf = path =>
@@ -1091,6 +1094,10 @@ export function stage(canvas, Controls) {
   // the camera stays above the floor everywhere (Studio matches the backgrounds)
   ctl.maxPolarAngle = Math.PI * 0.47;
   ctl.update();
+  // a change of background spreads out from the character: block by block, nearest first, the old place's blocks and plants shrink
+  // away and the new one's pop up in their place, while the sky fades from one to the other
+  const REV = { r: { value: 0 }, t: { value: 0 }, spread: { value: WAVE_SPREAD }, edge: { value: REV_EDGE }, dur: { value: WAVE_POP } };
+  let wave = null; // a background change on its way out (see setBackdrop)
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(58, 48),
     new THREE.MeshBasicMaterial({ color: 0x0b1626, transparent: true, opacity: 0.55, fog: false })
@@ -1108,11 +1115,17 @@ export function stage(canvas, Controls) {
         side: THREE.DoubleSide,
         extensions: { derivatives: true },
         // the Studio floor: grid lines on an endless plane, fading into the dark with distance so no edge is ever seen
-        uniforms: { opacity: { value: 0 }, color: { value: new THREE.Color(0x5a8cc8) }, cell: { value: CELL } },
+        uniforms: {
+          opacity: { value: 0 },
+          color: { value: new THREE.Color(0x5a8cc8) },
+          cell: { value: CELL },
+          revR: REV.r,
+          revMode: { value: 0 },
+        },
         vertexShader:
           'varying vec3 vL; varying vec3 vW; void main() { vL = position; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
         fragmentShader:
-          'uniform float opacity; uniform vec3 color; uniform float cell; varying vec3 vL; varying vec3 vW; void main() { vec2 g = abs(fract(vL.xz / cell - 0.5) - 0.5) / fwidth(vL.xz / cell); float line = 1.0 - smoothstep(0.0, 1.3, min(g.x, g.y)); float d = length(vW.xz); float fade = 1.0 - smoothstep(300.0, 3200.0, d); gl_FragColor = vec4(color, line * fade * opacity); if (gl_FragColor.a < 0.003) discard; }',
+          'uniform float opacity; uniform vec3 color; uniform float cell; uniform float revR; uniform float revMode; varying vec3 vL; varying vec3 vW; void main() { float rv = revMode == 0.0 ? 1.0 : smoothstep(-400.0, 0.0, revMode * (revR - length(vW.xz))); vec2 g = abs(fract(vL.xz / cell - 0.5) - 0.5) / fwidth(vL.xz / cell); float line = 1.0 - smoothstep(0.0, 1.3, min(g.x, g.y)); float d = length(vW.xz); float fade = 1.0 - smoothstep(300.0, 3200.0, d); gl_FragColor = vec4(color, line * fade * opacity * rv); if (gl_FragColor.a < 0.003) discard; }',
       })
     );
   Object.defineProperty(grid.material, 'opacity', {
@@ -1255,6 +1268,7 @@ export function stage(canvas, Controls) {
       let mx = anim.move ? -vel.x * dt : 0,
         mz = anim.move ? -vel.y * dt : 0;
       world.userData.move(mx, mz);
+      wave?.old?.userData.move?.(mx, mz);
     }
     for (const w of flowing) {
       const [ox, oz] = world ? world.userData.offset() : [0, 0],
@@ -1263,7 +1277,9 @@ export function stage(canvas, Controls) {
     } // water drifts with the land
     grid.position.x = (grid.position.x - vel.x * dt) % CELL;
     grid.position.z = (grid.position.z - vel.y * dt) % CELL; // the ground runs backwards under the figure
-    grid.material.opacity = fallOn ? 0 : grid.material.opacity + ((!world ? 0.5 : 0) - grid.material.opacity) * (1 - Math.exp(-dt * 6));
+    grid.material.opacity = fallOn
+      ? 0
+      : grid.material.opacity + ((!world || wave?.grid ? 0.5 : 0) - grid.material.opacity) * (1 - Math.exp(-dt * 6));
     grid.visible = grid.material.opacity > 0.01;
     const wy = wallG.position.y - WALL_Y - (wallOn ? wallOn[1] : 0) * dt,
       wx = wallG.position.x - (wallOn ? wallOn[0] : 0) * dt;
@@ -1341,6 +1357,7 @@ export function stage(canvas, Controls) {
   (function loop(now) {
     requestAnimationFrame(loop);
     stepCam(now);
+    waveStep(now);
     {
       const d = cam.position.distanceTo(ctl.target),
         n = Math.min(40, Math.max(1, d / 30));
@@ -2509,7 +2526,104 @@ export function stage(canvas, Controls) {
     cam.position.set(t.x + Math.sin(az) * Math.cos(el) * dist, t.y + Math.sin(el) * dist, t.z + Math.cos(az) * Math.cos(el) * dist);
     ctl.update();
   }; // for tests
-  api.setBackdrop = async (bd, sc, tint) => {
+  // the wave: every block of a side is drawn with a copy of its material that scales each block (instance) by the wave's clock at its
+  // distance; block materials are shared between places, so the copies are what differ. When it has passed, the old place goes
+  const WAVE_LAG = 0.12; // the new block starts this much after the old one, so the two never sit the same size in the same place
+  const waveMat = (m, inside) => {
+    const c = m.clone();
+    c.defines = { ...(c.defines || {}), [inside ? 'WAVE_IN' : 'WAVE_OUT']: '' };
+    c.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, { uWaveT: REV.t, uWaveSpread: REV.spread, uWaveEdge: REV.edge, uWaveDur: REV.dur });
+      sh.vertexShader =
+        'uniform float uWaveT; uniform float uWaveSpread; uniform float uWaveEdge; uniform float uWaveDur;\n' +
+        sh.vertexShader.replace(
+          '#include <begin_vertex>',
+          [
+            '#include <begin_vertex>',
+            '#ifdef USE_INSTANCING',
+            'vec3 waveC = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;',
+            '#else',
+            'vec3 waveC = (modelMatrix * vec4(position, 1.0)).xyz;',
+            '#endif',
+            'float waveJ = fract(sin(dot(floor(waveC.xz / 64.0), vec2(12.9898, 78.233))) * 43758.5453);',
+            'float waveS = uWaveSpread * pow(clamp(length(waveC.xz) / uWaveEdge, 0.0, 1.0), 0.6) + waveJ * ' + WAVE_LAG + ';',
+            '#ifdef WAVE_IN',
+            'float waveK = clamp((uWaveT - waveS - ' + WAVE_LAG + ') / uWaveDur, 0.0, 1.0);',
+            'float waveE = waveK <= 0.0 ? 0.0 : 1.0 + 2.70158 * pow(waveK - 1.0, 3.0) + 1.70158 * pow(waveK - 1.0, 2.0);',
+            '#else',
+            'float waveK = clamp((uWaveT - waveS) / uWaveDur, 0.0, 1.0);',
+            'float waveE = 1.0 - waveK * waveK * (3.0 - 2.0 * waveK);',
+            '#endif',
+            'transformed *= waveE;',
+          ].join('\n')
+        );
+    };
+    c.customProgramCacheKey = () => 'wave' + (inside ? 'in' : 'out');
+    return c;
+  }; /* a new block grows from its foot with a little overshoot; an old one shrinks smoothly away */
+  const dress = (root, inside) => {
+    const copies = new Map(),
+      copy = m => (copies.has(m) ? copies.get(m) : copies.set(m, waveMat(m, inside)).get(m));
+    root?.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      o.userData.waveOwn = o.material;
+      o.material = Array.isArray(o.material) ? o.material.map(copy) : copy(o.material);
+    });
+    return copies;
+  };
+  const undress = (root, copies) => {
+    root?.traverse(o => {
+      if (o.userData.waveOwn) {
+        o.material = o.userData.waveOwn;
+        delete o.userData.waveOwn;
+      }
+    });
+    for (const c of copies.values()) c.dispose();
+  };
+  const dropSky = s => {
+    if (!s) return;
+    scene.remove(s);
+    s.geometry.dispose();
+    s.material.dispose();
+  };
+  const skyFade = (s, a) => {
+    if (!s) return;
+    s.material.opacity =
+      a; /* the sky is made transparent from the start: switching that later needs a new shader, so it would draw solid */
+  };
+  function waveEnd() {
+    if (!wave) return;
+    const w = wave;
+    wave = null;
+    for (const [root, copies] of w.dressed) undress(root, copies);
+    dropSky(w.oldSky);
+    skyFade(sky, 1);
+    if (w.old) {
+      scene.remove(w.old);
+      disposeTree(w.old);
+    }
+    grid.material.uniforms.revMode.value = 0;
+  }
+  const WAVE_ALL = WAVE_SPREAD + 2 * WAVE_LAG + WAVE_POP;
+  function waveStep(now) {
+    if (!wave) return;
+    if (wave.at == null) wave.at = now;
+    const s = (now - wave.at) / 1000,
+      k = Math.min(1, s / WAVE_ALL) /* the sky blends over exactly the wave's time */,
+      f = k * k * k * (k * (k * 6 - 15) + 10);
+    REV.t.value = s;
+    REV.r.value =
+      REV_EDGE * Math.pow(Math.min(1, Math.max(0, s - WAVE_POP * 0.4) / WAVE_SPREAD), 1 / 0.6); /* where the blocks are half way */
+    skyFade(sky, f);
+    skyFade(
+      wave.oldSky,
+      sky ? 1 : 1 - f
+    ); /* the new sky is drawn over the old one and fades in; going to the Studio, the old one fades out */
+    if (s >= WAVE_ALL) waveEnd();
+  }
+  const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // animate: spread the change out from the character (a pick from the menu), rather than swap at once (opening the page)
+  api.setBackdrop = async (bd, sc, tint, animate = false) => {
     const my = (api.setBackdrop.n = (api.setBackdrop.n || 0) + 1);
     let built = null;
     if (bd)
@@ -2524,16 +2638,18 @@ export function stage(canvas, Controls) {
       if (built) disposeTree(built);
       return;
     }
-    if (sky) {
-      scene.remove(sky);
-      sky.geometry.dispose();
-      sky.material.dispose();
-      sky = null;
-    }
-    if (world) {
-      scene.remove(world);
-      disposeTree(world);
-      world = null;
+    waveEnd();
+    const goWave = animate && !reduceMotion() && !fallOn && !!(sky || bd),
+      oldSky = sky,
+      oldWorld = world;
+    sky = null;
+    world = null;
+    if (!goWave) {
+      dropSky(oldSky);
+      if (oldWorld) {
+        scene.remove(oldWorld);
+        disposeTree(oldWorld);
+      }
     }
     scene.fog = null;
     disc.material.map = bd ? shadow : null;
@@ -2543,7 +2659,18 @@ export function stage(canvas, Controls) {
     disc.position.y = bd ? 0.9 : -0.2; // the shadow above the sliding floor
     ctl.maxPolarAngle = Math.PI * 0.47;
     ctl.update(); // on real land the camera stays above the ground
-    if (!bd) return;
+    const startWave = () => {
+      if (!goWave) return;
+      wave = { old: oldWorld, oldSky, grid: !oldSky, dressed: [], at: null };
+      wave.dressed.push([oldWorld, dress(oldWorld, false)], [world, dress(world, true)]);
+      if (sky) sky.renderOrder = -1;
+      skyFade(sky, 0);
+      grid.material.uniforms.revMode.value = oldSky ? 1 : -1; /* the Studio floor is the new side (inside the ring) or the old (outside) */
+      REV.t.value = 0;
+      REV.r.value = 0;
+      renderer.compile(scene, cam); /* the copies' shaders are built now, so the wave doesn't stutter as it starts */
+    };
+    if (!bd) return startWave();
     const top = new THREE.Color(bd.top),
       hor = new THREE.Color(bd.fog),
       R = 11000,
@@ -2555,7 +2682,10 @@ export function stage(canvas, Controls) {
       cols.push(c.r, c.g, c.b);
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-    sky = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+    sky = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false, transparent: true })
+    );
     sky.renderOrder = -2;
     scene.add(sky);
     if (built) {
@@ -2566,6 +2696,7 @@ export function stage(canvas, Controls) {
     }
     scene.fog = null;
     mist = null; // clear air all the way out: the mountain ring closes the horizon
+    startWave();
   };
   return api;
 }
