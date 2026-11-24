@@ -26,9 +26,12 @@ const V2 = [
 // half is a 900x760 crop around the character (the take's camera stands back)
 const LIVE_CROP = '900:760:510:150';
 const V3 = [
-  ['split', 'live', 'live-game', 3.0, 14.0, 2.6, LIVE_CROP],
+  // (take of 2026-11-24 13:40) the game shows the gold pads until 12.65, drops them while the item saves, and shows the crest from 23.66
+  // (one blank site frame on Bigger at 6.767 skipped)
+  ['split', 'live', 'live-game', 3.0, 6.76, 2.6, LIVE_CROP],
+  ['split', 'live', 'live-game', 6.775, 12.6, 2.6, LIVE_CROP],
   // (user 2026-11-24) anything where a character animation plays runs at 1.0x; only UI clicking is sped up, time comes from shorter pieces
-  ['split', 'live', 'live-game', 32.8, 38.0, 1.0, LIVE_CROP],
+  ['split', 'live', 'live-game', 22.6, 28.4, 1.0, LIVE_CROP],
   ['wardrobe', 2.0, 25.0, 2.6],
   // create: open + tools, the painting (one flowing hand), turn + Done, then the pads on the character at 1.0x
   // (the view draws one blank frame on Bigger at 7.033 and on Smaller at 22.7: both skipped)
@@ -53,8 +56,37 @@ const V3 = [
   ['montage', 35.2, 37.4, 1.0],
   ['end', 3.1, 6.8, 1],
 ];
-const v = process.argv[2] === 'v3' ? 'v3' : '';
-const CUT = v ? V3 : V2;
+// v4 (user 2026-11-24): open on what the game's own editor can't do. Hook: My skins (up to 45) and one click swapping the WHOLE
+// outfit in Hytale (take liveSwap, 1:1 time, one look per piece: each starts on the shelf just before the card click; the game
+// follows ~1.25 s later). The live paint split moves into the painting section, after the create take's turn. Wardrobe flip dropped
+// (the in-game editor has it). Split pieces: ['split', site, game, from, to, speed, crop, caption]
+const SWAP_CROP = '1066:900:432:40',
+  SWAP_CAP = 'Save up to 45 skins. Swap them in game, live.',
+  PAINT_CAP = 'Paint it here. Wear it in Hytale, live.';
+const V4 = [
+  // the shelf (16 / 45), then Pirate Captain (site 5.40, game 6.66)
+  ['split', 'liveSwap', 'live-swap-game', 3.4, 7.3, 1.0, SWAP_CROP, SWAP_CAP],
+  // Viking (10.45 / 11.71), Witch (15.58 / 16.76), Royal (20.67 / 21.76), Street (25.72 / 26.85); every swap is in, or the game
+  // half would jump between looks at a cut
+  ['split', 'liveSwap', 'live-swap-game', 9.95, 12.35, 1.0, SWAP_CROP, SWAP_CAP],
+  ['split', 'liveSwap', 'live-swap-game', 15.08, 17.4, 1.0, SWAP_CROP, SWAP_CAP],
+  ['split', 'liveSwap', 'live-swap-game', 20.17, 22.4, 1.0, SWAP_CROP, SWAP_CAP],
+  ['split', 'liveSwap', 'live-swap-game', 25.22, 27.6, 1.0, SWAP_CROP, SWAP_CAP],
+  // create: open + tools, the painting (one flowing hand), the turn; blank frames on Bigger (7.033) and Smaller (22.7) skipped;
+  // it ends before Done (27.5): the split takes over from the same moment of the live take
+  ['create', 3.0, 7.02, 3.2],
+  ['create', 7.045, 10.4, 3.2],
+  ['create', 10.4, 21.3, 2.4],
+  ['create', 21.3, 22.69, 3.2],
+  ['create', 22.71, 27.3, 3.2],
+  // the live take: Done (23.90) and the crest on the knees in Hytale, 1.0x (the site view draws one blank frame after Done, at
+  // 23.916: skipped)
+  ['split', 'live', 'live-game', 22.6, 23.91, 1.0, LIVE_CROP, PAINT_CAP],
+  ['split', 'live', 'live-game', 23.925, 28.4, 1.0, LIVE_CROP, PAINT_CAP],
+  ...V3.slice(V3.findIndex(c => c[0] === 'combine')),
+];
+const v = ['v3', 'v4'].includes(process.argv[2]) ? process.argv[2] : '';
+const CUT = { v3: V3, v4: V4 }[v] || V2;
 const OUT = 'out/hytaledesigner-promo' + (v ? '-' + v : '') + '.mp4';
 const FPS = 30;
 const ff = args => execFileSync('ffmpeg', ['-loglevel', 'error', '-y', ...args]);
@@ -111,7 +143,7 @@ CUT.forEach((c, k) => {
     const n = piece(take, t0 + a, t0 + b, speed, out, 'scale=1920:1080:flags=lanczos' + capVf);
     console.log(take, n, 'frames ->', ((b - a) / speed).toFixed(1) + 's');
   } else {
-    const [, site, game, a, b, speed, crop = 'ih*1280/1080:ih:(iw-ih*1280/1080)/2:0'] = c;
+    const [, site, game, a, b, speed, crop = 'ih*1280/1080:ih:(iw-ih*1280/1080)/2:0', splitCap = SPLIT_CAP] = c;
     const t0 = times(site)[0][1];
     // both halves 960x810: the site's 1280x1080 window, and a 1280:1080 crop of the game window around the character
     const s = piece(site, t0 + a, t0 + b, speed, `out/parts/${k}s.mp4`, 'scale=960:810:flags=lanczos');
@@ -130,7 +162,7 @@ CUT.forEach((c, k) => {
         `drawbox=x=990:y=192:w=318:h=58:color=0xd92b2b@0.95:t=fill,` +
         `drawbox=x=1010:y=213:w=16:h=16:color=white:t=fill,` +
         `drawtext=fontfile='${font('bold.ttf')}':text='LIVE GAMEPLAY':fontsize=34:fontcolor=white:x=1040:y=204,` +
-        `drawtext=fontfile='${font('bold.ttf')}':text='${SPLIT_CAP}':fontsize=60:fontcolor=white:x=(w-tw)/2:y=52,` +
+        `drawtext=fontfile='${font('bold.ttf')}':text='${splitCap}':fontsize=60:fontcolor=white:x=(w-tw)/2:y=52,` +
         `drawbox=x=(1920-520)/2:y=136:w=520:h=5:color=0xf4c452:t=fill,` +
         `${label('hytaledesigner.com', 480)},${label('Hytale with the Hytale Designer Sync mod', 1440)},format=yuv420p`,
       '-c:v',

@@ -235,7 +235,6 @@ export function createLocker(app) {
             act('Rename', () => renameSkin(rec)),
             act('Move out', () => moveOut(rec)),
             pubButton(rec),
-            locked('Send to game', 'sending this skin to your in-game preset', 'mini'),
           ]
         : kind === 'custom'
           ? [
@@ -492,12 +491,8 @@ export function createLocker(app) {
             el('span', { text: 'In-game slots' }),
             el('em', { text: `${app.WARD.game.filter(Boolean).length} / ${store.GAME_SLOTS}` })
           ),
-          el(
-            'div',
-            { class: 'row' },
-            locked('Load my presets', 'loading your in-game presets'),
-            locked('Send all to game', 'sending skins to your in-game presets')
-          ),
+          // once connected these 5 slots are the account's in-game presets: they load on their own and every change is written back
+          el('div', { class: 'row' }, locked('Game sync', 'syncing these slots with your in-game presets', 'chip')),
           el(
             'div',
             { class: 'cards' },

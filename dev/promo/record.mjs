@@ -56,7 +56,11 @@ const userAssets = (fs.existsSync(USER_ASSETS) ? fs.readdirSync(USER_ASSETS) : [
     };
   });
 
-// clears the promo profile's site data (keeps the connected game files), puts the user's skin in My skins, worn, and their assets in
+// (v4) saved looks for the My skins shelf and the live swap: whole outfits of free game items (checked with the site's fit())
+const PRESETS = JSON.parse(fs.readFileSync('presets.json', 'utf8'));
+
+// clears the promo profile's site data (keeps the connected game files), puts the user's skin in My skins, worn, the PRESETS after
+// it, and their assets in
 const RESET = `new Promise(r => { const q = indexedDB.open('skin-editor'); q.onsuccess = () => {
   const d = q.result, t = d.transaction(['meta', 'skins', 'assets'], 'readwrite');
   t.objectStore('skins').clear(); t.objectStore('assets').clear();
@@ -66,6 +70,8 @@ const RESET = `new Promise(r => { const q = indexedDB.open('skin-editor'); q.ons
   k.onsuccess = () => {
     for (const x of k.result) if (String(x) !== 'game') m.delete(x);
     t.objectStore('skins').put({ id: 'promo-user', kind: 'custom', name: u.name, skin: u.skin, updated: now }, 'promo-user');
+    // stamped ahead of the skins the connected folder brings in, so the shelf starts with them
+    ${JSON.stringify(PRESETS)}.forEach((l, i) => t.objectStore('skins').put({ id: 'promo-' + i, kind: 'custom', name: l.name, skin: l.skin, updated: now + 864e5 - 1000 * i }, 'promo-' + i));
     m.put({ id: 'promo-user', kind: 'custom', slot: null, name: u.name, skin: u.skin, auto: false, random: false, t: now }, 'draft');
   };
   t.oncomplete = () => { d.close(); r(1); }; }; })`;
@@ -394,6 +400,19 @@ const takes = {
     await crest();
     await click('$' + btn('Smaller'), { after: 600 });
     await click('$' + btn('Done'), { after: 9000 });
+  },
+  // (v4 hook, user 2026-11-24: "up to 45 presets + the live swap of complete skins") the Locker's My skins shelf (the PRESETS), then
+  // one click per saved look: the whole outfit changes on the site and in Hytale. A card opens the look in the Wardrobe tab, so the
+  // Locker tab is clicked again before the next one. Ends back in the user's own skin.
+  // VW=1280 node record.mjs liveSwap, with gamecap.ps1 live-swap-game alongside
+  async liveSwap() {
+    const card = id => `document.querySelector('.shelf.custom .skin[data-rid="${id}"]')`;
+    await sleep(1200);
+    await click('$document.querySelector("[data-tab=wardrobe]")', { after: 1600 });
+    for (const id of ['promo-0', 'promo-3', 'promo-1', 'promo-7', 'promo-4', 'promo-user']) {
+      await click('$' + card(id), { after: id === 'promo-user' ? 3000 : 2600 });
+      if (id !== 'promo-user') await click('$document.querySelector("[data-tab=wardrobe]")', { ms: 350, after: 500 });
+    }
   },
   // 5. make your own animations
   async animate() {
