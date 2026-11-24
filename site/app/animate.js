@@ -157,7 +157,7 @@ export function createAnimate(ctx) {
     if (REC || TRIM) return;
     st.anim.playing = false;
     REC = { at: frame(), t0: performance.now(), a: A.clone(AN.a), take: {}, last: {}, lastS: -1 };
-    say('Recording: turn and move parts with the rings. Press Stop when you are done.');
+    say('Recording… hit Stop when done');
     render();
     requestAnimationFrame(recTick);
   }
@@ -206,7 +206,7 @@ export function createAnimate(ctx) {
       return;
     }
     TRIM = { take, at, from: 0, to: len, len, tol: 1.5 };
-    say('Cut the start and end, set how smooth it is, then Keep it');
+    say('Trim it, then Keep it');
     render();
   }
   // Trim: the take with its start and end cut, smoothed into keys and placed at the frame where recording began
@@ -1522,9 +1522,7 @@ export function createAnimate(ctx) {
                 nodeAnimations: out.nodeAnimations,
               }).length; /* the server's own limits, said plainly before sending */
             if (out.duration > 6000 || Object.keys(out.nodeAnimations).length > 200 || keys > 20000 || size > 590000)
-              throw new Error(
-                `Too big to publish: ${keys.toLocaleString()} keys (${Math.ceil(size / 1024)} KB). Published animations can have up to 6000 frames, 200 bones and about 580 KB of keys.`
-              );
+              throw new Error(`Too big to publish (${Math.ceil(size / 1024)} KB, max ~580 KB)`);
             const r = await fetch('/api/anims', {
                 method: 'POST',
                 credentials: 'same-origin',

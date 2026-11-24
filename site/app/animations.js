@@ -130,11 +130,7 @@ export function createAnimations(app) {
       })
     );
     app.st.props(built.filter(Boolean));
-    if (built.some(b => !b))
-      say(
-        'Your saved copy of the game files is from before held items were added. Refresh it once in the Locker to see them (your skins are kept).',
-        true
-      );
+    if (built.some(b => !b)) say('Held items need fresh game files: refresh them in the Locker', true);
   }
   // st.lift: tall moves aim the view higher, moves near the floor aim lower so they clear the buttons under the view
   // the speed each move plays at in game (Server/Models/Human/Player.json, AnimationSets); everything else plays at 1

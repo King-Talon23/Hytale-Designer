@@ -22,22 +22,22 @@ export async function openZip(src, wanted) {
     start = tail.getUint32(e + 16, true);
   if (count === 0xffff || size === 0xffffffff || start === 0xffffffff) {
     // zip64: the real numbers sit in a second record
-    if (e < 20 || tail.getUint32(e - 20, true) !== 0x07064b50) throw new Error('Unreadable zip (zip64 locator missing).');
+    if (e < 20 || tail.getUint32(e - 20, true) !== 0x07064b50) throw new Error("That zip can't be read.");
     const at = Number(tail.getBigUint64(e - 12, true)),
       r = new DataView(await src.read(at, at + 56));
-    if (r.getUint32(0, true) !== 0x06064b50) throw new Error('Unreadable zip (zip64 record missing).');
+    if (r.getUint32(0, true) !== 0x06064b50) throw new Error("That zip can't be read.");
     count = Number(r.getBigUint64(32, true));
     size = Number(r.getBigUint64(40, true));
     start = Number(r.getBigUint64(48, true));
   }
-  if (size > MAX_DIRECTORY || start + size > src.size) throw new Error('Unreadable zip (bad directory).');
+  if (size > MAX_DIRECTORY || start + size > src.size) throw new Error("That zip can't be read.");
   const buf = await src.read(start, start + size),
     d = new DataView(buf),
     bytes = new Uint8Array(buf),
     utf8 = new TextDecoder();
   const entries = new Map();
   for (let p = 0, i = 0; i < count && p + 46 <= size; i++) {
-    if (d.getUint32(p, true) !== 0x02014b50) throw new Error('Unreadable zip (bad entry).');
+    if (d.getUint32(p, true) !== 0x02014b50) throw new Error("That zip can't be read.");
     const method = d.getUint16(p + 10, true),
       nameLen = d.getUint16(p + 28, true),
       extraLen = d.getUint16(p + 30, true),
@@ -75,7 +75,7 @@ export async function openZip(src, wanted) {
     if (!en) throw new Error('Not in the archive: ' + name);
     if (en.csize > MAX_ENTRY || en.usize > MAX_ENTRY) throw new Error('File too large: ' + name);
     const h = new DataView(await src.read(en.offset, en.offset + 30));
-    if (h.getUint32(0, true) !== 0x04034b50) throw new Error('Unreadable zip (bad file header).');
+    if (h.getUint32(0, true) !== 0x04034b50) throw new Error("That zip can't be read.");
     const at = en.offset + 30 + h.getUint16(26, true) + h.getUint16(28, true),
       raw = await src.read(at, at + en.csize);
     if (en.method === 0) return raw;

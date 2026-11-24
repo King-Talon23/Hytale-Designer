@@ -288,7 +288,7 @@ export function createLocker(app) {
     app.ACCOUNT
       ? `Hytale does not offer ${f} to other apps yet`
       : !auth.enabled
-        ? `Coming soon: ${f} needs Sign in with Hytale, which is waiting on Hytale's approval`
+        ? "Coming soon: waiting on Hytale's 3rd party site approval"
         : `Connect your Hytale account to enable ${f}`;
   // while Sign in with Hytale waits on Hytale's approval these are shown darkened, and read WIP under the pointer
   const wip = (label, cls, onclick) =>
@@ -439,7 +439,7 @@ export function createLocker(app) {
                 el('button', {
                   class: 'btn primary',
                   text: 'Connect to the mod',
-                  title: 'Hytale must be running with the mod',
+                  title: 'Needs Hytale open',
                   onclick: guard(async () => {
                     const r = await store.connectMod();
                     setFolder(await store.folderState());
@@ -457,7 +457,7 @@ export function createLocker(app) {
                   ? el('button', {
                       class: app.FOLDER.state === 'ask' ? 'btn ghost' : 'linkbtn',
                       text: app.FOLDER.state === 'ask' ? 'Reconnect folder' : 'or pick a folder',
-                      title: 'Saves without the game running (Chrome and Edge)',
+                      title: 'Works with the game closed',
                       onclick: guard(async () => {
                         app.FOLDER.state === 'ask' ? await store.resumeFolder(true) : await store.chooseFolder();
                         setFolder(await store.folderState());
