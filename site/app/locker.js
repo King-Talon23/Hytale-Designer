@@ -491,8 +491,7 @@ export function createLocker(app) {
             el('span', { text: 'In-game slots' }),
             el('em', { text: `${app.WARD.game.filter(Boolean).length} / ${store.GAME_SLOTS}` })
           ),
-          // once connected these 5 slots are the account's in-game presets: they load on their own and every change is written back
-          el('div', { class: 'row' }, locked('Game sync', 'syncing these slots with your in-game presets', 'chip')),
+          /* once connected these 5 slots are the account's in-game presets: they load on their own and every change is written back */
           el(
             'div',
             { class: 'cards' },
