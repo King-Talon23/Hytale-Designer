@@ -240,7 +240,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
 
     /** copies "<skins folder>/Custom assets" into the live pack; each texture is named after its content, so a repaint is a new file */
     // animations made on the site: "<skins folder>/Animations/<name> (<id>).blockyanim" -> an emote in the live pack (animation file +
-    // Server/Emote entry). A new emote is read when the world starts; a changed animation file is picked up by the asset monitor.
+    // Server/Emote entry). A new emote or a changed animation is read when the world starts (each version is a new file).
     static final Pattern ANIM_FILE = Pattern.compile("^(.{1,60}) \\(([0-9a-fA-F-]{8,40})\\)\\.blockyanim$");
     String lastAnimSync = null;
     synchronized void syncAnims(boolean prune) throws Exception {
@@ -256,11 +256,15 @@ public final class SkinEditorPlugin extends JavaPlugin {
                 String body = Files.readString(f).trim(); if (!body.startsWith("{") || !body.contains("\"nodeAnimations\"")) continue;
                 String id = "SE_" + m.group(2).replace("-", "").toLowerCase().substring(0, Math.min(12, m.group(2).replace("-", "").length()));
                 String name = m.group(1).replace("\\", "").replace("\"", "'").trim(); boolean loop = !body.replace(" ", "").contains("\"holdLastKeyframe\":true");
-                Path a = animDir.resolve(id + ".blockyanim"); if (!Files.isRegularFile(a) || !Files.readString(a).equals(body)) Files.writeString(a, body);
-                String entry = "{\n \"Animation\": \"Characters/Animations/SkinEditor/" + id + ".blockyanim\",\n \"Name\": \"" + name + "\",\n \"Icon\": \"Icons/Emotes/" + id + ".png\",\n \"IsLooping\": " + loop + "\n}\n";
+                // the animation and icon files are named after their content: the game client keeps an animation by its path for as
+                // long as it runs (world restarts included), so a file rewritten in place kept playing its first version, which was
+                // the site's first, still-empty save of a new animation: the emote did nothing (2026-11-24)
+                String anim = id + "-" + String.format("%08x", body.hashCode()) + ".blockyanim", png = id + "-" + String.format("%08x", name.hashCode()) + ".png";
+                Path a = animDir.resolve(anim); if (!Files.isRegularFile(a)) Files.writeString(a, body);
+                String entry = "{\n \"Animation\": \"Characters/Animations/SkinEditor/" + anim + "\",\n \"Name\": \"" + name + "\",\n \"Icon\": \"Icons/Emotes/" + png + "\",\n \"IsLooping\": " + loop + "\n}\n";
                 Path e = emDir.resolve(id + ".json"); if (!Files.isRegularFile(e) || !Files.readString(e).equals(entry)) Files.writeString(e, entry);
-                Path ic = iconDir.resolve(id + ".png"); if (!Files.isRegularFile(ic)) Files.write(ic, icon(name));   // the game refuses an emote whose icon file is missing
-                keep.add(id + ".blockyanim"); keep.add(id + ".json"); keep.add(id + ".png");
+                Path ic = iconDir.resolve(png); if (!Files.isRegularFile(ic)) Files.write(ic, icon(name));   // the game refuses an emote whose icon file is missing
+                keep.add(anim); keep.add(id + ".json"); keep.add(png);
             }
         }
         if (prune) for (Path dir : List.of(animDir, emDir, iconDir)) try (Stream<Path> fs = Files.list(dir)) {   // deleted animations go (at world start only)

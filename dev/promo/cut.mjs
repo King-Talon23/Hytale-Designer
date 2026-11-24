@@ -32,9 +32,11 @@ const V3 = [
   ['create', 12.5, 40.0, 3.2],
   ['create', 44.3, 47.0, 1.3],
   ['combine', 7.6, 22.4, 1.6],
-  ['record', 10.0, 20.9, 2.4],
-  ['record', 21.1, 28.9, 2.8],
-  ['record', 29.2, 32.5, 1.2],
+  ['record', 9.7, 20.6, 2.4],
+  ['record', 20.8, 28.6, 2.8],
+  ['record', 28.9, 32.2, 1.2],
+  // the same Big Wave as an emote in Hytale (mod 1.2.1), with a caption and the live tag
+  ['emote-game', 0.3, 7.6, 1.0, '...and use them in game'],
   ['montage', 11.4, 15.5, 2.0],
   ['montage', 19.5, 22.0, 1.5],
   ['montage', 24.2, 27.0, 1.5],
@@ -87,9 +89,17 @@ const parts = [];
 CUT.forEach((c, k) => {
   const out = `out/parts/${k}.mp4`;
   if (c[0] !== 'split') {
-    const [take, a, b, speed] = c;
+    const [take, a, b, speed, caption] = c;
     const t0 = times(take)[0][1];
-    const n = piece(take, t0 + a, t0 + b, speed, out, 'scale=1920:1080:flags=lanczos');
+    const f = p => path.resolve('out', p).replace(/\\/g, '/').replace(':', '\\:');
+    // a game take with a caption: the site-style caption box low, and the LIVE GAMEPLAY tag top left
+    const capVf = caption
+      ? `,drawbox=x=(iw-760)/2:y=880:w=760:h=96:color=0x0d1a2e@0.91:t=fill,drawbox=x=(iw-760)/2:y=880:w=760:h=96:color=0xf4c452:t=3,` +
+        `drawtext=fontfile='${f('bold.ttf')}':text='${caption}':fontsize=50:fontcolor=white:x=(w-tw)/2:y=903,` +
+        `drawbox=x=40:y=40:w=318:h=58:color=0xd92b2b@0.95:t=fill,drawbox=x=60:y=61:w=16:h=16:color=white:t=fill,` +
+        `drawtext=fontfile='${f('bold.ttf')}':text='LIVE GAMEPLAY':fontsize=34:fontcolor=white:x=90:y=52`
+      : '';
+    const n = piece(take, t0 + a, t0 + b, speed, out, 'scale=1920:1080:flags=lanczos' + capVf);
     console.log(take, n, 'frames ->', ((b - a) / speed).toFixed(1) + 's');
   } else {
     const [, site, game, a, b, speed, crop = 'ih*1280/1080:ih:(iw-ih*1280/1080)/2:0'] = c;
