@@ -1,5 +1,5 @@
 // Planning helper: run steps on the live site and save a small screenshot after each.
-// node explore.mjs name "step1" "step2" ...   a step is JS, or "click:<visible text>", or "wait:<ms>"
+// node explore.mjs name "step1" "step2" ...   a step is JS, "file:<js file>", "go:<path>", "click:<visible text>" or "wait:<ms>"
 import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { launch, sleep } from './cdp.mjs';
@@ -21,7 +21,8 @@ try {
         console.log('clicked', s, Math.round(b.x), Math.round(b.y));
       }
       await sleep(1500);
-    } else console.log(String(await p.eval(s)).slice(0, 2500));
+    } else if (s.startsWith('go:')) await p.go(SITE + s.slice(3), 6000);
+    else console.log(String(await p.eval(s.startsWith('file:') ? fs.readFileSync(s.slice(5), 'utf8') : s)).slice(0, 2500));
     const shot = await p.call('Page.captureScreenshot', { format: 'png' });
     const f = `out/x-${name}-${i}.png`;
     fs.writeFileSync(f, Buffer.from(shot.result.data, 'base64'));

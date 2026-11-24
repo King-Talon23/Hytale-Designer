@@ -1,16 +1,73 @@
-// Records the promo takes on the live site: node record.mjs [take ...]   (no args = all takes)
+// Records the promo takes on the live site: node record.mjs [take ...]   (no args = all takes; +take runs one unrecorded)
 // Each take is a folder of screencast frames in takes/<name>/ with times.json; cut.mjs makes the video.
 // A drawn cursor, click ripples and captions are injected into this browser only (not part of the site).
+import fs from 'fs';
+import path from 'path';
 import { launch, sleep } from './cdp.mjs';
 const SITE = process.env.SITE || 'https://hytaledesigner.com/';
 const only = process.argv.slice(2);
 const p = await launch({ w: +process.env.VW || 1920, h: +process.env.VH || 1080 });
 
+// every take starts from the user's own Hytale skin (their in-game look, from Hytale's skin cache, user 2026-11-23): one place to swap it
+const USER_SKIN = {
+  name: 'KingTalon23',
+  skin: {
+    bodyCharacteristic: 'Muscular.30',
+    underwear: 'Boxer.Blue',
+    face: 'Face_Aged',
+    ears: 'Elf_Ears',
+    mouth: 'Mouth_Orc',
+    haircut: 'SuperSlickback.Brown',
+    facialHair: 'Beard_Anchor.Brown',
+    eyebrows: 'Large.Brown',
+    eyes: 'Plain_Eyes.White',
+    pants: 'Voidbearer_Pants.Brown',
+    overpants: 'KneePads.Gold_Red',
+    undertop: 'Voidbearer_CursedArm.Purple',
+    overtop: 'Voidbearer_Top.Red',
+    shoes: 'Sneakers_Wasteland_Marauder.Black',
+    headAccessory: 'ExplorerGoggles.Red',
+    faceAccessory: 'Glasses_Monocle.Red',
+    gloves: 'Gloves_Wasteland_Marauder.Brown',
+    cape: 'Cape_Blazen_Wizard.Red.Neck_Piece',
+  },
+};
+
+// the user's own custom assets (user 2026-11-23: their "Monocle with mask"), as the site imports them from a skins folder. Copied by
+// hand from Documents\Hytale Skins\Custom assets into takes/user-assets; the promo never connects or writes that folder
+const USER_ASSETS = 'takes/user-assets';
+const userAssets = (fs.existsSync(USER_ASSETS) ? fs.readdirSync(USER_ASSETS) : [])
+  .filter(f => f.endsWith('.json'))
+  .map(f => {
+    const m = JSON.parse(fs.readFileSync(path.join(USER_ASSETS, f), 'utf8')),
+      shape = path.join(USER_ASSETS, f.replace(/\.json$/, '.blockymodel'));
+    return {
+      id: m.id,
+      name: m.name,
+      field: m.field,
+      baseId: m.baseId,
+      model: m.model,
+      w: m.w,
+      h: m.h,
+      split: !!m.split,
+      labels: m.labels,
+      shape: fs.existsSync(shape) ? fs.readFileSync(shape, 'utf8') : undefined,
+      png: fs.readFileSync(path.join(USER_ASSETS, f.replace(/\.json$/, '.png'))).toString('base64'),
+    };
+  });
+
+// clears the promo profile's site data (keeps the connected game files), puts the user's skin in My skins, worn, and their assets in
 const RESET = `new Promise(r => { const q = indexedDB.open('skin-editor'); q.onsuccess = () => {
   const d = q.result, t = d.transaction(['meta', 'skins', 'assets'], 'readwrite');
   t.objectStore('skins').clear(); t.objectStore('assets').clear();
-  const m = t.objectStore('meta'), k = m.getAllKeys();
-  k.onsuccess = () => { for (const x of k.result) if (String(x) !== 'game') m.delete(x); };
+  for (const { png, ...a } of ${JSON.stringify(userAssets)})
+    t.objectStore('assets').put({ ...a, data: new Blob([Uint8Array.from(atob(png), c => c.charCodeAt(0))], { type: 'image/png' }), updated: Date.now() }, a.id);
+  const m = t.objectStore('meta'), k = m.getAllKeys(), u = ${JSON.stringify(USER_SKIN)}, now = Date.now();
+  k.onsuccess = () => {
+    for (const x of k.result) if (String(x) !== 'game') m.delete(x);
+    t.objectStore('skins').put({ id: 'promo-user', kind: 'custom', name: u.name, skin: u.skin, updated: now }, 'promo-user');
+    m.put({ id: 'promo-user', kind: 'custom', slot: null, name: u.name, skin: u.skin, auto: false, random: false, t: now }, 'draft');
+  };
   t.oncomplete = () => { d.close(); r(1); }; }; })`;
 
 const OVERLAY = `(() => {
@@ -39,8 +96,18 @@ const OVERLAY = `(() => {
   addEventListener('pointermove', e => (c.style.transform = 'translate(' + (e.clientX - 3) + 'px,' + (e.clientY - 2) + 'px)'), true);
   addEventListener('mousedown', e => { const r = document.createElement('div'); r.className = 'pr'; r.style.left = e.clientX + 'px'; r.style.top = e.clientY + 'px'; document.body.appendChild(r); setTimeout(() => r.remove(), 600); }, true);
   window.__promo = {
-    cap(t, x) { if (!t) { cap.classList.remove('on'); return; } cap.innerHTML = t; cap.style.left = (x || 1290) + 'px'; cap.classList.add('on'); },
+    cap(t, x, y) { if (!t) { cap.classList.remove('on'); return; } cap.innerHTML = t; cap.style.left = (x || 1290) + 'px'; cap.style.top = (y || 118) + 'px'; cap.classList.add('on'); },
     end(on) { end.classList.toggle('on', on); },
+    pic(src) {
+      document.getElementById('ppic')?.remove();
+      if (!src) return;
+      const d = document.createElement('div');
+      d.id = 'ppic';
+      d.style.cssText = 'position:fixed;right:70px;top:190px;z-index:99997;pointer-events:none;width:380px;height:380px;border:2px solid #f4c452;border-radius:14px;box-shadow:0 10px 40px #0008;opacity:0;transform:scale(.9);transition:opacity .3s,transform .3s;background:#fff url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27%3E%3Crect width=%2712%27 height=%2712%27 fill=%27%23ccc%27/%3E%3Crect x=%2712%27 y=%2712%27 width=%2712%27 height=%2712%27 fill=%27%23ccc%27/%3E%3C/svg%3E");background-size:24px';
+      d.innerHTML = '<img src="' + src + '" style="width:100%;height:100%;object-fit:contain">';
+      document.body.appendChild(d);
+      requestAnimationFrame(() => requestAnimationFrame(() => { d.style.opacity = 1; d.style.transform = 'none'; }));
+    },
   };
 })()`;
 
@@ -73,7 +140,33 @@ async function drag(x0, y0, x1, y1, ms = 900) {
   mx = x1;
   my = y1;
 }
-const cap = (t, x) => p.eval(`__promo.cap(${JSON.stringify(t)}, ${x || 0})`);
+// a held drag through points in turn, ms per leg (a gizmo ring turns by how far the mouse goes along the ring's tangent at the grab point)
+async function heldPath(pts, ms = 450) {
+  await move(pts[0][0], pts[0][1], 350);
+  await sleep(120);
+  await p.mouse('mousePressed', mx, my);
+  for (let i = 1; i < pts.length; i++) await p.glide(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], ms, true);
+  [mx, my] = pts.at(-1);
+  await p.mouse('mouseReleased', mx, my);
+}
+const KEYS = { w: 87, a: 65, s: 83, d: 68, ' ': 32, ArrowUp: 38 };
+const keyEv = (type, k) =>
+  p.call('Input.dispatchKeyEvent', {
+    type,
+    key: k,
+    code: k === ' ' ? 'Space' : k.length === 1 ? 'Key' + k.toUpperCase() : k,
+    windowsVirtualKeyCode: KEYS[k],
+    ...(type === 'keyDown' && k.length === 1 ? { text: k } : {}),
+  });
+async function hold(keys, ms) {
+  for (const k of keys) await keyEv(k.length === 1 ? 'keyDown' : 'rawKeyDown', k);
+  await sleep(ms);
+  for (const k of keys) await keyEv('keyUp', k);
+}
+// captions over the whole character go LOW: the top spot covers the head
+const LOW = 880,
+  BAR = 935; // under the play bar of the Animations and Animate tabs, between Front and Save as
+const cap = (t, x, y) => p.eval(`__promo.cap(${JSON.stringify(t)}, ${x || 0}, ${y || 0})`);
 const btn = t =>
   `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(t)}&&b.getBoundingClientRect().width)`;
 const slot = t => `[...document.querySelectorAll('button.slot')].find(b=>b.textContent.includes(${JSON.stringify(t)}))`;
@@ -93,7 +186,6 @@ async function fresh() {
   await p.go(SITE, 7000);
   for (let i = 0; i < 60 && !(await p.eval("document.body.innerText.includes('Game files connected')")); i++) await sleep(500);
   await p.eval(OVERLAY);
-  await p.eval(btn('New') + '.click()');
   await sleep(1500);
   await p.mouse('mouseMoved', mx, my);
   await sleep(800);
@@ -116,7 +208,7 @@ const takes = {
   async wardrobe() {
     await tab('editor');
     await sleep(1200);
-    await cap('Build your <b>Hytale</b> skin');
+    await cap('Build your <b>Hytale</b> skin', 0, LOW);
     await sleep(700);
     await click('$' + slot('Haircut'));
     await click('$' + item('Ponytail'), { after: 600 });
@@ -135,7 +227,7 @@ const takes = {
   },
   // 2. places + turning the character
   async places() {
-    await cap('See it in the <b>world</b>');
+    await cap('See it in the <b>world</b>', 0, LOW);
     for (const place of ['Meadow', 'Desert']) {
       await click(
         '$document.querySelector(".bdbtn") || [...document.querySelectorAll("button")].find(b=>/^(Studio|Meadow|Snow|Desert|Jungle)/.test(b.textContent.trim()))',
@@ -162,45 +254,98 @@ const takes = {
     await click('Sprint', { after: 2900 });
     await cap('');
   },
-  // 4. paint your own items
+  // 4. paint a crest on one of the user's own items, their Kneepads (v3; their Voidbearer top is a paid item, which can't be copied),
+  // turn it, then Done shows it on the character (user 2026-11-24: paint something that looks nice; the Shape part was dropped)
   async create() {
     await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
-    await cap('Paint your <b>own items</b>', 1085);
+    await cap('Paint your own <b>designs</b>', 1085);
     await click(
-      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Arming"))',
-      { after: 2600 }
+      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Kneepads"))',
+      { after: 2400 }
     );
-    await click('$document.querySelector("button[title=\'#f4d24a\']")', { after: 400 });
-    await click('$' + btn('Symmetry'), { after: 400 });
-    const r = await where('$[...document.querySelectorAll("input[type=range]")].find(i=>i.getBoundingClientRect().x>1500)');
-    await move(r.x - r.w / 2 + 4, r.y, 400);
-    await p.mouse('mousePressed', mx, my);
-    await p.glide(mx, my, mx + r.w * 0.28, my, 400, true);
-    await p.mouse('mouseReleased', mx + r.w * 0.28, my);
-    mx += r.w * 0.28;
-    await sleep(300);
-    for (const y of [520, 600, 680, 760]) await drag(930, y, 1110, y + 30, 500);
-    await sleep(1000);
+    // a crest on the knee block's front, painted on the big texture view (both knees share it): dark base, gold border, a red
+    // diamond outlined in gold. The front is texture pixels x 18-28, y 14-23 (11 x 10); px(c, r) is a pixel of it on screen
+    await click('$' + btn('Bigger'), { after: 700 });
+    const T = await where('$[...document.querySelectorAll("canvas")].find(c=>c.width===32&&c.getBoundingClientRect().width)');
+    const s = T.w / 32,
+      px = (c, r) => [T.x - T.w / 2 + (18 + c + 0.5) * s, T.y - T.h / 2 + (14 + r + 0.5) * s];
+    const colour = c => click(`$document.querySelector("button[title='${c}']")`, { ms: 300, after: 250 });
+    const stroke = async (a, b, ms = 320) => {
+      await move(...px(...a), 260);
+      await drag(...px(...a), ...px(...b), ms);
+      await sleep(150);
+    };
+    await click('$' + btn('More'), { after: 300 });
+    await click('$' + titled('Filled'), { after: 250 });
+    await colour('#502002');
+    await stroke([0, 0], [10, 9], 600);
+    await click('$' + titled('Rectangle'), { after: 250 });
+    await colour('#f4cc17');
+    await stroke([0, 0], [10, 9], 600);
+    await click('$' + titled('Line'), { after: 250 });
+    await stroke([5, 2], [8, 5]);
+    await stroke([8, 5], [5, 8]);
+    await stroke([5, 8], [2, 5]);
+    await stroke([2, 5], [5, 2]);
+    await click('$' + titled('Fill'), { after: 250 });
+    await colour('#e23b3b');
+    await move(...px(5, 5), 400);
+    await p.click(mx, my);
+    await sleep(1200);
+    await click('$' + btn('Smaller'), { after: 700 });
+    // turn the view with the right button (the left one paints while a paint tool is on)
+    await move(1250, 640, 350);
+    await p.mouse('mousePressed', mx, my, { button: 'right' });
+    for (let i = 1; i <= 40; i++) {
+      const e = 0.5 - Math.cos((Math.PI * i) / 40) / 2;
+      await p.mouse('mouseMoved', 1250 + 170 * e, 640 - 10 * e, { button: 'right', buttons: 2 });
+      await sleep(26);
+    }
+    await p.mouse('mouseReleased', 1420, 630, { button: 'right' });
+    mx = 1420;
+    my = 630;
+    await sleep(500);
+    // Done: the new pads on the character, one notch closer (the caption goes first: it would sit on the head)
+    await cap('');
+    await click('$' + btn('Done'), { after: 700 });
+    await click('$' + btn('Front'), { after: 700 });
+    await move(1290, 560, 350);
+    await p.call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: mx, y: my, deltaX: 0, deltaY: -120 });
+    await sleep(2200);
     await cap('');
   },
-  // 4b. combine two game items into one (a monocle + a face mask, worn as one face item)
+  // 4b. combine (v3, user 2026-11-23): the Face Mask alone, the Monocle alone, then the user's own combined "Monocle with mask"
+  // (their asset, seeded from USER_ASSETS), close on the face. Hovering a card previews it on the character, so the items are found
+  // with Search (each lands in the first card) and the cursor goes round under the row to their asset
   async combine() {
-    await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
-    await cap('<b>Combine</b> items into new ones', 1085);
-    await click('$document.querySelector(".anysearch")', { after: 200 });
-    await p.type('monocle', 90);
-    await sleep(700);
-    await click('$[...document.querySelectorAll(".anyitem button")].find(b=>/edit a copy/i.test(b.textContent))', { after: 2600 });
-    await click('$' + titled('Move'), { after: 700 });
-    await click('$' + titled('Add item'), { after: 900 });
-    await p.type('face mask', 90);
-    await sleep(700);
-    await click('$[...document.querySelectorAll(".combinegrid button")].find(b=>b.textContent.trim()==="Face Mask")', { after: 600 });
-    await click('$[...document.querySelectorAll("#dlgbtns button")].find(b=>b.value==="yes")', { after: 1800 });
-    await click('$' + btn('Item only'), { after: 1200 });
-    await drag(1250, 650, 1450, 620, 1300);
-    await sleep(1000);
-    await click('$' + btn('Done'), { after: 2200 });
+    const search = async text => {
+      await click('$[...document.querySelectorAll("input")].find(i=>i.placeholder==="Search"&&i.getBoundingClientRect().width)', {
+        after: 150,
+      });
+      await p.eval('document.activeElement.select()');
+      await p.type(text, 85);
+      await sleep(600);
+    };
+    await tab('editor');
+    await sleep(900);
+    await move(1260, 330, 450);
+    for (let i = 0; i < 2; i++) {
+      await p.call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: mx, y: my, deltaX: 0, deltaY: -120 });
+      await sleep(160);
+    }
+    await sleep(300);
+    await cap('<b>Combine</b> items into new ones', 0, LOW);
+    await click('$' + slot('Face Accessory'), { after: 150 });
+    await search('mask');
+    await click('$' + item('Face Mask'), { after: 1500 });
+    await search('monocle');
+    await click('$' + item('Monocle'), { after: 1500 });
+    const own = await where('$' + item('Monocle with mask'));
+    await move(mx, own.y + own.h / 2 + 28, 250);
+    await move(own.x, own.y + own.h / 2 + 28, 450);
+    await click('$' + item('Monocle with mask'), { ms: 250, after: 2000 });
+    await drag(1180, 560, 1290, 556, 1100);
+    await sleep(900);
     await cap('');
   },
   // 4c. live in game: the site on the left, Hytale on the right (gamecap.ps1 records the game at the same time; VW=1280)
@@ -259,6 +404,101 @@ const takes = {
     ).catch(() => sleep(2800));
     await cap('');
   },
+  // 5b. Record (v3): a blank animation named "Big Wave", the right arm raised and waved with its ring while the clock runs,
+  // Stop, Smooth in Trim, Play, Keep. The animation is saved in this profile and its .blockyanim kept in takes/record/
+  async record() {
+    await click('$document.querySelector("[data-tab=animate]")', { after: 800 });
+    await cap('Make your own <b>animations</b>', 1395, BAR);
+    await click('$' + btn('Blank'), { after: 900 });
+    if (await p.eval(btn('Skip') + '!=null')) await click('$' + btn('Skip'), { after: 400 });
+    await click('$document.querySelector("input[aria-label=Name], input[placeholder=Name]")', { after: 150 });
+    await p.eval('document.activeElement.select()');
+    await p.type('Big Wave', 80);
+    await p.eval('document.activeElement.blur()');
+    await sleep(300);
+    await move(1190, 425, 500);
+    await p.click(mx, my);
+    await sleep(700);
+    await click('$' + btn('Record'), { after: 400 });
+    // the outer (view) ring around the shoulder turns by angle: grabbed down-left, round to raise the arm, then three waves
+    const ring = (...angles) => {
+      const pts = [];
+      for (let i = 1; i < angles.length; i++)
+        for (let k = i === 1 ? 0 : 1; k <= 6; k++) {
+          const a = ((angles[i - 1] + ((angles[i] - angles[i - 1]) * k) / 6) * Math.PI) / 180;
+          pts.push([1215 + 97 * Math.cos(a), 405 + 97 * Math.sin(a)]);
+        }
+      return pts;
+    };
+    await heldPath(ring(135, 275, 245, 285, 245, 285, 260), 75);
+    await sleep(500);
+    await click('$' + btn('Stop'), { after: 700 });
+    const s = await where('$document.querySelector("input[aria-label=Smooth]")');
+    await move(s.x - s.w / 2 + (s.w * 1.5) / 8, s.y, 450);
+    await p.mouse('mousePressed', mx, my);
+    await p.glide(mx, my, mx + s.w * 0.3, my, 500, true);
+    await p.mouse('mouseReleased', mx + s.w * 0.3, my);
+    mx += s.w * 0.3;
+    await sleep(300);
+    await click('$' + btn('Play'), { after: 2600 });
+    await click('$' + btn('Keep'), { after: 600 });
+    await click('$[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="▶"&&b.getBoundingClientRect().width)', {
+      after: 2800,
+    });
+    await cap('');
+    await sleep(800); // the save is queued
+    const anim = await p.eval(`new Promise(r => { const q = indexedDB.open('skin-editor'); q.onsuccess = () => {
+      const g = q.result.transaction('meta').objectStore('meta').getAll(); g.onsuccess = () => r(JSON.stringify(g.result.filter(x => x && x.name === 'Big Wave'))); }; })`);
+    fs.writeFileSync('takes/record/big-wave.json', anim);
+    console.log('saved animations named Big Wave:', JSON.parse(anim).length);
+  },
+  // 8. montage (v3): ride the horse in the Meadow, Save picture as a transparent PNG (shown on a checkerboard), ride on in the
+  // Desert, the Fall shaft there, then a WASD walk and jump in the Meadow (walking turns the view behind the character, so the
+  // picture comes first). After a wardrobe pass: node record.mjs +wardrobe montage
+  async montage() {
+    const dl = path.resolve('takes/montage-dl');
+    fs.rmSync(dl, { recursive: true, force: true });
+    await p.call('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dl });
+    const place = async name => {
+      await click(
+        '$[...document.querySelectorAll(".stbtn,button")].find(b=>/^(Studio|Meadow|Snow|Desert|Jungle)/.test(b.textContent.trim()))',
+        {
+          after: 350,
+        }
+      );
+      await click('$[...document.querySelectorAll(".bdopt")].find(b=>b.textContent.trim()==="' + name + '")', { after: 900 });
+    };
+    await click('$document.querySelector("[data-tab=animations]")', { after: 700 });
+    await cap('Ride, walk, <b>explore</b>, share', 1395, BAR);
+    await place('Meadow');
+    await click('$[...document.querySelectorAll("button")].find(b=>/^Mount[0-9]/.test(b.textContent.trim()))', { after: 400 });
+    await click('$[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Horse")', { after: 500 });
+    await click('$[...document.querySelectorAll("button")].find(b=>/^Mount Run☆?★?$/.test(b.textContent.trim()))', { after: 1400 });
+    await drag(1250, 620, 1400, 615, 800);
+    await sleep(300);
+    await click('$document.querySelector("button[aria-label=\'Save picture\']")', { after: 400 });
+    await click('$[...document.querySelectorAll(".shotmenu .bdopt")].find(b=>b.textContent.trim()==="Transparent")', { after: 300 });
+    let png;
+    for (let i = 0; i < 20 && !png; i++) {
+      await sleep(150);
+      png = fs.existsSync(dl) && fs.readdirSync(dl).find(f => f.endsWith('.png'));
+    }
+    if (png) await p.eval(`__promo.pic('data:image/png;base64,${fs.readFileSync(path.join(dl, png)).toString('base64')}')`);
+    else console.log('montage: no picture downloaded');
+    await sleep(1600);
+    await p.eval('__promo.pic(null)');
+    await place('Desert');
+    await sleep(600);
+    await click('$[...document.querySelectorAll("button")].find(b=>/^Moves[0-9]/.test(b.textContent.trim()))', { after: 400 });
+    await click('$[...document.querySelectorAll("button")].find(b=>/^Fall Far/.test(b.textContent.trim()))', { after: 1900 });
+    await place('Meadow');
+    await move(1500, 760, 400);
+    await hold(['w'], 700);
+    await hold(['w', ' '], 150);
+    await hold(['w'], 600);
+    await sleep(800);
+    await cap('');
+  },
   // 6. randomize a few looks
   async randomize() {
     await click('$document.querySelector("[data-tab=editor]")', { after: 700 });
@@ -277,9 +517,16 @@ const takes = {
 
 try {
   await fresh();
-  for (const [name, fn] of Object.entries(takes)) {
-    if (only.length && !only.includes(name)) continue;
+  // takes run in the order given; a +name runs that take unrecorded (setup only, e.g. +wardrobe to dress the character first)
+  for (const arg of only.length ? only : Object.keys(takes)) {
+    const name = arg.replace(/^\+/, ''),
+      fn = takes[name];
+    if (!fn) throw new Error('no take ' + name);
     if (name === 'live') await liveSetup();
+    if (arg.startsWith('+')) {
+      await fn();
+      continue;
+    }
     const stop = await p.record('takes/' + name);
     await sleep(300);
     try {

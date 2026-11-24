@@ -1,4 +1,4 @@
-// Cuts the recorded takes into the promo: node cut.mjs -> out/hytaledesigner-promo.mp4 (1920x1080, 30 fps, H.264, for X)
+// Cuts the recorded takes into the promo: node cut.mjs [v3] -> out/hytaledesigner-promo[-v3].mp4 (1920x1080, 30 fps, H.264, for X)
 // Each piece: [take, from s, to s, speed]. Frames keep the real time they were painted (times.json), then are resampled to 30 fps.
 // A split piece ['split', siteTake, gameTake, from, to, speed] puts the site (left) beside Hytale (right) at the same moments:
 // both takes' times.json hold wall-clock seconds, so the game frames are picked by the site take's own clock.
@@ -7,7 +7,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 
 const SPLIT_CAP = 'Every change shows up in game, live';
-const CUT = [
+const V2 = [
   ['wardrobe', 0.4, 24.6, 3.0],
   ['places', 1.6, 16.2, 2.3],
   ['animations', 0.6, 14.3, 1.8],
@@ -20,6 +20,26 @@ const CUT = [
   ['animate', 12.9, 23.0, 2.2],
   ['end', 1.6, 6.2, 1],
 ];
+// v3 (2026-11-24): every take in the user's own skin. Site takes only so far; the live split hook and the in-game emote shot go in
+// when they are recorded (promo-plan-v3.md)
+const V3 = [
+  ['wardrobe', 2.0, 25.0, 2.6],
+  ['create', 12.5, 40.0, 3.2],
+  ['create', 44.3, 47.0, 1.3],
+  ['combine', 7.6, 22.4, 1.6],
+  ['record', 10.0, 20.9, 2.4],
+  ['record', 21.1, 28.9, 2.8],
+  ['record', 29.2, 32.5, 1.2],
+  ['montage', 11.4, 15.5, 2.0],
+  ['montage', 19.5, 22.0, 1.5],
+  ['montage', 24.2, 27.0, 1.5],
+  ['montage', 28.5, 31.5, 1.4],
+  ['montage', 35.2, 37.6, 1.3],
+  ['end', 3.1, 6.8, 1],
+];
+const v = process.argv[2] === 'v3' ? 'v3' : '';
+const CUT = v ? V3 : V2;
+const OUT = 'out/hytaledesigner-promo' + (v ? '-' + v : '') + '.mp4';
 const FPS = 30;
 const ff = args => execFileSync('ffmpeg', ['-loglevel', 'error', '-y', ...args]);
 const times = take => JSON.parse(fs.readFileSync(path.resolve('takes', take, 'times.json')));
@@ -143,10 +163,10 @@ ff([
   '128k',
   '-movflags',
   '+faststart',
-  'out/hytaledesigner-promo.mp4',
+  OUT,
 ]);
 console.log(
-  execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration,size', '-of', 'csv=p=0', 'out/hytaledesigner-promo.mp4'])
+  execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration,size', '-of', 'csv=p=0', OUT])
     .toString()
     .trim()
 );
