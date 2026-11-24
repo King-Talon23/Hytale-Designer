@@ -451,9 +451,8 @@ async function startApp() {
         const my = (holdSeq = (holdSeq || 0) + 1);
         setPropsKey(null);
         if (!k) return st.props([]);
-        const [model, tex] = game.PROPS[k];
         try {
-          const root = model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex);
+          const root = await fig.buildProp(k);
           if (my !== holdSeq) return;
           st.props([{ root, bone: hand === 'L' ? 'L-Attachment' : 'R-Attachment' }]);
         } catch (e) {

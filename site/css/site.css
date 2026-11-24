@@ -1206,6 +1206,24 @@ button.tag {
   cursor: not-allowed;
   filter: grayscale(1);
 }
+/* waiting on Hytale's approval: the label reads WIP under the pointer */
+.locked.wip {
+  position: relative;
+}
+.locked.wip:hover > .lbl,
+.locked.wip:focus-visible > .lbl {
+  visibility: hidden;
+}
+.locked.wip:hover::after,
+.locked.wip:focus-visible::after {
+  content: 'WIP';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.08em;
+}
 .need {
   color: var(--dim);
   font-size: 12.5px;

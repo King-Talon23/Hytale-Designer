@@ -290,10 +290,20 @@ export function createLocker(app) {
       : !auth.enabled
         ? `Coming soon: ${f} needs Sign in with Hytale, which is waiting on Hytale's approval`
         : `Connect your Hytale account to enable ${f}`;
+  // while Sign in with Hytale waits on Hytale's approval these are shown darkened, and read WIP under the pointer
+  const wip = (label, cls, onclick) =>
+    el(
+      'button',
+      { class: cls + ' locked wip', 'aria-disabled': 'true', 'aria-label': label + ' (WIP)', onclick },
+      el('span', { class: 'lbl', text: label })
+    );
   const locked = (label, feature, cls = 'btn ghost') =>
     !auth.enabled
-      ? null
-      : /* features waiting on Sign in with Hytale stay hidden until it exists */ el('button', {
+      ? wip(label, cls, e => {
+          e.stopPropagation();
+          say(NEED(feature));
+        })
+      : el('button', {
           class: cls + ' locked',
           'aria-disabled': 'true',
           title: NEED(feature),
@@ -304,13 +314,12 @@ export function createLocker(app) {
           },
         }); // not disabled: a click says why it can't be used yet
   function accountRow() {
-    if (!auth.enabled) return null;
     if (!auth.enabled)
       return el(
         'div',
         { class: 'folder account' },
-        el('div', {}, el('b', {}, 'Hytale account ', el('span', { class: 'tag none', text: 'WIP' }))),
-        el('button', { class: 'btn primary locked', disabled: true, title: 'Coming soon', text: 'Connect Hytale account' })
+        el('div', {}, el('b', { text: 'Hytale account' })),
+        wip('Connect Hytale account', 'btn primary', () => say(NEED('connecting your Hytale account')))
       );
     if (!app.ACCOUNT)
       return el(

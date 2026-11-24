@@ -324,8 +324,16 @@ export async function buildCreature(cfg) {
   root.userData.parts = parts;
   return root;
 }
-// a block held in the hand: a small cube wearing the block's texture on every side
-export async function buildBlock(tex, size = 16) {
+// a held thing from game.PROPS, drawn as big as the game draws it in the hand (Spellbook 1.3)
+export async function buildProp(k) {
+  const [model, tex, scale = 1] = game.PROPS[k];
+  const root = model ? await buildCreature({ model, tex }) : await buildBlock(tex);
+  root.scale.setScalar(scale);
+  return root;
+}
+// a block held in the hand: a cube wearing the block's texture on every side, about 40 units across as in game
+// (measured 2026-11-23 on Show Block: 1.35 times the head's width, its top 150 above the feet)
+export async function buildBlock(tex, size = 40) {
   const T = await texture(tex),
     root = new THREE.Group(),
     m = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), T.mat);
@@ -590,7 +598,8 @@ export class Animator {
               g.quaternion.copy(r.q).multiply(q0);
             } else g.quaternion.copy(r.q).multiply(q0.slerp(q1, o[2]));
           }
-          if (p) {
+          // as in game: a move turns a held item's own parts but does not shift them (checked 2026-11-23: Staff, Battle Axe)
+          if (p && !g.userData.held) {
             const a = p[0].delta,
               b = p[1].delta,
               u = p[2];
@@ -2032,6 +2041,7 @@ export function stage(canvas, Controls) {
       h.root.userData.parts?.forEach((gs, k) => {
         if (fp.has(k) && !h.added.some(a => a[0] === k)) return;
         for (const g of gs) {
+          g.userData.held = true;
           (fp.get(k) || fp.set(k, []).get(k)).push(g);
           h.added.push([k, g]);
         }

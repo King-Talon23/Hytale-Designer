@@ -3,6 +3,7 @@ import * as game from './game.js';
 import * as fig from './figure.js';
 import { icon as catIcon } from './icons.js';
 import { nice } from './skin.js';
+import { heldBy } from './held.js';
 
 export function createAnimations(app) {
   const { el, say, showConnect, animThumb, render, head, toggleEmote, drawEmotes, walk } = app;
@@ -84,34 +85,13 @@ export function createAnimations(app) {
       mountMsg = 'Your saved copy of the game files is from before animals were added. Refresh it once to see them (your skins are kept).';
     }
   }
-  // what each move holds, and in which hand (the game's attachment bones)
-  const HELD = {
-    Glide: { '*': [['glider', 'R-Attachment', [0, -62, 0]]] }, // as in game: the hands on the glider's grips (measured 62 above them unshifted)
-    Poses: {
-      BattleAxe: [['battleaxe', 'R-Attachment']],
-      Book_Read: [['book', 'L-Attachment']],
-      Show_Block: [['block', 'R-Attachment']],
-      Show_Item: [['potion', 'R-Attachment']],
-      Pickaxe: [['pickaxe', 'R-Attachment']],
-      Staff: [['wizstaff', 'R-Attachment', null, [180, 0, 0]]],
-      Sword: [['sword', 'R-Attachment']],
-      Warhammer: [['mace', 'R-Attachment']],
-      Outlander_Sword: [['sword', 'R-Attachment']],
-      Outlander_Archer_Bow_Charge: [['bow', 'L-Attachment']],
-      Outlander_Archer_Bow_Pose: [['bow', 'L-Attachment']],
-    },
-    Taunt: {
-      Staff_Helicopter: [['staff', 'R-Attachment']],
-      Sword_Back: [['sword', 'R-Attachment']],
-      Sword_Front: [['sword', 'R-Attachment', [0, 0, 14]]],
-    },
-  }; // [item, hand, shift]: Sword Front's blade would cross the face and body
-  const heldBy = (g, n) => HELD[g]?.[n] || HELD[g]?.['*'] || [];
   // scenery for the moves that use something in the world, in model units (a block is 64; the figure faces +z, its pelvis rests at 51)
   const W = game.SCENERY_TEX;
   // the game's own furniture (its village set and workbench, see scene-data.js), placed where the moves use them
-  const CHAIR = [{ block: game.SET_PIECES.chair, at: [0, 0, 0], turn: 0 }]; // sit moves drop the pelvis 45 and hang the lower legs
-  const BED = [{ block: game.SET_PIECES.bed, at: [-32, 0, -61], turn: 0, stretch: 1.12 }]; // lengthwise along z, pillow end at -z; 12% longer so the sleeper (z -71..58) fits between headboard (-75) and footboard (60)   // lying moves drop the pelvis about 42, head towards -z
+  // where the game puts a sitter or sleeper: the block's Seats/Beds offset from the cell centre (Furniture_Village_Chair: 0.2 forward;
+  // Furniture_Village_Bed: 0.4 across, 1 along), checked 2026-11-23 on an actor seated by the game's own seat logic
+  const CHAIR = [{ block: game.SET_PIECES.chair, at: [0, 0, -12.8], turn: 0 }];
+  const BED = [{ block: game.SET_PIECES.bed, at: [-25.6, 0, -64], turn: 0 }]; // lengthwise along z, pillow end at -z
   const BENCH = [{ block: game.SET_PIECES.bench, at: [-32, 0, 84], turn: 180 }]; // something to work at, centred in front of the hands (it is two blocks wide: x -64..64)
   const LADDERS = cols => [{ ladder: [cols, 7], at: [0, 0, -8] }]; // climbing faces +z: the rungs just in front of the hands, planks behind them
   const DEEP = 192; // how far above the lake bed a swimmer floats (3 blocks)
@@ -120,8 +100,8 @@ export function createAnimations(app) {
     ...(under ? [{ box: [6400, y, 6400], at: [0, y / 2, 0], color: 0x1d5ca8, opacity: 0.62, volume: true }] : []),
   ]; // a lake to the hills, drifting with the land while swimming
   function sceneryFor(g, n) {
-    if (g === 'Flavor' && /^Sit2?$/.test(n)) return [CHAIR, 32]; // the village chair's seat top
-    if (g === 'Flavor' && /^Sleep/.test(n)) return [BED, 50]; // on the mattress, under the blanket's top
+    if (g === 'Flavor' && /^Sit2?$/.test(n)) return [CHAIR, 32]; // as in game: the sitter half a block above the floor
+    if (g === 'Flavor' && /^Sleep/.test(n)) return [BED, 54.4]; // as in game: the sleeper 0.85 block above the floor, on top of the blanket
     if (g === 'Climb') return [LADDERS(/_(Left|Right)$/.test(n) ? 3 : 1), 0]; // one ladder up and down, a few side by side to climb across
     if (g === 'Default' && n === 'Interact') return [BENCH, 0];
     if (g === 'Swim') return [WATER(DEEP + (/Dive|Sink/.test(n) ? 150 : 92), true), 0]; // deep water: the swimmer floats DEEP above the lake bed
@@ -142,8 +122,7 @@ export function createAnimations(app) {
     const built = await Promise.all(
       want.map(async ([k, bone, shift, turn]) => {
         try {
-          const [model, tex] = game.PROPS[k];
-          return { root: model ? await fig.buildCreature({ model, tex }) : await fig.buildBlock(tex), bone, shift, turn };
+          return { root: await fig.buildProp(k), bone, shift, turn };
         } catch (e) {
           console.warn(k, e.message);
           return null;

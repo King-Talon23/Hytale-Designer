@@ -11,7 +11,7 @@ const LANG = 'Common/Languages/en-US/avatarCustomization/';
 export const PROPS = {
   glider: ['Items/Glider/Scrap.blockymodel', 'Items/Glider/Scrap_Texture.png'],
   battleaxe: ['Items/Weapons/Battleaxe/Iron.blockymodel', 'Items/Weapons/Battleaxe/Iron_Texture.png'],
-  book: ['Items/Weapons/Spellbook/Book.blockymodel', 'Items/Weapons/Spellbook/Book_Fire_Texture.png'],
+  book: ['Items/Weapons/Spellbook/Book.blockymodel', 'Items/Weapons/Spellbook/Book_Fire_Texture.png', 1.3],
   pickaxe: ['Items/Tools/Pickaxe/Iron.blockymodel', 'Items/Tools/Pickaxe/Iron_Texture.png'],
   staff: ['Items/Weapons/Staff/Bo_Wood.blockymodel', 'Items/Weapons/Staff/Bo_Wood_Texture.png'],
   wizstaff: ['Items/Weapons/Staff/Wizard.blockymodel', 'Items/Weapons/Staff/Wizard_Texture.png'],
@@ -20,7 +20,7 @@ export const PROPS = {
   bow: ['Items/Weapons/Bow/Bronze.blockymodel', 'Items/Weapons/Bow/Bronze_Texture.png'],
   potion: ['Items/Consumables/Potions/Potion.blockymodel', 'Items/Consumables/Potions/Potion_Textures/Pink.png'],
   block: [null, 'BlockTextures/Rock_Stone.png'],
-}; // a block is a plain cube with this texture
+}; // a block is a plain cube with this texture; a third number is how much bigger the game draws it in the hand: the item's Scale (Spellbook 1.3); a block-type item (the potion) also takes its block's CustomModelScale (2 x 0.5 = 1)
 // textures for the scenery some moves need (a chair to sit on, a bed, water)
 export const SCENERY_TEX = {
   wood: 'BlockTextures/Wood_Softwood_Planks_Top.png',
@@ -33,7 +33,7 @@ export { SCENES, SET_PIECES } from './scene-data.js';
 export const FILES_V = 5;
 const PROP_FILES = new Set(
   [...Object.values(PROPS).flat(), ...Object.values(SCENERY_TEX)]
-    .filter(Boolean)
+    .filter(p => typeof p === 'string')
     .map(p => 'Common/' + p)
     .concat(SCENE_FILES)
 );
