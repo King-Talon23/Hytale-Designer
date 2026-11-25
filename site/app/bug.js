@@ -91,13 +91,6 @@ async function infoNow() {
     errors: errors.slice(),
   };
 }
-const infoText = i =>
-  [
-    `Browser: ${i.browser}, ${i.os}, ${i.window}`,
-    `Version: ${i.version}`,
-    `Page: ${i.page}${i.tab ? ' (' + i.tab + ')' : ''}`,
-    `Errors: ${i.errors.length ? '\n' + i.errors.join('\n') : 'none'}`,
-  ].join('\n');
 
 // a picture, shrunk to at most 1920 px and re-encoded (which also drops its metadata, like where a photo was taken)
 const MAX_SIDE = 1920,
@@ -135,7 +128,6 @@ function bugForm({ done, inDialog }) {
       el('b', { text: 'Add screenshot' }),
       el('span', { text: 'Click, drop or paste an image' })
     ),
-    infoPre = el('pre', { class: 'buginfo' }),
     msg = el('p', { class: 'bugmsg', role: 'status' }),
     send = el('button', { type: 'submit', class: 'btn primary', text: 'Send' }),
     cancel = inDialog ? el('button', { type: 'button', class: 'btn ghost', text: 'Cancel' }) : null;
@@ -188,12 +180,6 @@ function bugForm({ done, inDialog }) {
       file,
       el('label', { for: 'bug-contact', text: 'Contact' }, el('span', { class: 'opt', text: 'Optional' })),
       contact,
-      el(
-        'details',
-        { class: 'bugdetails' },
-        el('summary', { text: 'Also sent: browser, OS, window size, site version, page, recent errors' }),
-        infoPre
-      ),
       msg
     ),
     el('div', { class: 'dlgbtns' }, cancel, send)
@@ -206,8 +192,6 @@ function bugForm({ done, inDialog }) {
       setShot(f);
     }
   });
-  const showInfo = () => infoNow().then(i => (infoPre.textContent = infoText(i)));
-  form.querySelector('details').addEventListener('toggle', showInfo);
   if (cancel) cancel.onclick = () => done(false);
   form.onsubmit = async e => {
     e.preventDefault();
