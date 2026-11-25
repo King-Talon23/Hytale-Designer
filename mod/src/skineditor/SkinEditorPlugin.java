@@ -58,8 +58,8 @@ public final class SkinEditorPlugin extends JavaPlugin {
     static final Pattern ASSET_PATH = Pattern.compile("^[A-Za-z0-9_ ./-]{1,200}$");
     static final Pattern TEX = Pattern.compile("^Characters/SkinEditor/[0-9a-f]{8}-[0-9a-f]{8}\\.png$");
     static final Pattern PART = Pattern.compile("^[A-Za-z0-9_ -]{1,64}(\\.[A-Za-z0-9_ +-]{1,96}){0,2}$");
-    static final String CLOSED_EYES = "Characters/SkinEditorBase/ClosedEyes.png";
-    static final String CLOSED_EYES_PNG = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALklEQVR42u3OQQEAAAQEMPSPeT2I4bMlWCfZejT1TEBAQEBAQEBAQEBAQEBA4AAzvwPr0ojl+wAAAABJRU5ErkJggg==";   // 32x32, grey 228
+    static final String NO_EYES = "Characters/SkinEditorBase/NoEyes/";   // + a face texture's own path: that face with its eye area smoothed over
+    static volatile Path liveCommon;
     static final List<String> NEEDED = List.of("bodyCharacteristic", "underwear", "face", "ears", "mouth", "eyes");   // the game's skin check needs these
     static final Set<String> NONE_OK = Set.of("eyes", "mouth", "ears");   // the site offers None for these
     static final String[] FIELDS = { "bodyCharacteristic", "underwear", "face", "ears", "mouth", "haircut", "facialHair", "eyebrows", "eyes", "pants", "overpants",
@@ -245,10 +245,8 @@ public final class SkinEditorPlugin extends JavaPlugin {
     private void ensureLivePack() throws Exception {
         Path live = modsDir.resolve(LIVE);
         Files.createDirectories(live.resolve("Common").resolve("Characters").resolve("SkinEditor")); Files.createDirectories(live.resolve("Server").resolve("SkinEditor"));
-        // None eyes: the face's eye holes are closed with the eye pieces in plain skin (grey 228, the faces' own shade, tinted with the
-        // player's tone). Kept out of Characters/SkinEditor, which the asset sync prunes
-        Path closed = live.resolve("Common").resolve(CLOSED_EYES);
-        if (!Files.isRegularFile(closed)) { Files.createDirectories(closed.getParent()); Files.write(closed, java.util.Base64.getDecoder().decode(CLOSED_EYES_PNG)); }
+        liveCommon = live.resolve("Common");
+        try { makeNoEyeFaces(liveCommon); } catch (Throwable e) { System.err.println("[Hytale Designer Sync] could not make the faces for None eyes: " + e); }
         Path m = live.resolve("manifest.json");
         // "DisabledByDefault": false: a pack that appears after the world was made is otherwise skipped as disabled (fresh installs)
         if (!Files.isRegularFile(m) || !Files.readString(m).contains("DisabledByDefault")) Files.writeString(m, "{\n \"Group\": \"SkinEditorPack\",\n \"Name\": \"Live\",\n \"Version\": \"1.0.0\",\n"
@@ -355,6 +353,57 @@ public final class SkinEditorPlugin extends JavaPlugin {
     }
     private static String raw(String json, String key) { Matcher m = Pattern.compile("\"" + key + "\"\\s*:\\s*(true|false)").matcher(json); return m.find() ? m.group(1) : null; }
 
+    /** None eyes: every face texture of the game, from this PC's own Assets.zip, with its eye area smoothed over (as the website draws
+     *  it), written into the live pack once per game version. Kept out of Characters/SkinEditor, which the asset sync prunes. */
+    static void makeNoEyeFaces(Path common) throws Exception {
+        Path jar = Path.of(CosmeticsModule.class.getProtectionDomain().getCodeSource().getLocation().toURI()), zip = jar.getParent().getParent().resolve("Assets.zip");
+        if (!Files.isRegularFile(zip)) return;
+        Path dir = common.resolve(NO_EYES), mark = dir.resolve("made-from.txt");
+        String stamp = Files.size(zip) + " " + Files.getLastModifiedTime(zip).toMillis() + " v2";
+        if (Files.isRegularFile(mark) && Files.readString(mark).equals(stamp)) return;
+        try (var z = new java.util.zip.ZipFile(zip.toFile())) {
+            for (var en = z.entries(); en.hasMoreElements(); ) { var e = en.nextElement(); String n = e.getName();
+                if (!n.startsWith("Common/Characters/Body_Attachments/Faces/") || !n.endsWith(".png")) continue;
+                java.awt.image.BufferedImage im; try (var in = z.getInputStream(e)) { im = javax.imageio.ImageIO.read(in); }
+                if (im == null) continue;
+                Path out = dir.resolve(n.substring("Common/".length())); Files.createDirectories(out.getParent());
+                javax.imageio.ImageIO.write(smoothEyes(im), "png", out.toFile()); } }
+        Files.writeString(mark, stamp);
+    }
+
+    /** the same as smoothEyes in the website's figure.js: blink lids and lashes cleared, each eye hole and its painted rim (2 px to the
+     *  sides, 4 above, 1 below) refilled column by column from the skin just above to the skin just below (window medians) */
+    static java.awt.image.BufferedImage smoothEyes(java.awt.image.BufferedImage src) {
+        int w = src.getWidth(), h = src.getHeight(), sc = Math.max(1, Math.round(w / 64f)), fw = Math.min(w, 30 * sc), fh = Math.min(h, 28 * sc);
+        var im = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB); im.getGraphics().drawImage(src, 0, 0, null);
+        for (int[] r : new int[][] { { 14, 38, 52, 52 }, { 30, 0, 64, 28 } })
+            for (int y = r[1] * sc; y < Math.min(h, r[3] * sc); y++) for (int x = r[0] * sc; x < Math.min(w, r[2] * sc); x++) im.setRGB(x, y, 0);
+        boolean[] seen = new boolean[w * h];
+        for (int y0 = 0; y0 < fh; y0++) for (int x0 = 0; x0 < fw; x0++) {
+            if (seen[y0 * w + x0] || (im.getRGB(x0, y0) >>> 24) != 0) continue;
+            int l = x0, r = x0, t = y0, b = y0; var st = new java.util.ArrayDeque<int[]>(); st.push(new int[] { x0, y0 }); seen[y0 * w + x0] = true;
+            while (!st.isEmpty()) { int[] q = st.pop(); int x = q[0], y = q[1]; l = Math.min(l, x); r = Math.max(r, x); t = Math.min(t, y); b = Math.max(b, y);
+                for (int[] d : new int[][] { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) { int nx = x + d[0], ny = y + d[1];
+                    if (nx >= 0 && ny >= 0 && nx < fw && ny < fh && !seen[ny * w + nx] && (im.getRGB(nx, ny) >>> 24) == 0) { seen[ny * w + nx] = true; st.push(new int[] { nx, ny }); } } }
+            if ((r - l + 1) * (b - t + 1) < 4 * sc * sc) continue;   // a stray clear pixel, not an eye hole
+            l = Math.max(0, l - 2 * sc); r = Math.min(fw - 1, r + 2 * sc); t = Math.max(1, t - 4 * sc); b = Math.min(fh - 2, b + sc);
+            for (int x = l; x <= r; x++) { int up = edge(im, x, t - 1, t - 2, sc), dn = edge(im, x, b + 1, b + 2, sc);
+                for (int y = t; y <= b; y++) { double f = (y - t + 1) / (double) (b - t + 2); int c = 0xff000000;
+                    for (int k = 0; k < 24; k += 8) c |= (int) Math.round(((up >> k) & 255) * (1 - f) + ((dn >> k) & 255) * f) << k;
+                    im.setRGB(x, y, c); } }
+        }
+        return im;
+    }
+    /** the skin at an edge of an eye area: the median (by brightness) of a 5 x 2 window, so a freckle or wrinkle isn't stretched into a streak */
+    static int edge(java.awt.image.BufferedImage im, int x, int y1, int y2, int sc) {
+        List<Integer> px = new ArrayList<>();
+        for (int y : new int[] { y1, y2 }) for (int xx = Math.max(0, x - 2 * sc); xx <= Math.min(im.getWidth() - 1, x + 2 * sc); xx++)
+            if (y >= 0 && y < im.getHeight() && (im.getRGB(xx, y) >>> 24) != 0) px.add(im.getRGB(xx, y));
+        if (px.isEmpty()) return 0xffe4e4e4;
+        px.sort(java.util.Comparator.comparingInt(c -> ((c >> 16) & 255) + ((c >> 8) & 255) + (c & 255)));
+        return px.get(px.size() / 2);
+    }
+
     /** a skin as the Player model with one attachment per part, resolved from the game's cosmetics list (variant, fixed texture, or greyscale + colour) */
     @SuppressWarnings("unchecked")
     static Model skinToModel(CosmeticsModule cm, PlayerSkin ps, Model base, Map<String, Asset> custom) throws Exception {
@@ -398,11 +447,10 @@ public final class SkinEditorPlugin extends JavaPlugin {
             String tex, gset = null, gid = null;
             if (texs != null && p.textureId != null && texs.containsKey(p.textureId)) tex = texs.get(p.textureId).getTexture();
             else { tex = grey; gset = part.getGradientSet(); gid = p.textureId != null ? p.textureId : "Skin".equals(gset) ? tone : "Hair".equals(gset) ? hair : null; }
+            if (pr[1] == reg.getFaces() && tex != null && (ps.eyes == null || ps.eyes.isEmpty()) && !custom.containsKey("eyes") && liveCommon != null
+                && Files.isRegularFile(liveCommon.resolve(NO_EYES + tex))) tex = NO_EYES + tex;   // None eyes: the face without its eye holes
             if (mdl != null && tex != null) out.add(new ModelAttachment(mdl, tex, gset, gid, 1.0));
         }
-        if ((ps.eyes == null || ps.eyes.isEmpty()) && !custom.containsKey("eyes")) {   // None eyes: the eye pieces in skin close the face's eye holes
-            var eyes = reg.getEyes().containsKey("Medium_Eyes") ? reg.getEyes().get("Medium_Eyes") : reg.getEyes().values().stream().findFirst().orElse(null);
-            if (eyes != null && eyes.getModel() != null) out.add(new ModelAttachment(eyes.getModel(), CLOSED_EYES, "Skin", tone, 1.0)); }
         Model m = new Model(base); var body = bodyId == null ? null : reg.getBodyCharacteristics().get(bodyId.assetId);
         java.util.function.BiConsumer<String, Object> set = (f, v) -> { try { var fl = Model.class.getDeclaredField(f); fl.setAccessible(true); fl.set(m, v); } catch (Exception e) { throw new RuntimeException(e); } };
         set.accept("attachments", out.toArray(new ModelAttachment[0]));

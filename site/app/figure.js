@@ -36,7 +36,7 @@ export async function bakedCanvas(tex, tint) {
   return c;
 }
 // None eyes: a face has two holes where the eye pieces sit, painted round with lids, lashes and makeup, and blink lids over them. Each hole and its rim (2 px to
-// the sides, 4 above, 1 below) is refilled column by column, blending from the skin just above it to the skin just below, so the
+// the sides, 4 above, 1 below) is refilled column by column, blending from the skin just above it to the skin just below (window medians), so the
 // eye area reads as plain skin with the face's own shading.
 function smoothEyes(d) {
   const { width: w, height: h, data: a } = d,
@@ -76,16 +76,28 @@ function smoothEyes(d) {
       }
       if ((r - l + 1) * (b - t + 1) < 4 * sc * sc) continue; // a stray clear pixel, not an eye hole
       (l = Math.max(0, l - 2 * sc)), (r = Math.min(fw - 1, r + 2 * sc)), (t = Math.max(1, t - 4 * sc)), (b = Math.min(fh - 2, b + sc));
-      for (let x = l; x <= r; x++) {
-        const up = ((t - 1) * w + x) * 4,
-          dn = ((b + 1) * w + x) * 4;
+      // the skin at each edge: the median of a 5 x 2 window, so a freckle or wrinkle there isn't stretched into a streak
+      const edge = (x, ys) => {
+        const px = [];
+        for (const y of ys)
+          for (let xx = Math.max(0, x - 2 * sc); xx <= Math.min(w - 1, x + 2 * sc); xx++) {
+            const k = (y * w + xx) * 4;
+            if (y >= 0 && y < h && a[k + 3]) px.push([a[k], a[k + 1], a[k + 2]]);
+          }
+        px.sort((p, q) => p[0] + p[1] + p[2] - q[0] - q[1] - q[2]);
+        return px[px.length >> 1] || [228, 228, 228];
+      };
+      const tops = [],
+        bots = [];
+      for (let x = l; x <= r; x++) tops.push(edge(x, [t - 1, t - 2])), bots.push(edge(x, [b + 1, b + 2]));
+      for (let x = l; x <= r; x++)
         for (let y = t; y <= b; y++) {
           const k = (y * w + x) * 4,
-            f = (y - t + 1) / (b - t + 2);
-          for (let c = 0; c < 3; c++) a[k + c] = Math.round(a[up + c] * (1 - f) + a[dn + c] * f);
+            f = (y - t + 1) / (b - t + 2),
+            [up, dn] = [tops[x - l], bots[x - l]];
+          for (let c = 0; c < 3; c++) a[k + c] = Math.round(up[c] * (1 - f) + dn[c] * f);
           a[k + 3] = 255;
         }
-      }
     }
 }
 async function pixels(p) {
