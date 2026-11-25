@@ -31,6 +31,7 @@ export const GROUPS = [
   ['Capes', ['cape']],
 ];
 export const REQUIRED = new Set(['bodyCharacteristic', 'face', 'eyes', 'mouth', 'ears', 'underwear']); // the game never leaves these empty
+export const NO_NONE = new Set(['bodyCharacteristic', 'face', 'underwear']); // None everywhere else, eyes, mouth and ears too (no face leaves a hole in the head)
 export const nice = s =>
   String(s)
     .replace(/_/g, ' ')
@@ -141,14 +142,14 @@ export function rules(CAT) {
     }
     return s;
   }
-  // a skin from outside may name parts this game version does not have: drop those, and fill what the game requires
+  // a skin from outside may name parts this game version does not have: drop those (a required slot gets its default), and fill the body, face and underwear
   function fit(skin) {
     const s = { ...empty(), ...skin },
       b = blank();
     for (const f of FIELDS) {
       const it = find(f, s[f]);
       const { color, variant } = parse(s[f]);
-      s[f] = it ? partStr(it, color, variant) : REQUIRED.has(f) ? b[f] : null;
+      s[f] = it ? partStr(it, color, variant) : NO_NONE.has(f) || (REQUIRED.has(f) && s[f]) ? b[f] : null; // an empty eyes, mouth or ears slot is None
     }
     return s;
   }

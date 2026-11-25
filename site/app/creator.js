@@ -6,7 +6,7 @@ import * as store from './store.js';
 import * as assets from './assets.js';
 import { pickList } from './picklist.js';
 import { createPainter, SHAPES, ONCE } from './paint.js';
-import { cleanName, clip, parse, nice, LABEL } from './skin.js';
+import { cleanName, clip, parse, nice, LABEL, REQUIRED } from './skin.js';
 import * as prefs from './prefs.js';
 
 export function createCreator(app) {
@@ -1014,7 +1014,7 @@ export function createCreator(app) {
     app.R
       ? game.FIELDS.filter(f => {
           const it = app.R.find(f, skin[f]);
-          if (!it) return false;
+          if (!it) return REQUIRED.has(f); // None where the game needs a part: the game won't take it, so the player's own part stays
           if (!it.custom) return paidLocked(it);
           const a = ASSETS.find(x => 'Custom_' + x.id === it.Id);
           return !a || !modReady(a);

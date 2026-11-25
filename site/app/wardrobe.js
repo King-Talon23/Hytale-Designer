@@ -2,7 +2,7 @@
 import * as game from './game.js';
 import * as db from './db.js';
 import { pickList } from './picklist.js';
-import { parse, nice, LABEL, GROUPS, REQUIRED } from './skin.js';
+import { parse, nice, LABEL, GROUPS, NO_NONE } from './skin.js';
 
 export function createWardrobe(app) {
   const { el, say, guard, setSlot, open, setSkin, peek, setScrolledAt, hover, itemThumb, portrait, render, head } = app;
@@ -325,7 +325,7 @@ export function createWardrobe(app) {
           el('b', { text: e ? app.itemName(e) : 'None' })
         );
       };
-      cardsBox.replaceChildren(...(REQUIRED.has(f) || lockFilter !== 'all' ? [] : [card(null)]), ...items.map(card));
+      cardsBox.replaceChildren(...(NO_NONE.has(f) || lockFilter !== 'all' ? [] : [card(null)]), ...items.map(card));
       if (!items.length)
         cardsBox.append(
           el('p', { class: 'blank', text: filter.trim() ? 'No results' : lockFilter === 'fav' ? 'No favourites' : 'Nothing here.' })
