@@ -872,6 +872,22 @@ const turnOf = r =>
     new THREE.Euler((((r >> 2) & 3) * Math.PI) / 2, ((r & 3) * Math.PI) / 2, (((r >> 4) & 3) * Math.PI) / 2, 'YXZ')
   );
 // a small piece of the zone: rolling land of its ground blocks, its own grasses and flowers, and a few of its trees, from the game's prefabs
+// a box (in blocks) on screen as [x0, y0, x1, y1] in -1..1, or null when part of it is behind the camera
+const CORNER = new THREE.Vector3();
+function onScreen(eye, x0, y0, z0, x1, y1, z1) {
+  const r = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const x of [x0, x1])
+    for (const y of [y0, y1])
+      for (const z of [z0, z1]) {
+        CORNER.set(x * BLOCK, y * BLOCK, z * BLOCK).project(eye);
+        if (CORNER.z > 1) return null;
+        r[0] = Math.min(r[0], CORNER.x);
+        r[1] = Math.min(r[1], CORNER.y);
+        r[2] = Math.max(r[2], CORNER.x);
+        r[3] = Math.max(r[3], CORNER.y);
+      }
+  return r;
+}
 async function buildWorld(sc, tint) {
   // An open plain that slides under moving animations in any direction for ever (ground and plants, repeating every P blocks), with the
   // place's hills and trees as a fixed ring of distant scenery standing on it, from RIN blocks out into the haze. Nothing that slides is
@@ -1038,7 +1054,8 @@ async function buildWorld(sc, tint) {
     V = new THREE.Vector3(),
     Q = new THREE.Quaternion(),
     Y = new THREE.Vector3(0, 1, 0),
-    ONE = new THREE.Vector3(1, 1, 1);
+    ONE = new THREE.Vector3(1, 1, 1),
+    S = new THREE.Vector3();
   const sets = [];
   for (const [, { name: key, plant, slide, list }] of items) {
     const [name, k] = key.split('|'),
@@ -1052,7 +1069,16 @@ async function buildWorld(sc, tint) {
     const im = new THREE.InstancedMesh(p.geo, p.mat, list.length);
     im.frustumCulled = false;
     root.add(im);
-    sets.push({ im, list, plant, slide });
+    if (plant && !p.geo.boundingBox) p.geo.computeBoundingBox();
+    const bb = plant ? p.geo.boundingBox : null;
+    sets.push({
+      im,
+      list,
+      plant,
+      slide,
+      tall: bb ? bb.max.y / BLOCK : 0,
+      wide: bb ? Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) / BLOCK : 0,
+    });
   }
   // the fall: the land goes and only a shaft is left, walled with the zone's own blocks: a row of its ground block at the top
   // (the rim the character drops in from) and its under-ground block all the way down, dark at the very bottom
@@ -1096,7 +1122,15 @@ async function buildWorld(sc, tint) {
       oz = az / BLOCK,
       c = root.userData.cam,
       clear = root.userData.clear || 1,
-      rects = avoid();
+      rects = avoid(),
+      cx = c ? c.x / BLOCK : 0,
+      cy = c ? c.y / BLOCK : 0,
+      cz = c ? c.z / BLOCK : 0,
+      cl = Math.hypot(cx, cz) || 1,
+      eye = root.userData.camera,
+      who = root.userData.who || [0.5, 2.1];
+    if (eye) eye.updateMatrixWorld();
+    const me = eye ? onScreen(eye, -who[0], 0, -who[0], who[0], who[1], who[0]) : null; /* the character's box as the camera sees it */
     for (const st of sets) {
       if (plantsOnly && !st.plant) continue;
       if (!st.slide && st.laid && plantsOnly) continue;
@@ -1105,7 +1139,8 @@ async function buildWorld(sc, tint) {
         const x = st.slide ? sym(x0 + ox) : x0,
           z = st.slide ? sym(z0 + oz) : z0;
         if (x * x + z * z > (st.slide ? (FIX + 1.5) * (FIX + 1.5) : R * R)) continue; // what slides stays inside the fixed land
-        let k = 1;
+        let k = 1,
+          s = 1;
         if (st.plant && st.slide) {
           const d = Math.hypot(x, z); // a plant shrinks away near the character, the camera's lens and any set piece
           const e = v => (v <= 0 ? 0 : v >= 1 ? 1 : v * v * (3 - 2 * v)); // long, eased fades, so a plant sliding past never visibly pops in or out
@@ -1114,14 +1149,27 @@ async function buildWorld(sc, tint) {
             e((38 - d) / 8),
             c ? e((Math.hypot(x * BLOCK - c.x, z * BLOCK - c.z) / BLOCK - 1.2) / 2.2) : 1
           );
+          if (me) {
+            /* a plant nearer the camera than the character whose box covers the character on screen shrinks, down to below the sight line to the feet */
+            const t = (x * cx + z * cz) / (cl * cl);
+            if (t > 0 && t < 1 && Math.abs(x * cz - z * cx) / cl < st.wide + who[0] + 1) {
+              const pr = onScreen(eye, x - st.wide, y, z - st.wide, x + st.wide, y + st.tall, z + st.wide),
+                o = pr ? Math.min(Math.min(pr[2], me[2]) - Math.max(pr[0], me[0]), Math.min(pr[3], me[3]) - Math.max(pr[1], me[1])) : 0;
+              if (o > 0) s = 1 - (1 - Math.max(0.15, Math.min(1, (t * cy - y - 0.1) / st.tall))) * e(o / 0.04);
+            }
+          }
           for (const r of rects) if (x > r[0] - 0.6 && x < r[2] + 0.6 && z > r[1] - 0.6 && z < r[3] + 0.6) k = 0;
           if (k < 0.02) continue;
         }
         st.im.setMatrixAt(
           n++,
-          M.compose(V.set(x * BLOCK, (y - (1 - k) * 2.2) * BLOCK, z * BLOCK), st.plant ? Q.setFromAxisAngle(Y, q) : q || Q.identity(), ONE)
+          M.compose(
+            V.set(x * BLOCK, (y - (1 - k) * 2.2) * BLOCK, z * BLOCK),
+            st.plant ? Q.setFromAxisAngle(Y, q) : q || Q.identity(),
+            s < 1 ? S.set(s, s, s) : ONE
+          )
         );
-      } /* a plant that must clear the way sinks into the ground at full size (never a shrunken miniature) */
+      } /* a plant that must clear the way sinks into the ground at full size; one covering the character shrinks */
       st.im.count = n;
       st.im.instanceMatrix.needsUpdate = true;
       if (!st.slide) st.laid = true;
@@ -1352,6 +1400,8 @@ export function stage(canvas, Controls) {
     // the clearing's floor slides with the move (a horse needs more room round it than a person)
     if (world) {
       world.userData.cam = cam.position;
+      world.userData.camera = cam;
+      world.userData.who = mountRoot ? [1.3, 2.9] : [0.5, 2.1];
       world.userData.clear = Math.max(mountRoot ? 2.3 : anim.move ? 1.7 : 1, plantClear, painting ? 4 : 0);
       let mx = anim.move ? -vel.x * dt : 0,
         mz = anim.move ? -vel.y * dt : 0;
