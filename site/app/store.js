@@ -438,7 +438,7 @@ async function autoConnect() {
 }
 export async function connectMod() {
   const j = await findBridge();
-  if (!j) throw new Error('Start Hytale with the Hytale Designer Sync mod (1.2 or newer) turned on, then try again.');
+  if (!j) throw new Error('Start Hytale with the Designer Sync mod (1.2 or newer) turned on, then try again.');
   bridgeWanted = true;
   await db.put('meta', 'bridge', true);
   await db.del('meta', 'folder');

@@ -145,7 +145,7 @@ export function createHelp(app) {
             })
           )
         ),
-        MOD_URL ? sec('Hytale Designer Sync', '', el('div', { class: 'row' }, modLink('primary'))) : null,
+        MOD_URL ? sec('Designer Sync mod', '', el('div', { class: 'row' }, modLink('primary'))) : null,
         sec(
           'Backup',
           '',

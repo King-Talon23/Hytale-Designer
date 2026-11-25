@@ -6,4 +6,4 @@ export const HYTALE_CLIENT_ID = '';
 export const SUPPORT_URL = 'https://ko-fi.com/hytaledesigner';
 // The companion mod's CurseForge page (https://www.curseforge.com/hytale/mods/<slug>). Shown as "Get the mod" in the Locker and Help.
 // Leave empty to hide the links.
-export const MOD_URL = 'https://www.curseforge.com/hytale/mods/skin-editor-sync';
+export const MOD_URL = 'https://www.curseforge.com/hytale/mods/hytale-designer-sync';
