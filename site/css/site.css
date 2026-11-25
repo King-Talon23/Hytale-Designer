@@ -3492,6 +3492,16 @@ table.keys th {
   top: 0;
   background: #0d1826;
 }
+/* item rows in their tier's colour (the Locker's .t0-.t4) */
+.anyopt.tiered {
+  background: var(--tier2);
+  margin-bottom: 1px;
+}
+.anyopt.tiered:hover,
+.anyopt.tiered[aria-selected='true'] {
+  background: var(--tier);
+  color: #fff;
+}
 .anyopt.ingroup {
   padding-left: 18px;
 }

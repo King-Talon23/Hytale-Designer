@@ -1379,12 +1379,12 @@ export function createCreator(app) {
       }
       if (!q && at >= 0 && list[at][2]) anyItem.picks[slot.value] = list[at][2].Id; // whatever is shown first stays shown (wearing something new doesn't swap it)
       item.setItems(
-        list.map(([n, , , paid], i) => ({
+        list.map(([n, , e, paid], i) => ({
           value: i,
           text: n,
           disabled: paid,
           note: paid ? 'Paid' : null,
-          cls: paid ? 'paid' : null,
+          cls: 'tiered t' + tierOf(e) + (paid ? ' paid' : ''), // the row wears its tier's colour, as in the Locker
           tip: paid ? paidTip() : null,
         })),
         at
