@@ -311,21 +311,23 @@ const BRIDGE_PORTS = [47815, 47816, 47817];
 let bridgeBase = null,
   bridgeWanted = false,
   bridgeTimer = 0;
+// all ports at once: Windows takes ~2 s to refuse a closed local port, so probing them in turn cost up to 4.5 s whenever Hytale was shut
 async function findBridge() {
-  for (const p of BRIDGE_PORTS) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${p}/v1/hello`, { signal: AbortSignal.timeout(1500), credentials: 'omit' }),
-        j = await r.json();
-      if (j && j.app === 'skin-editor-sync') {
-        bridgeBase = `http://127.0.0.1:${p}`;
-        return j;
-      }
-    } catch {
-      /* not this port */
-    }
+  try {
+    const [p, j] = await Promise.any(
+      BRIDGE_PORTS.map(async p => {
+        const r = await fetch(`http://127.0.0.1:${p}/v1/hello`, { signal: AbortSignal.timeout(1500), credentials: 'omit' }),
+          j = await r.json();
+        if (j?.app !== 'skin-editor-sync') throw new Error('not the mod');
+        return [p, j];
+      })
+    );
+    bridgeBase = `http://127.0.0.1:${p}`;
+    return j;
+  } catch {
+    bridgeBase = null;
+    return null;
   }
-  bridgeBase = null;
-  return null;
 }
 const bget = async (path, q) => {
   const r = await fetch(`${bridgeBase}${path}?${new URLSearchParams(q)}`, { credentials: 'omit' });
@@ -475,6 +477,22 @@ export async function resumeFolder(ask) {
   if (await db.get('meta', 'bridge')) {
     bridgeWanted = true;
     watchBridge();
+    // on page load the mod is looked for in the background, so a closed Hytale never holds up the skins
+    if (!ask) {
+      findBridge().then(async j => {
+        if (!j || dir) return;
+        dir = bridgeDir();
+        written.clear();
+        known.clear();
+        try {
+          await attach();
+        } catch (e) {
+          console.warn(e);
+        }
+        changed();
+      });
+      return null;
+    }
     if (!(await findBridge())) return null;
     dir = bridgeDir();
     written.clear();
