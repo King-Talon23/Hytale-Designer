@@ -35,18 +35,65 @@ export async function bakedCanvas(tex, tint) {
   c.getContext('2d').drawImage(T.mat.map.image, 0, 0);
   return c;
 }
+// None eyes: a face has two holes where the eye pieces sit, painted round with lids, lashes and makeup, and blink lids over them. Each hole and its rim (2 px to
+// the sides, 4 above, 1 below) is refilled column by column, blending from the skin just above it to the skin just below, so the
+// eye area reads as plain skin with the face's own shading.
+function smoothEyes(d) {
+  const { width: w, height: h, data: a } = d,
+    sc = Math.max(1, Math.round(w / 64)),
+    fw = 30 * sc,
+    fh = 28 * sc, // the front of the face on its texture
+    seen = new Uint8Array(w * h),
+    clear = (x, y) => a[(y * w + x) * 4 + 3] === 0;
+  // the face model's blink lids and lashes take their pixels from these areas: cleared, so they draw nothing
+  for (const [x1, y1, x2, y2] of [
+    [14, 38, 52, 52],
+    [30, 0, 64, 28],
+  ])
+    for (let y = y1 * sc; y < Math.min(h, y2 * sc); y++) for (let x = x1 * sc; x < Math.min(w, x2 * sc); x++) a[(y * w + x) * 4 + 3] = 0;
+  for (let y0 = 0; y0 < fh; y0++)
+    for (let x0 = 0; x0 < fw; x0++) {
+      if (seen[y0 * w + x0] || !clear(x0, y0)) continue;
+      let [l, r, t, b] = [x0, x0, y0, y0];
+      const st = [[x0, y0]];
+      seen[y0 * w + x0] = 1;
+      while (st.length) {
+        const [x, y] = st.pop();
+        l = Math.min(l, x);
+        r = Math.max(r, x);
+        t = Math.min(t, y);
+        b = Math.max(b, y);
+        for (const [nx, ny] of [
+          [x + 1, y],
+          [x - 1, y],
+          [x, y + 1],
+          [x, y - 1],
+        ])
+          if (nx >= 0 && ny >= 0 && nx < fw && ny < fh && !seen[ny * w + nx] && clear(nx, ny)) {
+            seen[ny * w + nx] = 1;
+            st.push([nx, ny]);
+          }
+      }
+      if ((r - l + 1) * (b - t + 1) < 4 * sc * sc) continue; // a stray clear pixel, not an eye hole
+      (l = Math.max(0, l - 2 * sc)), (r = Math.min(fw - 1, r + 2 * sc)), (t = Math.max(1, t - 4 * sc)), (b = Math.min(fh - 2, b + sc));
+      for (let x = l; x <= r; x++) {
+        const up = ((t - 1) * w + x) * 4,
+          dn = ((b + 1) * w + x) * 4;
+        for (let y = t; y <= b; y++) {
+          const k = (y * w + x) * 4,
+            f = (y - t + 1) / (b - t + 2);
+          for (let c = 0; c < 3; c++) a[k + c] = Math.round(a[up + c] * (1 - f) + a[dn + c] * f);
+          a[k + 3] = 255;
+        }
+      }
+    }
+}
 async function pixels(p) {
-  if (p.startsWith('fill:')) {
-    // one plain grey (fill:<grey>:<w>x<h>), for parts drawn in skin only (None eyes)
-    const [g, size] = p.slice(5).split(':'),
-      [w, h] = size.split('x').map(Number),
-      c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    const x = c.getContext('2d', { willReadFrequently: true });
-    x.fillStyle = `rgb(${+g},${+g},${+g})`;
-    x.fillRect(0, 0, w, h);
-    return { c, x, d: x.getImageData(0, 0, w, h) };
+  if (p.startsWith('noeyes:')) {
+    const r = await pixels(p.slice(7));
+    smoothEyes(r.d);
+    r.x.putImageData(r.d, 0, 0);
+    return r;
   }
   if (p.startsWith('custom:')) {
     const c = await customSource(p.slice(7).split('@')[0]),
@@ -290,7 +337,9 @@ function attach(ns, T, bones, parts) {
   }
 }
 export async function build(skin, R) {
-  const list = FIELDS.map(f => [f, R.resolve(f, skin)]).filter(p => p[1]);
+  const list = FIELDS.map(f => [f, R.resolve(f, skin)])
+    .filter(p => p[1])
+    .map(([f, r]) => (f === 'face' && !skin.eyes ? [f, { ...r, tex: 'noeyes:' + r.tex }] : [f, r])); // None eyes: no eye holes
   const loaded = (
     await Promise.all(
       list.map(async ([f, r]) => {
