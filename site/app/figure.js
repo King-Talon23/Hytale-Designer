@@ -650,8 +650,8 @@ export async function loadAnim(group, name) {
 
 // ---- the game's blocks as meshes, drawn many at a time: a cube block's six faces, or a block model baked into one geometry
 const REV_EDGE = 92 * 64, // how far a background change runs: past the mountain ring (scene units)
-  WAVE_SPREAD = 0.7, // seconds from the character's feet to the mountains
-  WAVE_POP = 0.28; // seconds one block takes to shrink away or pop up
+  WAVE_SPREAD = 1.25, // seconds from the character's feet to the mountains
+  WAVE_POP = 0.42; // seconds one block takes to shrink away or pop up
 const BLOCK = 64; // one block in the figure's units (block models are made at 32 to a block, so they are doubled)
 const SHADE = 0.72; // the scene's lights are set for the figure; scenery takes this much of them so a sunlit top shows the block's own colour
 const canvasOf = path =>
@@ -2666,7 +2666,7 @@ export function stage(canvas, Controls) {
   }; // for tests
   // the wave: every block of a side is drawn with a copy of its material that scales each block (instance) by the wave's clock at its
   // distance; block materials are shared between places, so the copies are what differ. When it has passed, the old place goes
-  const WAVE_LAG = 0.06; // the new block starts this much after the old one, so the two never sit the same size in the same place
+  const WAVE_LAG = 0.12; // the new block starts this much after the old one, so the two never sit the same size in the same place
   const waveMat = (m, inside) => {
     const c = m.clone();
     c.defines = { ...(c.defines || {}), [inside ? 'WAVE_IN' : 'WAVE_OUT']: '' };
