@@ -141,6 +141,7 @@ export function createLocker(app) {
   let DRAG = null; // { kind: 'game' | 'custom', rec }
   const dropOk = (kind, i) => !!DRAG && kind === 'game' && !(DRAG.kind === 'game' && DRAG.rec.slot === i);
   const dragFrom = (rec, kind) =>
+    slotsOn() &&
     (kind === 'game' || (kind === 'custom' && !app.hasCustom(rec.skin))) && {
       draggable: true,
       title: kind === 'game' ? 'Drag to My skins or another slot' : 'Drag onto an in-game slot',
@@ -278,11 +279,17 @@ export function createLocker(app) {
         onkeydown: e => {
           if (e.key === 'Enter' && e.target === e.currentTarget) e.currentTarget.click();
         },
+        oncontextmenu: e => {
+          const b = e.currentTarget.querySelector('.cardmenu');
+          if (!b) return;
+          e.preventDefault();
+          if (b.getAttribute('aria-expanded') !== 'true') b.click();
+        } /* right-click opens the card's ⋯ menu */,
       },
       el('div', { class: 'pic' }, portrait(rec.skin)),
       el('b', { text: rec.name }),
       kind === 'game' ? el('small', { text: 'Slot ' + (rec.slot + 1) }) : null,
-      worn ? el('span', { class: 'worn', text: inGame ? 'In game' : 'Wearing' }) : null,
+      worn ? el('span', { class: 'worn', text: 'Selected' }) : null,
       menu || el('div', { class: 'acts' }, acts)
     );
   }
@@ -364,7 +371,7 @@ export function createLocker(app) {
           el('b', {
             text:
               app.FOLDER.state === 'on'
-                ? 'Saving through the mod to Documents\\Hytale Skins'
+                ? 'Connected to mod in Documents\\Hytale Skins'
                 : 'Waiting for Hytale: saves go across when the game runs',
           })
         ),

@@ -601,9 +601,14 @@ export function createAnimate(ctx) {
     const x = AN;
     clearTimeout(saveT);
     AN = null;
-    if (held) {
-      held = '';
+    if (held || heldL) {
+      held = heldL = '';
       ctx.hold?.('', 'R');
+      ctx.hold?.('', 'L');
+    }
+    if (scene) {
+      scene = '';
+      ctx.scene?.('');
     }
     st.anim.playing = false;
     st.boneGizmo(null);
@@ -2129,15 +2134,41 @@ export function createAnimate(ctx) {
               el('button', { class: 'btn ghost', text: 'Match ends', disabled: !!a.holdLastKeyframe, onclick: matchEnds }),
               el('button', { class: 'btn ghost', text: 'Loosen', onclick: loosen }),
               pickList(el, {
-                label: 'Held item',
+                label: 'Right hand',
                 value: held || '',
-                items: [{ value: '', text: 'No item' }, ...(ctx.props || []).map(k => ({ value: k, text: PROPNAME[k] || nice(k) }))],
+                items: [
+                  { value: '', text: 'Right hand: empty' },
+                  ...(ctx.props || []).map(k => ({ value: k, text: PROPNAME[k] || nice(k) })),
+                ],
                 onPreview: v => ctx.hold?.(v === null ? held : v, 'R'),
                 onChoose: v => {
                   held = v;
                   ctx.hold?.(held, 'R');
                 },
               }) /* the figure holds the item under the pointer */,
+              pickList(el, {
+                label: 'Left hand',
+                value: heldL || '',
+                items: [
+                  { value: '', text: 'Left hand: empty' },
+                  ...(ctx.props || []).map(k => ({ value: k, text: PROPNAME[k] || nice(k) })),
+                ],
+                onPreview: v => ctx.hold?.(v === null ? heldL : v, 'L'),
+                onChoose: v => {
+                  heldL = v;
+                  ctx.hold?.(heldL, 'L');
+                },
+              }),
+              pickList(el, {
+                label: 'Scene',
+                value: scene || '',
+                items: [{ value: '', text: 'No scene' }, ...(ctx.scenes || []).map(k => ({ value: k, text: k }))],
+                onPreview: v => ctx.scene?.(v === null ? scene : v),
+                onChoose: v => {
+                  scene = v;
+                  ctx.scene?.(scene);
+                },
+              }) /* a chair, bed, ladder... to animate against */,
               el('button', {
                 class: 'btn ghost' + (ghostsOn ? ' on' : ''),
                 text: 'Ghosts',
@@ -2218,7 +2249,9 @@ export function createAnimate(ctx) {
     render();
   }
   let recording = false,
-    held = '';
+    held = '',
+    heldL = '',
+    scene = '';
   // Loosen: the keys between the first and last move a little (up to a frame, up to 2 degrees), so repeats don't look machine-made; one undo step
   function loosen() {
     const a = AN.a,

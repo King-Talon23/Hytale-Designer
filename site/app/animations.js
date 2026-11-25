@@ -429,6 +429,8 @@ export function createAnimations(app) {
   // other players' skins
 
   return {
+    sceneryFor,
+    facesAway,
     get playing() {
       return playing;
     },

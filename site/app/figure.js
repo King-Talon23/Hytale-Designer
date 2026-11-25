@@ -1177,7 +1177,7 @@ export function stage(canvas, Controls) {
   ctl.enablePan = false;
   ctl.zoomToCursor = false; // zoom stays on the figure's centre, lined up with the buttons under it
   ctl.minDistance = 40;
-  ctl.maxDistance = 900;
+  ctl.maxDistance = 1250;
   ctl.rotateSpeed = 0.55;
   // the camera stays above the floor everywhere (Studio matches the backgrounds)
   ctl.maxPolarAngle = Math.PI * 0.47;
@@ -2242,7 +2242,7 @@ export function stage(canvas, Controls) {
       const top = at[1] + 135,
         [b, , , h] = insets(),
         len = Math.min(700, ((top + 40) * h) / (2 * Math.tan((16 * Math.PI) / 180) * (h - b))); // rider and animal both in view: the rider's head is the seat plus a body
-      ctl.maxDistance = Math.max(900, len);
+      ctl.maxDistance = Math.max(1250, len);
       const off = cam.position.clone().sub(ctl.target).setLength(len),
         sp = new THREE.Spherical().setFromVector3(off);
       sp.phi = Math.min(sp.phi, 1.3);
@@ -2251,7 +2251,7 @@ export function stage(canvas, Controls) {
       cam.position.copy(ctl.target).add(off);
       ctl.update();
     } else if (was) {
-      ctl.maxDistance = 900;
+      ctl.maxDistance = 1250;
       const off = cam.position.clone().sub(ctl.target).setLength(fitLen());
       ctl.target.set(0, 62, 0);
       cam.position.copy(ctl.target).add(off);

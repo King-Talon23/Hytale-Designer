@@ -237,8 +237,10 @@ function showConnect() {
       if (connecting) return;
       let h;
       try {
+        const was = await game.zipHandle().catch(() => null); /* picked before: the file window opens in that folder */
         [h] = await showOpenFilePicker({
           id: 'hytale-assets',
+          ...(was ? { startIn: was } : {}),
           types: [{ description: 'Hytale Assets.zip', accept: { 'application/zip': ['.zip'] } }],
         });
       } catch {
@@ -465,14 +467,29 @@ async function startApp() {
       canPublish: () => canPublish(),
       lockedPublish: () => locked('Publish', 'publishing', 'mini'),
       props: Object.keys(game.PROPS).filter(k => k !== 'glider'),
+      // set pieces to animate against, the same ones the game's moves use in the Animations tab
+      scenes: Object.keys(SCENES),
+      scene: k => {
+        const [g, n] = SCENES[k] || [],
+          away =
+            !!g && animationsTab.facesAway(g, n); /* a ladder or bench stands in front: watched from behind, as in the Animations tab */
+        st.scenery(...(g ? animationsTab.sceneryFor(g, n) : [null, 0]));
+        if (away && !HELD.away) st.behind();
+        else if (!away && HELD.away) st.toFront();
+        st.keepBehind(away);
+        HELD.away = away;
+      },
+      // what the figure holds while animating: one item per hand
       hold: async (k, hand) => {
         const my = (holdSeq = (holdSeq || 0) + 1);
         setPropsKey(null);
-        if (!k) return st.props([]);
+        HELD[hand === 'L' ? 'L' : 'R'] = k || '';
         try {
-          const root = await fig.buildProp(k);
+          const built = await Promise.all(
+            ['R', 'L'].filter(h => HELD[h]).map(async h => ({ root: await fig.buildProp(HELD[h]), bone: h + '-Attachment' }))
+          );
           if (my !== holdSeq) return;
-          st.props([{ root, bone: hand === 'L' ? 'L-Attachment' : 'R-Attachment' }]);
+          st.props(built);
         } catch (e) {
           say(e.message, true);
         }
@@ -930,16 +947,21 @@ const hover = part => ({
     if (e.pointerType === 'mouse') peek();
   },
 });
+const HELD = { R: '', L: '', away: false }, // Animate: the items in hand, and whether the scene piece is watched from behind
+  SCENES = {
+    Chair: ['Flavor', 'Sit'],
+    Bed: ['Flavor', 'Sleep'],
+    Bench: ['Default', 'Interact'],
+    Ladder: ['Climb', 'Climb'],
+    Ledge: ['Mantle', 'Mantle_Hang'],
+    'Stone block': ['Mantle', 'Mantle_Up'],
+    Water: ['Swim', 'Swim'],
+  };
 function plate() {
-  const tag =
-    cur.kind === 'game'
-      ? ['In-game slot ' + (cur.slot + 1), 'game']
-      : cur.kind === 'custom'
-        ? ['My skin', 'custom']
-        : ['Not saved', 'none'];
+  const tag = cur.kind === 'game' ? ['In-game slot ' + (cur.slot + 1), 'game'] : cur.kind === 'custom' ? null : ['Not saved', 'none'];
   $('nameplate').replaceChildren(
     el('b', { text: cur.name || 'New skin' }),
-    el('span', { class: 'tag ' + tag[1], text: tag[0] }),
+    ...(tag ? [el('span', { class: 'tag ' + tag[1], text: tag[0] })] : []),
     ...(cur.id ? [el('span', { class: 'tag none', text: dirty ? (flush.stuck ? 'Not saved' : 'Saving…') : 'Saved' })] : [])
   );
   $('undo').disabled = hpos <= 0;

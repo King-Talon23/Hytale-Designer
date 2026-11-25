@@ -1601,6 +1601,7 @@ export function createCreator(app) {
       },
       acts
     );
+    m.setAttribute('title', ''); /* an open menu doesn't show the card's drag hint */
     m.addEventListener(
       'click',
       e => {
@@ -1625,6 +1626,7 @@ export function createCreator(app) {
       'aria-expanded': 'false',
       onclick: e => {
         e.stopPropagation();
+        b.setAttribute('title', '');
         const open_ = m.hidden;
         document.querySelectorAll('.cardacts').forEach(x => (x.hidden = true));
         document.querySelectorAll('.cardmenu').forEach(x => x.setAttribute('aria-expanded', 'false'));
