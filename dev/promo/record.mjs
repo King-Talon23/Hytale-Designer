@@ -646,6 +646,27 @@ const takes = {
     await sleep(800);
     await cap('');
   },
+  // 8b. (user 2026-11-24: "show the changing of studio environments, there's a cool blockwave animation now") the background menu,
+  // one biome per zone: each change swaps the blocks out in a wave from the character. The menu opens on the zone of the current
+  // background, so the zone head is clicked only when it is shut
+  async backdrops() {
+    await tab('editor');
+    await sleep(1200);
+    await cap('Pose it in any <b>biome</b>', 0, LOW);
+    await sleep(600);
+    for (const [zone, name] of [
+      ['1', 'Flower Forest'],
+      ['2', 'Red Desert'],
+      ['3', 'Glacier'],
+      ['4', 'Lava Wastes'],
+    ]) {
+      await click('$document.querySelector(".stbtn[aria-haspopup=listbox]")', { after: 350 });
+      if ((await p.eval(`document.querySelector('.bdzhead[data-zone="${zone}"]').getAttribute('aria-expanded')`)) !== 'true')
+        await click(`$document.querySelector('.bdzhead[data-zone="${zone}"]')`, { after: 300 });
+      await click('$[...document.querySelectorAll(".bdopt")].find(b=>b.textContent.trim()==="' + name + '")', { after: 2800 });
+    }
+    await cap('');
+  },
   // 6. randomize a few looks
   async randomize() {
     await click('$document.querySelector("[data-tab=editor]")', { after: 700 });

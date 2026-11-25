@@ -43,10 +43,11 @@ const V3 = [
   ['create', 22.71, 27.7, 3.2],
   ['create', 27.7, 31.6, 1.0],
   ['combine', 7.6, 22.4, 1.6],
-  ['record', 9.7, 20.6, 2.4],
-  ['record', 20.8, 25.0, 2.8],
+  // (takes re-recorded 2026-11-24 evening against the changed site; V3's other pieces still hold the older takes' times)
+  ['record', 9.55, 20.45, 2.4],
+  ['record', 20.6, 24.85, 2.8],
   // Play: the recorded wave, then Keep and the keyed playback, at 1.0x
-  ['record', 25.0, 31.6, 1.0],
+  ['record', 24.85, 31.4, 1.0],
   // the same Big Wave as an emote in Hytale (mod 1.2.1), with a caption and the live tag
   ['emote-game', 0.3, 7.6, 1.0, '...and use them in game'],
   // montage at 1.0x: horse ride, the picture, Desert ride, Fall Far, the walk
@@ -55,7 +56,7 @@ const V3 = [
   ['montage', 24.3, 26.3, 1.0],
   ['montage', 28.6, 30.8, 1.0],
   ['montage', 35.2, 37.4, 1.0],
-  ['end', 3.1, 6.8, 1],
+  ['end', 3.18, 6.88, 1],
 ];
 // v4 (user 2026-11-24): open on what the game's own editor can't do. Hook: My skins (up to 45) and one click swapping the WHOLE
 // outfit in Hytale (take liveSwap, 1:1 time, one look per piece: each starts on the shelf just before the card click; the game
@@ -65,57 +66,70 @@ const SWAP_CROP = '1230:1038:350:10', // was 1066:900:432:40 (zoomed out, user 2
   SWAP_CAP = 'Save up to 45 skins. Swap them in game, live.',
   PAINT_CAP = 'Updates live in Hytale';
 const V4 = [
-  // the shelf (16 / 45), then Pirate Captain (site 5.40, game 6.66)
-  ['split', 'liveSwap', 'live-swap-game', 3.4, 7.3, 1.0, SWAP_CROP, SWAP_CAP],
-  // Viking (10.45 / 11.71), Witch (15.58 / 16.76), Royal (20.67 / 21.76), Street (25.72 / 26.85); every swap is in, or the game
+  // the shelf (16 / 45), then Pirate Captain (site 5.48, game 6.16)
+  ['split', 'liveSwap', 'live-swap-game', 3.48, 7.38, 1.0, SWAP_CROP, SWAP_CAP],
+  // Viking (10.60 / 11.21), Witch (15.70 / 16.30), Royal (20.77 / 21.35), Street (25.87 / 26.46); every swap is in, or the game
   // half would jump between looks at a cut
-  ['split', 'liveSwap', 'live-swap-game', 9.95, 12.35, 1.0, SWAP_CROP, SWAP_CAP],
-  ['split', 'liveSwap', 'live-swap-game', 15.08, 17.4, 1.0, SWAP_CROP, SWAP_CAP],
-  ['split', 'liveSwap', 'live-swap-game', 20.17, 22.4, 1.0, SWAP_CROP, SWAP_CAP],
-  ['split', 'liveSwap', 'live-swap-game', 25.22, 27.6, 1.0, SWAP_CROP, SWAP_CAP],
-  // create: open + tools, the painting (one flowing hand), the turn; blank frames on Bigger (7.033) and Smaller (22.7) skipped;
-  // it ends before Done (27.5): the split takes over from the same moment of the live take
-  ['create', 3.0, 7.02, 3.2],
-  ['create', 7.045, 10.4, 3.2],
-  ['create', 10.4, 21.3, 2.4],
-  ['create', 21.3, 22.69, 3.2],
-  ['create', 22.71, 27.3, 3.2],
-  // the live take: Done (23.90) and the crest on the knees in Hytale, 1.0x (the site view draws one blank frame after Done, at
-  // 23.916: skipped)
-  ['split', 'live', 'live-game', 22.6, 23.91, 1.0, LIVE_CROP, PAINT_CAP],
-  ['split', 'live', 'live-game', 23.925, 28.4, 1.0, LIVE_CROP, PAINT_CAP],
-  ...V3.slice(V3.findIndex(c => c[0] === 'combine')),
+  ['split', 'liveSwap', 'live-swap-game', 10.1, 12.5, 1.0, SWAP_CROP, SWAP_CAP],
+  ['split', 'liveSwap', 'live-swap-game', 15.2, 17.52, 1.0, SWAP_CROP, SWAP_CAP],
+  ['split', 'liveSwap', 'live-swap-game', 20.27, 22.5, 1.0, SWAP_CROP, SWAP_CAP],
+  ['split', 'liveSwap', 'live-swap-game', 25.37, 27.75, 1.0, SWAP_CROP, SWAP_CAP],
+  // create: open + tools, the painting (one flowing hand), the turn; blank frames on Bigger (7.183) and Smaller (24.6) skipped;
+  // it ends before Done (29.5): the split takes over from the same moment of the live take
+  ['create', 3.0, 7.17, 3.2],
+  ['create', 7.195, 10.55, 3.2],
+  ['create', 10.55, 23.4, 2.4],
+  ['create', 23.4, 24.59, 3.2],
+  ['create', 24.61, 29.3, 3.2],
+  // the live take: the crest on the knees in Hytale (23.36), Done (23.85), 1.0x (the site view draws a half frame and a blank
+  // one after Done, 23.866 and 23.883: skipped)
+  ['split', 'live', 'live-game', 22.55, 23.86, 1.0, LIVE_CROP, PAINT_CAP],
+  ['split', 'live', 'live-game', 23.895, 28.37, 1.0, LIVE_CROP, PAINT_CAP],
+  // (user 2026-11-24: "remove the Ride, Walk, Explore, Share section") no montage
+  ...V3.slice(V3.findIndex(c => c[0] === 'combine')).filter(c => c[0] !== 'montage'),
 ];
 // v5 (user 2026-11-24: "make your own version of my monocle with mask to show how it's done"): the combine is made on camera
 // (take combineMake): Edit a copy of the Monocle, Add item... Ragged Bandana, the monocle brought just in front of the mask (Z 16.6),
 // name, Done, worn. The half-drawn and the empty view right after Done (24.483, 24.5) are skipped. From Done on the character is
 // shown (idle animation), so 1.0x
 // (user 2026-11-24: "show the custom asset being worn live in game") after the Add, the live take (liveCombine, the same steps with
-// Hytale alongside): the mask arrives on the character in game at 18.2 while the monocle is moved forward on the site; Done at 21.73,
-// the game reloads the item and turns the character until ~27, then shows the finished item from the front
+// Hytale alongside): the mask arrives on the character in game at 17.3 while the monocle is moved forward on the site; Done at 21.77,
+// the game reloads the item at 23.7, then shows the finished item from the front
 const COMBINE_CROP = '1230:1038:300:10',
   COMBINE_CAP = 'Combine items into new ones',
   NEW_CAP = 'Your own new item';
 const COMBINE = [
-  ['combineMake', 2.0, 7.95, 3.0],
-  ['combineMake', 7.966, 13.69, 2.4],
-  ['split', 'liveCombine', 'live-combine-game', 17.4, 20.0, 1.0, COMBINE_CROP, COMBINE_CAP],
+  ['combineMake', 2.0, 7.82, 3.0],
+  ['combineMake', 7.833, 13.64, 2.4],
+  ['split', 'liveCombine', 'live-combine-game', 16.6, 19.6, 1.0, COMBINE_CROP, COMBINE_CAP],
   ['split', 'liveCombine', 'live-combine-game', 27.0, 29.5, 1.0, COMBINE_CROP, NEW_CAP],
 ];
-const V5 = V4.flatMap(c => (c[0] !== 'combine' ? [c] : COMBINE));
+// (user 2026-11-24: "a quick part where you show the changing of studio environments, there's a cool blockwave animation now") take
+// backdrops: Flower Forest (menu shut 5.0, wave 5.4-6.3), Red Desert (12.85, 13.0-14.0), Glacier (20.5, 20.6-21.9), Lava Wastes
+// (28.3, 28.4-29.8). The idle plays throughout, so 1.0x; the menu waits between clicks are cut out
+const BIOMES = [
+  ['backdrops', 4.6, 6.8, 1.0],
+  ['backdrops', 12.85, 14.5, 1.0],
+  ['backdrops', 20.45, 22.1, 1.0],
+  ['backdrops', 28.3, 30.4, 1.0],
+];
+const V5 = V4.flatMap(c => (c[0] === 'combine' ? COMBINE : c[0] === 'end' ? [...BIOMES, c] : [c]));
 // x15 (user 2026-11-24: "a 15 second cut for X, the first 12 seconds can be cut"): no 45-skins hook; paint -> live in game, the
 // combine, animation -> emote in game, end card. UI is sped, every character animation at 1.0x
 const X15 = [
-  ['create', 10.4, 21.3, 5.0],
-  ['split', 'live', 'live-game', 22.6, 23.91, 1.0, LIVE_CROP, PAINT_CAP],
-  ['split', 'live', 'live-game', 23.925, 25.6, 1.0, LIVE_CROP, PAINT_CAP],
-  ['combineMake', 6.5, 7.95, 3.0],
-  ['combineMake', 7.966, 13.69, 4.5],
-  ['split', 'liveCombine', 'live-combine-game', 17.8, 19.8, 1.0, COMBINE_CROP, COMBINE_CAP],
+  ['create', 10.55, 23.4, 5.9],
+  ['split', 'live', 'live-game', 22.55, 23.86, 1.0, LIVE_CROP, PAINT_CAP],
+  ['split', 'live', 'live-game', 23.895, 25.57, 1.0, LIVE_CROP, PAINT_CAP],
+  ['combineMake', 6.37, 7.82, 3.0],
+  ['combineMake', 7.833, 13.64, 4.5],
+  ['split', 'liveCombine', 'live-combine-game', 16.9, 18.9, 1.0, COMBINE_CROP, COMBINE_CAP],
   ['split', 'liveCombine', 'live-combine-game', 27.2, 28.6, 1.0, COMBINE_CROP, NEW_CAP],
-  ['record', 25.0, 26.0, 1.0],
+  ['record', 24.85, 25.85, 1.0],
   ['emote-game', 0.3, 2.8, 1.0, '...and use them in game'],
-  ['end', 3.1, 4.5, 1],
+  // (user 2026-11-24: biome beat in the X cut too, ~18 s) two waves: Red Desert, Glacier
+  ['backdrops', 12.85, 14.2, 1.0],
+  ['backdrops', 20.45, 21.95, 1.0],
+  ['end', 3.18, 4.58, 1],
 ];
 const v = ['v3', 'v4', 'v5', 'x15'].includes(process.argv[2]) ? process.argv[2] : '';
 const CUT = { v3: V3, v4: V4, v5: V5, x15: X15 }[v] || V2;
