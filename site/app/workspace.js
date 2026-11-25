@@ -19,8 +19,6 @@ export function createWorkspace(app) {
     itemThumb,
     render,
     head,
-    TIERS,
-    tierOf,
     sayUndo,
     playAnim,
     nextEdN,
@@ -39,7 +37,7 @@ export function createWorkspace(app) {
     closeAsset,
     sharersOf,
     assetThumb,
-    paidLocked,
+    editLocked,
     checkReplica,
     FLAG_WHY,
     anyItem,
@@ -2424,8 +2422,6 @@ export function createWorkspace(app) {
       c.getContext('2d').drawImage(bmp, 0, 0);
       return { model: a.shape ? JSON.parse(a.shape) : structuredClone(await game.json(game.common(a.model))), canvas: c };
     }
-    if (paidLocked(e))
-      throw new Error(`${itemName(e)} is a ${TIERS[tierOf(e)]} item. Paid items can only be used by an account that owns them.`);
     const r = app.R.resolve(f, { ...app.cur.skin, [f]: app.R.partStr(e) });
     if (!r) throw new Error('That item could not be read.');
     const c = await fig.bakedCanvas(r.tex, r.tint).catch(() => {
@@ -2572,7 +2568,7 @@ export function createWorkspace(app) {
       const q = find.value.trim().toLowerCase();
       const okE = e =>
         !isTmp(e) &&
-        !(!e.custom && paidLocked(e)) &&
+        !(!e.custom && editLocked(e)) &&
         !(app.ED && e.Id === 'Custom_' + app.ED.asset.id) &&
         (!q || itemName(e).toLowerCase().includes(q));
       const list = (q ? slots : [f])
@@ -2887,7 +2883,7 @@ export function createWorkspace(app) {
       const paidIn = f => {
         const it = app.R.find(f, app.cur.skin[f]),
           b = it && it.custom ? app.CAT.items[f].find(e => e.Id === it.baseId) : it;
-        return b && paidLocked(b);
+        return b && editLocked(b);
       };
       const tile = f => {
         const it = app.R.find(f, app.cur.skin[f]),
