@@ -1,6 +1,6 @@
 // The wardrobe. Two shelves that never mix:
 //   game   - 5 slots that mirror the presets inside Hytale (ids game-0 .. game-4)
-//   custom - up to 45 skins that exist only on this site
+//   custom - up to 50 skins that exist only on this site
 import * as db from './db.js';
 import { sanitize, cleanName } from './skin.js';
 import * as assets from './assets.js';
@@ -8,7 +8,7 @@ import * as anim from './anim.js';
 import { mirrorDir } from './foldersync.js';
 
 export const GAME_SLOTS = 5,
-  CUSTOM_MAX = 45;
+  CUSTOM_MAX = 50;
 const gameId = i => 'game-' + i;
 
 export async function list() {

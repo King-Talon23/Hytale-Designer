@@ -63,7 +63,7 @@ const V3 = [
 // follows ~1.25 s later). The live paint split moves into the painting section, after the create take's turn. Wardrobe flip dropped
 // (the in-game editor has it). Split pieces: ['split', site, game, from, to, speed, crop, caption]
 const SWAP_CROP = '1230:1038:350:10', // was 1066:900:432:40 (zoomed out, user 2026-11-24)
-  SWAP_CAP = 'Save up to 45 skins. Swap them in game, live.',
+  SWAP_CAP = 'Save up to 50 skins. Swap them in game, live.',
   PAINT_CAP = 'Updates live in Hytale';
 const V4 = [
   // the shelf (16 / 45), then Pirate Captain (site 5.48, game 6.16)
