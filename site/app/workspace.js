@@ -37,6 +37,8 @@ export function createWorkspace(app) {
     closeAsset,
     sharersOf,
     assetThumb,
+    TIERS,
+    tierOf,
     editLocked,
     checkReplica,
     FLAG_WHY,
@@ -2422,6 +2424,8 @@ export function createWorkspace(app) {
       c.getContext('2d').drawImage(bmp, 0, 0);
       return { model: a.shape ? JSON.parse(a.shape) : structuredClone(await game.json(game.common(a.model))), canvas: c };
     }
+    if (editLocked(e))
+      throw new Error(`${itemName(e)} is a ${TIERS[tierOf(e)]} item. Paid items can only be used by an account that owns them.`);
     const r = app.R.resolve(f, { ...app.cur.skin, [f]: app.R.partStr(e) });
     if (!r) throw new Error('That item could not be read.');
     const c = await fig.bakedCanvas(r.tex, r.tint).catch(() => {

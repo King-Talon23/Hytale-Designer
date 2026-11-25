@@ -41,6 +41,7 @@ export function createCreator(app) {
     setPressing,
     viewInset,
     render,
+    TIERS,
     tierOf,
     loadLock,
     loadEmotes,
@@ -165,6 +166,11 @@ export function createCreator(app) {
     const r = app.R.resolve(f, skin),
       it = app.R.find(f, skin[f]);
     if (!r || !it) throw new Error('Pick an item');
+    const paidBase = it.custom ? app.CAT.items[f].find(e => e.Id === it.baseId) : it;
+    if (paidBase && editLocked(paidBase))
+      throw new Error(
+        `${itemName(paidBase)} is a ${TIERS[tierOf(paidBase)]} item. Paid items can only be edited by an account that owns them.`
+      );
     const src = it.custom ? ASSETS.find(x => 'Custom_' + x.id === it.Id) : null;
     if (it.custom && !src) throw new Error('That custom item is gone. Pick another one.');
     let a;
@@ -994,8 +1000,9 @@ export function createCreator(app) {
     return !!have && need.length > 0 && need.every(x => have.includes(x));
   };
   const paidLocked = e => tierOf(e) > 0 && !owns(e);
-  // anyone may edit a paid item, but the copy stays on this site: never worn through the mod (lockedBase) and never published
-  const editLocked = () => false;
+  // local development only: paid items open to edit (the copy stays site only: never worn through the mod, never published)
+  const devHost = ['localhost', '127.0.0.1'].includes(location.hostname) || location.hostname.endsWith('.localhost');
+  const editLocked = e => !devHost && paidLocked(e);
   const paidTip = () => (app.ACCOUNT ? 'Your Hytale account does not own this item' : 'Connect Hytale account to verify ownership');
   const lockedBase = a => {
     const it = app.CAT.items[a.field].find(e => e.Id === a.baseId);
