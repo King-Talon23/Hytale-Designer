@@ -1127,6 +1127,31 @@ button.tag {
   filter: grayscale(1);
   cursor: not-allowed;
 }
+/* My skins: the last tile makes a new default skin */
+.skin.addnew {
+  border-style: dashed;
+  border-color: #2f5f8a;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.skin.addnew:hover {
+  border-color: #6fa8dc;
+}
+.skin.addnew .pic {
+  background: #ffffff08;
+}
+.skin.addnew .pic .plus {
+  font-size: 56px;
+  font-weight: 300;
+  line-height: 1;
+  color: #8fb8e0;
+}
+.skin.addnew b {
+  letter-spacing: 0.06em;
+  color: #8fb8e0;
+}
 .skin.empty {
   cursor: default;
   opacity: 0.6;

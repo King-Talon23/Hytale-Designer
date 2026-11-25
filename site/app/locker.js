@@ -526,13 +526,19 @@ export function createLocker(app) {
           'div',
           { class: 'shelf custom', ...shelfDrop },
           el('h3', {}, el('span', { text: 'My skins' }), el('em', { text: `${app.WARD.custom.length} / ${store.CUSTOM_MAX}` })),
-          app.WARD.custom.length
-            ? el(
-                'div',
-                { class: 'cards' },
-                app.WARD.custom.map(r => card(r, 'custom'))
-              )
-            : el('p', { class: 'blank', text: 'No skins' })
+          el(
+            'div',
+            { class: 'cards' },
+            app.WARD.custom.map(r => card(r, 'custom')),
+            app.WARD.custom.length < store.CUSTOM_MAX
+              ? el(
+                  'button',
+                  { class: 'skin addnew', type: 'button', onclick: addNew },
+                  el('div', { class: 'pic' }, el('span', { class: 'plus', text: '+' })),
+                  el('b', { text: 'ADD NEW' })
+                )
+              : null
+          )
         )
       ),
     ];
@@ -565,6 +571,13 @@ export function createLocker(app) {
     }
     /* the skin that was in the slot moved to My skins under the sent skin's id: the open look follows it */ await refreshWard();
     say('Moved to in-game slot ' + (+v + 1));
+  });
+  // a new default skin in My skins, worn at once
+  const addNew = guard(async () => {
+    const n = await store.saveCustom(await store.uniqueName('New skin'), app.R.blank());
+    await refreshWard();
+    open(n);
+    render();
   });
   const moveOut = guard(async rec => {
     rec = liveRec(rec);
