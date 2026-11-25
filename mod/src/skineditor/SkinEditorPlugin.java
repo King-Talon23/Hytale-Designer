@@ -58,11 +58,15 @@ public final class SkinEditorPlugin extends JavaPlugin {
     static final Pattern ASSET_PATH = Pattern.compile("^[A-Za-z0-9_ ./-]{1,200}$");
     static final Pattern TEX = Pattern.compile("^Characters/SkinEditor/[0-9a-f]{8}-[0-9a-f]{8}\\.png$");
     static final Pattern PART = Pattern.compile("^[A-Za-z0-9_ -]{1,64}(\\.[A-Za-z0-9_ +-]{1,96}){0,2}$");
+    static final String CLOSED_EYES = "Characters/SkinEditorBase/ClosedEyes.png";
+    static final String CLOSED_EYES_PNG = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALklEQVR42u3OQQEAAAQEMPSPeT2I4bMlWCfZejT1TEBAQEBAQEBAQEBAQEBA4AAzvwPr0ojl+wAAAABJRU5ErkJggg==";   // 32x32, grey 228
+    static final List<String> NEEDED = List.of("bodyCharacteristic", "underwear", "face", "ears", "mouth", "eyes");   // the game's skin check needs these
+    static final Set<String> NONE_OK = Set.of("eyes", "mouth", "ears");   // the site offers None for these
     static final String[] FIELDS = { "bodyCharacteristic", "underwear", "face", "ears", "mouth", "haircut", "facialHair", "eyebrows", "eyes", "pants", "overpants",
         "undertop", "overtop", "shoes", "headAccessory", "faceAccessory", "earAccessory", "skinFeature", "gloves", "cape" };
     static final Set<String> SLOTS = Set.of(FIELDS);
     static final String LIVE = "SkinEditor_Live";
-    static final String VERSION = "1.2.0";
+    static final String VERSION = "1.3.0";
     static final Pattern WORD = Pattern.compile("^[A-Za-z0-9_ -]{1,64}$");
     static final Map<String, String> GENERIC = Map.of("Short", "GenericShort", "Medium", "GenericMedium", "Long", "GenericLong");   // Cosmetics/CharacterCreator/HaircutFallbacks.json
 
@@ -198,12 +202,17 @@ public final class SkinEditorPlugin extends JavaPlugin {
         }
         PlayerSkin skin = new PlayerSkin(base); Map<String, Asset> custom = new LinkedHashMap<>();
         for (String f : FIELDS) {
-            if (want.keepOwn().contains(f)) continue;   // a paid item: the player's own part stays
             String v = want.parts().get(f);
+            // a paid item: the player's own part stays. The site also lists None eyes, mouth or ears here, for mods before 1.3 (the
+            // game's own skin check refuses those); this one draws them as None
+            if (want.keepOwn().contains(f) && !(v == null && NONE_OK.contains(f))) continue;
             if (v != null && v.startsWith("Custom_")) { Asset a = all.get(v.substring(7).split("\\.")[0]); if (a != null && a.field().equals(f)) custom.put(f, a); continue; }
             put(skin, f, v);
         }
-        if (custom.isEmpty()) {
+        boolean none = false;
+        for (String f : NONE_OK) if (get(skin, f) == null) none = true;
+        for (String f : NEEDED) if (!NONE_OK.contains(f) && get(skin, f) == null) put(skin, f, (String) get(base, f));   // never a hole in the head or body
+        if (custom.isEmpty() && !none) {
             try { CosmeticsModule.get().validateSkin(skin); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] the website's skin has parts this game version lacks"); dressedWith.put(who, key); return; }
             applied.put(who, new PlayerSkin(skin)); plain(store, ref, skin);
         } else {
@@ -212,7 +221,11 @@ public final class SkinEditorPlugin extends JavaPlugin {
                 // the body, hat and haircut keep their game item underneath (tone, covering rules, hair length); the custom piece is drawn in its place
                 put(skin, f, f.equals("bodyCharacteristic") && a.baseId() != null && a.tone() != null ? a.baseId() + "." + a.tone() : null); }   // only the body keeps its game item (for the tone); hat and hair rules read the custom pieces' base items in skinToModel
             CosmeticsModule cm = CosmeticsModule.get();
-            Model m = skinToModel(cm, skin, cm.createModel(skin), custom);
+            // the game builds a model only from a complete skin: the base model gets the player's own parts in the empty slots, and
+            // skinToModel then draws exactly the parts the site chose (None stays empty)
+            PlayerSkin full = new PlayerSkin(skin);
+            for (String f : NEEDED) if (get(full, f) == null) put(full, f, (String) get(base, f));
+            Model m = skinToModel(cm, skin, cm.createModel(full), custom);
             if (store.getComponent(ref, PlayerSkinComponent.getComponentType()) != null) store.removeComponent(ref, PlayerSkinComponent.getComponentType());
             store.putComponent(ref, ModelComponent.getComponentType(), new ModelComponent(m));
         }
@@ -232,6 +245,10 @@ public final class SkinEditorPlugin extends JavaPlugin {
     private void ensureLivePack() throws Exception {
         Path live = modsDir.resolve(LIVE);
         Files.createDirectories(live.resolve("Common").resolve("Characters").resolve("SkinEditor")); Files.createDirectories(live.resolve("Server").resolve("SkinEditor"));
+        // None eyes: the face's eye holes are closed with the eye pieces in plain skin (grey 228, the faces' own shade, tinted with the
+        // player's tone). Kept out of Characters/SkinEditor, which the asset sync prunes
+        Path closed = live.resolve("Common").resolve(CLOSED_EYES);
+        if (!Files.isRegularFile(closed)) { Files.createDirectories(closed.getParent()); Files.write(closed, java.util.Base64.getDecoder().decode(CLOSED_EYES_PNG)); }
         Path m = live.resolve("manifest.json");
         // "DisabledByDefault": false: a pack that appears after the world was made is otherwise skipped as disabled (fresh installs)
         if (!Files.isRegularFile(m) || !Files.readString(m).contains("DisabledByDefault")) Files.writeString(m, "{\n \"Group\": \"SkinEditorPack\",\n \"Name\": \"Live\",\n \"Version\": \"1.0.0\",\n"
@@ -383,6 +400,9 @@ public final class SkinEditorPlugin extends JavaPlugin {
             else { tex = grey; gset = part.getGradientSet(); gid = p.textureId != null ? p.textureId : "Skin".equals(gset) ? tone : "Hair".equals(gset) ? hair : null; }
             if (mdl != null && tex != null) out.add(new ModelAttachment(mdl, tex, gset, gid, 1.0));
         }
+        if ((ps.eyes == null || ps.eyes.isEmpty()) && !custom.containsKey("eyes")) {   // None eyes: the eye pieces in skin close the face's eye holes
+            var eyes = reg.getEyes().containsKey("Medium_Eyes") ? reg.getEyes().get("Medium_Eyes") : reg.getEyes().values().stream().findFirst().orElse(null);
+            if (eyes != null && eyes.getModel() != null) out.add(new ModelAttachment(eyes.getModel(), CLOSED_EYES, "Skin", tone, 1.0)); }
         Model m = new Model(base); var body = bodyId == null ? null : reg.getBodyCharacteristics().get(bodyId.assetId);
         java.util.function.BiConsumer<String, Object> set = (f, v) -> { try { var fl = Model.class.getDeclaredField(f); fl.setAccessible(true); fl.set(m, v); } catch (Exception e) { throw new RuntimeException(e); } };
         set.accept("attachments", out.toArray(new ModelAttachment[0]));

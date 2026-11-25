@@ -36,6 +36,18 @@ export async function bakedCanvas(tex, tint) {
   return c;
 }
 async function pixels(p) {
+  if (p.startsWith('fill:')) {
+    // one plain grey (fill:<grey>:<w>x<h>), for parts drawn in skin only (None eyes)
+    const [g, size] = p.slice(5).split(':'),
+      [w, h] = size.split('x').map(Number),
+      c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.fillStyle = `rgb(${+g},${+g},${+g})`;
+    x.fillRect(0, 0, w, h);
+    return { c, x, d: x.getImageData(0, 0, w, h) };
+  }
   if (p.startsWith('custom:')) {
     const c = await customSource(p.slice(7).split('@')[0]),
       x = c.getContext('2d', { willReadFrequently: true });

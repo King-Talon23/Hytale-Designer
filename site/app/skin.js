@@ -102,6 +102,7 @@ export function rules(CAT) {
     // slot -> the model, texture and tint to draw, or null
     let { id, color, variant } = parse(skin[f]);
     let it = ITEMS[f].find(e => e.Id === id);
+    if (!it && f === 'eyes' && !skin.eyes) return closedEyes(skin);
     if (!it) return null;
     if (f === 'haircut') {
       // a fully covering hat hides the hair; a half covering one swaps tall haircuts for the generic one
@@ -117,6 +118,16 @@ export function rules(CAT) {
       set = CAT.gradients[s.GradientSet] || {},
       col = s.GradientSet === 'Skin' ? (body?.custom ? body.Tone : parse(skin.bodyCharacteristic).color) : color; // a copied body keeps the tone it was made in
     return { model: s.Model, tex: s.GreyscaleTexture, tint: (set[col] || Object.values(set)[0] || {}).Texture || null };
+  }
+  // None eyes: every face has holes where the eyes sit, so the eye pieces stay, drawn in plain skin (the faces' own shade, 228)
+  // tinted with the body's tone: the gap closes as skin, as the mod draws it in game
+  function closedEyes(skin) {
+    const e = ITEMS.eyes.find(x => x.IsDefaultAsset) || ITEMS.eyes[0];
+    if (!e?.Model) return null;
+    const body = find('bodyCharacteristic', skin.bodyCharacteristic),
+      set = CAT.gradients.Skin || {},
+      col = body?.custom ? body.Tone : parse(skin.bodyCharacteristic).color;
+    return { model: e.Model, tex: 'fill:228:32x32', tint: (set[col] || Object.values(set)[0] || {}).Texture || null };
   }
   const empty = () => Object.fromEntries(FIELDS.map(f => [f, null]));
   function blank() {
