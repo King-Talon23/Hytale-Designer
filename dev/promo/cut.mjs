@@ -24,7 +24,8 @@ const V2 = [
 // when they are recorded (promo-plan-v3.md)
 // the live split (v3 hook): painting starts with the gold pads in game; then the last fill, Done, and the crest in game. The game
 // half is a 900x760 crop around the character (the take's camera stands back)
-const LIVE_CROP = '900:760:510:150';
+// (user 2026-11-24: 'the live gameplay should be a little more zoomed out') was 900:760:510:150
+const LIVE_CROP = '1100:928:410:66';
 const V3 = [
   // (take of 2026-11-24 13:40) the game shows the gold pads until 12.65, drops them while the item saves, and shows the crest from 23.66
   // (one blank site frame on Bigger at 6.767 skipped)
@@ -60,7 +61,7 @@ const V3 = [
 // outfit in Hytale (take liveSwap, 1:1 time, one look per piece: each starts on the shelf just before the card click; the game
 // follows ~1.25 s later). The live paint split moves into the painting section, after the create take's turn. Wardrobe flip dropped
 // (the in-game editor has it). Split pieces: ['split', site, game, from, to, speed, crop, caption]
-const SWAP_CROP = '1066:900:432:40',
+const SWAP_CROP = '1230:1038:350:10', // was 1066:900:432:40 (zoomed out, user 2026-11-24)
   SWAP_CAP = 'Save up to 45 skins. Swap them in game, live.',
   PAINT_CAP = 'Updates live in Hytale';
 const V4 = [
@@ -89,16 +90,17 @@ const V4 = [
 // (take combineMake): Edit a copy of the Monocle, Add item... Ragged Bandana, the monocle brought just in front of the mask (Z 16.6),
 // name, Done, worn. The half-drawn and the empty view right after Done (24.483, 24.5) are skipped. From Done on the character is
 // shown (idle animation), so 1.0x
+// (user 2026-11-24: "show the custom asset being worn live in game") after the Add, the live take (liveCombine, the same steps with
+// Hytale alongside): the mask arrives on the character in game at 18.2 while the monocle is moved forward on the site; Done at 21.73,
+// the game reloads the item and turns the character until ~27, then shows the finished item from the front
+const COMBINE_CROP = '1230:1038:300:10',
+  COMBINE_CAP = 'Combine items into new ones',
+  NEW_CAP = 'Your own new item';
 const COMBINE = [
   ['combineMake', 2.0, 7.95, 3.0],
   ['combineMake', 7.966, 13.69, 2.4],
-  ['combineMake', 13.716, 16.9, 3.0],
-  // Glasses front selected, Z 15.1 -> 16.6
-  ['combineMake', 16.9, 19.9, 1.6],
-  ['combineMake', 19.9, 24.47, 3.2],
-  // Done: the view flies out from the masked face to the whole character; cut to the zoomed view with the caption and the orbit
-  ['combineMake', 24.516, 26.0, 1.0],
-  ['combineMake', 28.9, 32.1, 1.0],
+  ['split', 'liveCombine', 'live-combine-game', 17.4, 20.0, 1.0, COMBINE_CROP, COMBINE_CAP],
+  ['split', 'liveCombine', 'live-combine-game', 27.0, 29.5, 1.0, COMBINE_CROP, NEW_CAP],
 ];
 const V5 = V4.flatMap(c => (c[0] !== 'combine' ? [c] : COMBINE));
 // x15 (user 2026-11-24: "a 15 second cut for X, the first 12 seconds can be cut"): no 45-skins hook; paint -> live in game, the
@@ -109,9 +111,8 @@ const X15 = [
   ['split', 'live', 'live-game', 23.925, 25.6, 1.0, LIVE_CROP, PAINT_CAP],
   ['combineMake', 6.5, 7.95, 3.0],
   ['combineMake', 7.966, 13.69, 4.5],
-  ['combineMake', 13.716, 19.6, 4.5],
-  ['combineMake', 24.516, 25.5, 1.0],
-  ['combineMake', 29.2, 30.4, 1.0],
+  ['split', 'liveCombine', 'live-combine-game', 17.8, 19.8, 1.0, COMBINE_CROP, COMBINE_CAP],
+  ['split', 'liveCombine', 'live-combine-game', 27.2, 28.6, 1.0, COMBINE_CROP, NEW_CAP],
   ['record', 25.0, 26.0, 1.0],
   ['emote-game', 0.3, 2.8, 1.0, '...and use them in game'],
   ['end', 3.1, 4.5, 1],

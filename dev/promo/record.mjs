@@ -445,6 +445,49 @@ const takes = {
     await sleep(1200);
     await cap('');
   },
+  // (user 2026-11-24: "show the custom asset being worn live in game") the combine made on the site while Hytale shows the character.
+  // A brand-new copy shows bare in game until Done, so the copy is made first, unrecorded: node record.mjs +liveCombinePrep liveCombine
+  // (VW=1280, gamecap.ps1 live-combine-game alongside). No site captions: the cut adds them over the split
+  async liveCombinePrep() {
+    await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
+    await click(
+      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit a copy").find(b=>b.parentElement.textContent.includes("Monocle"))',
+      { after: 2400 }
+    );
+    await click('$document.querySelector("input[aria-label=Name], input[placeholder=Name]")', { after: 150 });
+    await p.eval('document.activeElement.select()');
+    await p.type('Masked Monocle', 40);
+    await p.eval('document.activeElement.blur()');
+    await sleep(500);
+    await click('$' + btn('Done'), { after: 9000 });
+  },
+  async liveCombine() {
+    await click('$document.querySelector("[data-tab=creator]")', { after: 800 });
+    await click(
+      '$[...document.querySelectorAll("button")].filter(b=>b.textContent.trim()==="Edit"&&b.getBoundingClientRect().width).find(b=>b.parentElement.parentElement.textContent.includes("Masked Monocle"))',
+      { after: 2400 }
+    );
+    await click('$' + titled('Move'), { after: 500 });
+    await click('$document.querySelector("button[aria-label=\'Add item\']")', { after: 700 });
+    await click('$document.querySelector("#dlg input[placeholder=Search]")', { after: 150 });
+    await p.type('ragged', 85);
+    await sleep(500);
+    await click('$[...document.querySelectorAll("#dlg .skin")].find(b=>b.textContent.trim()==="Ragged Bandana")', { after: 400 });
+    await click('$[...document.querySelectorAll("#dlgbtns button")].find(b=>b.value==="yes")', { after: 2200 });
+    await click('$[...document.querySelectorAll(".partrow")].find(r=>r.textContent.includes("Glasses front")).querySelector("button")', {
+      after: 600,
+    });
+    // Position Z: the last box of the first number row in the part panel (works at any window width)
+    await click(
+      '$(()=>{const xs=[...document.querySelectorAll("input")].filter(x=>{const r=x.getBoundingClientRect();return r.width&&r.y>300&&!isNaN(parseFloat(x.value))});const y=Math.min(...xs.map(x=>x.getBoundingClientRect().y));return xs.filter(x=>x.getBoundingClientRect().y===y).sort((a,b)=>a.getBoundingClientRect().x-b.getBoundingClientRect().x).pop()})()',
+      { after: 150 }
+    );
+    await p.eval('document.activeElement.select()');
+    await p.type('16.6', 110);
+    await p.eval('document.activeElement.blur()');
+    await sleep(1000);
+    await click('$' + btn('Done'), { after: 10000 });
+  },
   // 4c. live in game: the site on the left, Hytale on the right (gamecap.ps1 records the game at the same time; VW=1280)
   // joins the mod and does nothing else: node record.mjs +liveJoin +record saves "Big Wave" into the skins folder through the mod
   async liveJoin() {},

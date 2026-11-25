@@ -2471,6 +2471,10 @@ input.hex {
   gap: 6px;
   z-index: 2;
 }
+/* an open list sits over the move controls */
+.stagebtns:has(.bdmenu) {
+  z-index: 6;
+}
 .stbtn {
   display: flex;
   align-items: center;
@@ -2611,11 +2615,44 @@ input.hex {
   border-top: 1px solid var(--line2);
 }
 .bdzhead {
-  padding: 0 10px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
   color: var(--dim);
   font: 700 10px var(--b);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.bdzhead:hover,
+.bdzhead:focus-visible {
+  background: #ffffff14;
+  color: #fff;
+}
+.bdzhead.has {
+  color: var(--gold);
+}
+.bdzhead .caret {
+  width: 8px;
+  font-size: 9px;
+}
+.bdcount {
+  margin-left: auto;
+  font-weight: 600;
+  letter-spacing: 0;
+  opacity: 0.6;
+}
+.bdthead {
+  padding: 4px 10px 2px 24px;
+  color: var(--dim);
+  font: 600 10px var(--b);
+  opacity: 0.75;
 }
 .bdgrid {
   display: grid;
@@ -3170,7 +3207,8 @@ table.keys th {
 .iconbtn:focus-visible,
 .partrow button:focus-visible,
 .skin:focus-visible,
-.bdopt:focus-visible {
+.bdopt:focus-visible,
+.bdzhead:focus-visible {
   outline: 2px solid #7fb3ff;
   outline-offset: 1px;
 }

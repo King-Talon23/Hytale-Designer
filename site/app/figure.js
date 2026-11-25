@@ -788,6 +788,16 @@ const waterParts = () =>
     });
     return [{ geo: new THREE.PlaneGeometry(BLOCK, BLOCK).rotateX(-Math.PI / 2), mat }];
   });
+// lava: the game's lava texture on a whole block, unlit so it glows
+const LAVA_KEY = '~lava|0';
+const lavaParts = () =>
+  once('lava', async () => {
+    const t = new THREE.CanvasTexture(await canvasOf(game.SCENERY_TEX.lava));
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.magFilter = t.minFilter = THREE.NearestFilter;
+    const mat = new THREE.MeshBasicMaterial({ map: t, color: 0xffd0a0 });
+    return [{ geo: new THREE.BoxGeometry(BLOCK, BLOCK, BLOCK).translate(0, BLOCK / 2, 0), mat }];
+  });
 const disposeTree = root =>
   root.traverse(o => {
     if (o.isInstancedMesh) o.dispose();
@@ -886,7 +896,9 @@ async function buildWorld(sc, tint) {
   };
   // everything nearer than RIN slides with the move; from RIN out stands a ring of hills rising into mountains, far enough that standing still is what
   // far land looks like while you move (no near border between moving and fixed ground). Every cell of the ring is at least a block high, so its foot hides the plain's edge.
+  const SEA = sc.water?.kind === 'sea'; /* open sea: water all the way to the haze, no land at all */
   const h = (x, z) => {
+    if (SEA) return 0;
     const d = Math.hypot(x, z);
     if (d < RIN) return 0;
     const a = Math.atan2(z, x),
@@ -937,11 +949,25 @@ async function buildWorld(sc, tint) {
       if (b0.y + lift === 0) taken.add(x + ',' + z);
     }
   }
+  // lava (sc.lava): glowing streams running down the hills from their tops, and pools on the highest ground
+  const lavaAt = (x, z, top) => {
+    if (!sc.lava || top < 3) return false;
+    const a = Math.atan2(z, x),
+      d = Math.hypot(x, z);
+    return Math.sin(a * 13 + Math.sin(d * 0.21) * 1.4) > 0.9 || (top >= 10 && Math.sin(x * 0.37) * Math.cos(z * 0.41) > 0.55);
+  };
   // the ring's hills: columns standing on the plain (the plain's own ground is under them), plants on their tops
   for (let x = -R; x <= R; x++)
     for (let z = -R; z <= R; z++) {
       const top = h(x, z),
         dc = Math.hypot(x, z);
+      if (SEA) {
+        if (dc >= FIX - 0.5 && dc <= R + 1) {
+          put(sc.water.bed + '|0', x, -1 - (sc.water.depth || 2), z, null, false, false);
+          put(WATER_KEY, x, -0.15, z, null, false, false);
+        }
+        continue;
+      }
       if (dc >= FIX - 0.5 && dc <= R + 1) put(sc.ground + '|' + Math.floor(rnd() * nTops), x, -0.996, z, null, false, false); // from FIX blocks out the land is fixed, ground and all (a hair above the sliding ground it covers)
       if (!top) {
         if (dc >= FIX && dc <= R && !taken.has(x + ',' + z) && rnd() < sc.density) {
@@ -953,21 +979,31 @@ async function buildWorld(sc, tint) {
       }
       const low = Math.min(top, h(x + 1, z), h(x - 1, z), h(x, z + 1), h(x, z - 1));
       for (let y = Math.max(1, low); y <= top; y++)
-        put(y === top ? sc.ground + '|' + Math.floor(rnd() * nTops) : sc.under + '|0', x, y - 1, z, null, false, false);
+        put(
+          y === top ? (lavaAt(x, z, top) ? LAVA_KEY : sc.ground + '|' + Math.floor(rnd() * nTops)) : sc.under + '|0',
+          x,
+          y - 1,
+          z,
+          null,
+          false,
+          false
+        );
       if (!taken.has(x + ',' + z) && rnd() < sc.density) {
         const name = pick(0);
         if (name) put(name + '|0', x + (rnd() - 0.5) * 0.5, top, z + (rnd() - 0.5) * 0.5, rnd() * TAU, true, false);
       }
     }
-  // water on the plain: a river winding across behind the character, a shore with the water beyond it, or open sea round a
-  // little island. Its cells are dug two blocks down to the bed and the banks walled with the under-ground block, so the water
+  // water on the plain: a river winding across behind the character, a shore with the water beyond it, or open sea. Its cells are dug two blocks down to the bed and the banks walled with the under-ground block, so the water
   // has depth (sc.water.depth blocks, 2 if not given); the pattern repeats every P blocks like the rest of the plain (the seam is far out, under the fixed land)
   const wet = (() => {
     const k = sc.water?.kind,
       bend = x => Math.sin((TAU * x) / 64);
-    if (k === 'river') return (x, z) => Math.abs(sym(z) - (-17 + 4 * bend(sym(x)))) < 4.5;
-    if (k === 'shore') return (x, z) => sym(z) < -9 + 3 * bend(sym(x));
-    if (k === 'sea') return (x, z) => sym(x) * sym(x) + sym(z) * sym(z) > 20;
+    // a river every 64 blocks and the shore's water a 52-block band in every 128: wherever a move carries the character, water is
+    // always within sight (the plain shows 46 blocks round it)
+    const half = v => (((((v % 64) + 64) % 64) + 32) % 64) - 32;
+    if (k === 'river') return (x, z) => Math.abs(half(z + 17 - 4 * bend(sym(x)))) < 4.5;
+    if (k === 'shore') return (x, z) => Math.abs(sym(z + 40 - 3 * bend(sym(x)))) < 26;
+    if (k === 'sea') return () => true;
     return () => false;
   })();
   const DEEP = sc.water?.depth || 2;
@@ -1006,7 +1042,12 @@ async function buildWorld(sc, tint) {
   const sets = [];
   for (const [, { name: key, plant, slide, list }] of items) {
     const [name, k] = key.split('|'),
-      parts = name === WATER_KEY.split('|')[0] ? await waterParts() : await blockParts(name, tint),
+      parts =
+        name === WATER_KEY.split('|')[0]
+          ? await waterParts()
+          : name === LAVA_KEY.split('|')[0]
+            ? await lavaParts()
+            : await blockParts(name, tint),
       p = parts[+k] || parts[0];
     const im = new THREE.InstancedMesh(p.geo, p.mat, list.length);
     im.frustumCulled = false;

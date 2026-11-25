@@ -2,7 +2,7 @@
 # Everything is read from the game's own definitions in Assets.zip (block textures, models, tints, tree prefabs), so the
 # site draws them the way the game does. The output holds only file paths, names and colours, never game art.
 # Run: python -I dev/make-scene-data.py "<path to Assets.zip>"
-import json, sys, zipfile, os
+import json, sys, zipfile, os, re
 
 z = zipfile.ZipFile(sys.argv[1]); names = z.namelist()
 ITEMS = {p.split('/')[-1][:-5]: p for p in names if p.startswith('Server/Item/Items/') and p.endswith('.json')}
@@ -36,109 +36,202 @@ def first(prefix):   # the first prefab of a tree stage, in the game's own numbe
 
 B = 'Server/HytaleGenerator/Biomes/'
 W = 'Server/Weathers/'
-# Every surface biome of the game's world generator (HytaleGenerator/Biomes), zone by zone, under its environment's usual weather.
-# Plants and trees are the ones its Assignments place (weights from the game's own lists); size: 1 low, 2 knee-high, none tall.
-# The first four keys are the original backgrounds, kept so a saved choice still finds its place.
-ZONES = {1: 'Emerald Grove', 2: 'Howling Sands', 3: 'Borea', 4: 'Devastated Lands', 5: 'Ocean'}
+Z = 'Server/World/Default/Zones/'
+ZONES = {1: 'Emerald Grove', 2: 'Howling Sands', 3: 'Borea', 4: 'Devastated Lands'}
 GRASS = [['Plant_Grass_Sharp_Short', 16, 1], ['Plant_Grass_Sharp', 18, 2], ['Plant_Grass_Sharp_Tall', 14], ['Plant_Grass_Sharp_Wild', 9]]
-ARID = [['Plant_Grass_Arid_Short', 10, 1], ['Plant_Grass_Arid', 6, 2], ['Plant_Bush_Arid', 3]]
-SCENES = {
-    # ---- Zone 1
-    'meadow': {'zone': 1, 'name': 'Meadow', 'weather': W + 'Zone1/Zone1_Sunny.json', 'tintFrom': B + 'Plains1/Plains1_Oak.json',
-               'ground': 'Soil_Grass', 'under': 'Soil_Dirt', 'hills': 2,
-               'plants': [['Plant_Grass_Lush_Short', 30, 1], ['Plant_Grass_Sharp', 24, 2], ['Plant_Grass_Sharp_Tall', 10], ['Plant_Grass_Sharp_Wild', 4], ['Plant_Flower_Common_Red2', 2, 1], ['Plant_Flower_Common_Cyan2', 2, 1]], 'density': 0.45,
-               'trees': [first('Oak/Stage_4/'), first('Oak/Stage_3/'), first('Beech/Stage_2/')]},
-    'hills': {'zone': 1, 'name': 'Hills', 'weather': W + 'Zone1/Zone1_Sunny.json', 'tintFrom': B + 'Plains1/Plains1_Hills.json',
-              'ground': 'Soil_Grass', 'under': 'Soil_Dirt', 'hills': 5,
-              'plants': GRASS + [['Plant_Flower_Common_White', 2, 1], ['Plant_Flower_Tall_Purple', 2], ['Plant_Bush_Green', 2, 2]], 'density': 0.45,
-              'trees': [first('Oak/Stage_5/'), first('Beech/Stage_3/'), first('Oak/Stage_4/')]},
-    'gorges': {'zone': 1, 'name': 'Gorges', 'weather': W + 'Zone1/Zone1_Cloudy_Medium.json', 'tintFrom': B + 'Plains1/Plains1_Gorges.json',
-               'ground': 'Soil_Grass_Deep', 'under': 'Rock_Stone', 'hills': 7,
-               'plants': [['Plant_Grass_Lush_Short', 10, 1], ['Plant_Grass_Lush', 10, 2], ['Plant_Grass_Lush_Tall', 8], ['Plant_Bush', 4, 2], ['Plant_Bush_Green', 4, 2], ['Plant_Reeds_Marsh', 3], ['Plant_Fern_Wet_Big', 3]], 'density': 0.5,
-               'trees': [first('Beech/Stage_4/'), first('Oak/Stage_3/'), first('Beech/Stage_1/')]},
-    'riverbank': {'water': {'kind': 'river', 'bed': 'Soil_Gravel', 'plants': [['Plant_Seaweed_Grass', 6, 1]], 'density': 0.12}, 'zone': 1, 'name': 'Riverbank', 'weather': W + 'Zone1/Zone1_Sunny_Fireflies.json', 'tintFrom': B + 'Plains1/Plains1_River.json',
-                  'ground': 'Soil_Grass', 'under': 'Soil_Gravel', 'hills': 1,
-                  'plants': GRASS + [['Plant_Reeds_Marsh', 4], ['Plant_Fern_Forest', 2, 2], ['Plant_Flower_Bushy_Green', 2, 1], ['Plant_Fern_Wet_Big', 2]], 'density': 0.5,
-                  'trees': [first('Oak/Stage_5/'), first('Birch/Stage_1/'), first('Beech_Fallen/Stage_1/')]},
-    'trork': {'zone': 1, 'name': 'Trork Lands', 'weather': W + 'Zone1/Zone1_Autumn_Forest_Windy.json', 'tintFrom': B + 'Plains1/Plains1_Trork.json',
-              'ground': 'Soil_Grass_Deep', 'under': 'Soil_Dirt_Burnt', 'hills': 3,
-              'plants': [['Plant_Grass_Sharp', 12, 2], ['Plant_Bush_Dead_Tall', 6], ['Plant_Grass_Lush_Short', 10, 1], ['Plant_Bramble_Dry_Twisted', 1, 2]], 'density': 0.35,
-              'trees': [first('Aspen/Stage_1/'), first('Aspen/Stage_2/'), first('Aspen_Fallen/'), first('Maple_Stumps/')]},
-    # ---- Zone 2
-    'desert': {'zone': 2, 'name': 'Desert', 'weather': W + 'Zone2/Zone2_Sunny.json', 'ground': 'Soil_Sand', 'under': 'Soil_Sand', 'hills': 2,
-               'plants': ARID, 'density': 0.08,
-               'trees': [first('Dry_Dead/Stage_2/'), first('Petrified_Dead/Stage_5')]},
-    'oasis': {'zone': 2, 'name': 'Oasis', 'weather': W + 'Zone2/Zone2_Cloudy_Light.json', 'tintFrom': B + 'Desert1/Desert1_Oasis.json',
-              'ground': 'Soil_Grass', 'under': 'Soil_Sand_White', 'hills': 1,
-              'plants': [['Plant_Grass_Lush_Short', 14, 1], ['Plant_Grass_Lush', 8, 2], ['Plant_Fern_Tall', 3], ['Plant_Bush_Arid', 2]], 'density': 0.35,
-              'trees': [first('Palm_Green/Stage_3/'), first('Palm_Green/Stage_2/'), first('Boab/Stage_1/'), first('Gum/')]},
-    'rocky': {'zone': 2, 'name': 'Rocky Desert', 'weather': W + 'Zone2/Zone2_Blazing_Light.json', 'tintFrom': B + 'Desert1/Desert1_Rocky.json',
-              'ground': 'Soil_Sand_White', 'under': 'Rock_Sandstone', 'hills': 6,
-              'plants': ARID + [['Plant_Grass_Arid_Short', 4, 1]], 'density': 0.1,
-              'trees': [first('Dry/Stage_2/'), first('Palm/Stage_2/'), first('Dry/Stage_1/')]},
-    'desertriver': {'water': {'kind': 'river', 'bed': 'Soil_Gravel_Sand', 'plants': [], 'density': 0}, 'zone': 2, 'name': 'Dry River', 'weather': W + 'Zone2/Zone2_Sunny.json', 'tintFrom': B + 'Desert1/Desert1_River.json',
-                    'ground': 'Soil_Gravel_Sand', 'under': 'Soil_Clay_Orange', 'hills': 1,
-                    'plants': ARID, 'density': 0.12,
-                    'trees': [first('Palo/Stage_3/')], 'treeCount': 16},
-    'desertshore': {'water': {'kind': 'shore', 'bed': 'Soil_Sand_White', 'plants': [['Plant_Seaweed_Grass', 4, 1]], 'density': 0.06}, 'zone': 2, 'name': 'Desert Shore', 'weather': W + 'Zone2/Zone2_Desert_Haze.json', 'tintFrom': B + 'Desert1/Desert1_Shore.json',
-                    'ground': 'Soil_Sand_White', 'under': 'Rock_Sandstone', 'hills': 1,
-                    'plants': [['Plant_Grass_Arid_Short', 6, 1], ['Plant_Grass_Arid', 3, 2]], 'density': 0.05,
-                    'trees': [first('Palm/Stage_2/')], 'treeCount': 8},
-    # ---- Zone 3
-    'tundra': {'zone': 3, 'name': 'Snow', 'weather': W + 'Zone3/Zone3_Cloudy_Light.json', 'ground': 'Soil_Snow', 'under': 'Soil_Snow', 'hills': 3,
-               'plants': [['Plant_Bush_Winter_Snow', 4], ['Plant_Bramble_Winter', 3, 2]], 'density': 0.06,
-               'trees': [first('Fir_Snow/Stage_3/'), first('Fir_Snow/Stage_1/')]},
-    'glacier': {'zone': 3, 'name': 'Glacier', 'weather': W + 'Zone3/Zone3_Snow_Heavy.json', 'tintFrom': B + 'Boreal1/Boreal1_Henges.json',
-                'ground': 'Rock_Ice', 'under': 'Rock_Ice_Permafrost', 'hills': 6,
-                'plants': [['Plant_Bush_Winter_Snow', 3], ['Plant_Bramble_Winter', 2, 2]], 'density': 0.03,
-                'trees': [], 'treeCount': 0},
-    'taiga': {'zone': 3, 'name': 'Taiga', 'weather': W + 'Zone3/Zone3_Cloudy_Medium.json', 'tintFrom': B + 'Taiga1/Taiga1_Mountains.json',
-              'ground': 'Soil_Grass', 'under': 'Soil_Dirt', 'hills': 6,
-              'plants': GRASS + [['Plant_Flower_Hemlock', 2, 2], ['Plant_Flower_Tall_Pink', 2]], 'density': 0.4,
-              'trees': [first('Cedar/Stage_1/'), first('Fir/Stage_2/'), first('Aspen/Stage_1/')]},
-    'redwood': {'zone': 3, 'name': 'Redwood Forest', 'weather': W + 'Zone3/Zone3_Cloudy_Light.json', 'tintFrom': B + 'Taiga1/Taiga1_Redwood.json',
-                'ground': 'Soil_Needles', 'under': 'Soil_Dirt', 'hills': 2,
-                'plants': [['Plant_Grass_Sharp_Tall', 8], ['Plant_Grass_Sharp_Wild', 5], ['Plant_Bush_Lush', 3, 2], ['Plant_Fern_Winter', 4, 2]], 'density': 0.3,
-                'trees': [first('Redwood/Stage_2/'), first('Redwood/Stage_1/'), first('Cedar/Stage_1/'), first('Redwood_Logs/')], 'treeCount': 40},
-    'taigariver': {'water': {'kind': 'river', 'bed': 'Soil_Gravel', 'plants': [['Plant_Seaweed_Grass', 6, 1]], 'density': 0.1}, 'zone': 3, 'name': 'Cold River', 'weather': W + 'Zone3/Zone3_Rain.json', 'tintFrom': B + 'Taiga1/Taiga1_River.json',
-                   'ground': 'Soil_Grass', 'under': 'Soil_Gravel', 'hills': 1,
-                   'plants': GRASS + [['Plant_Reeds_Winter', 3], ['Plant_Flower_Common_Blue', 2, 1], ['Plant_Fern_Winter', 2, 2]], 'density': 0.4,
-                   'trees': [first('Fir/Stage_2/'), first('Fir/Stage_1/'), first('Cedar_Logs/Small/')]},
-    'taigashore': {'water': {'kind': 'shore', 'bed': 'Soil_Gravel_Sand', 'plants': [['Plant_Seaweed_Grass', 4, 1]], 'density': 0.1}, 'zone': 3, 'name': 'Cold Shore', 'weather': W + 'Zone3/Zone3_Cloudy_Light.json', 'tintFrom': B + 'Taiga1/Taiga1_Shore.json',
-                   'ground': 'Soil_Gravel_Sand', 'under': 'Soil_Gravel', 'hills': 1,
-                   'plants': [['Plant_Grass_Sharp', 6, 2], ['Plant_Grass_Rocky', 4, 1]], 'density': 0.15,
-                   'trees': [first('Fir/Stage_2/'), first('Cedar_Burnt/Stage_2/')], 'treeCount': 18},
-    'hedera': {'zone': 3, 'name': 'Hedera', 'weather': W + 'Zone3/Zone3_Hedera.json', 'tintFrom': B + 'Boreal1/Boreal1_Hedera.json',
-               'ground': 'Plant_Moss_Block_Blue', 'under': 'Soil_Dirt_Cold', 'hills': 3,
-               'plants': [['Plant_Moss_Short_Blue', 8, 1], ['Plant_Moss_Blue', 6, 1], ['Plant_Grass_Gnarled', 5, 2], ['Plant_Bush_Lush', 3, 2], ['Plant_Reeds_Water', 2]], 'density': 0.35,
-               'trees': [first('Fir/Stage_2/'), first('Mushroom/'), first('Ash_Swamp_Dead/Stage_3/')]},
-    # ---- Zone 4
-    'volcanic': {'zone': 4, 'name': 'Jungle', 'weather': W + 'Zone4/Zone4_Light.json', 'tintFrom': B + 'Volcanic1/Volcanic1_Jungle.json',
-                 'ground': 'Soil_Grass', 'under': 'Soil_Dirt', 'hills': 3,
-                 'plants': [['Plant_Grass_Lush_Short', 20, 1], ['Plant_Grass_Sharp', 16, 2], ['Plant_Grass_Sharp_Tall', 10], ['Plant_Grass_Sharp_Wild', 6], ['Plant_Fern_Tall', 6], ['Plant_Bush_Jungle', 4], ['Plant_Bush_Dead_Twisted', 1]], 'density': 0.5,
-                 'trees': [first('Banyan/Stage_3/'), first('Jungle/Stage_2/'), first('Fig_Blue/Stage_2/')]},
-    'caldera': {'zone': 4, 'name': 'Caldera', 'weather': W + 'Zone4/Zone4_Lava_Fields.json', 'tintFrom': B + 'Volcanic1/Volcanic1_Caldera.json',
-                'ground': 'Soil_Ash', 'under': 'Rock_Volcanic', 'hills': 6,
-                'plants': [['Plant_Bush_Dead_Twisted', 2]], 'density': 0.02,
-                'trees': [first('Ash_Dead/Stage_2/')], 'treeCount': 8},
-    'ashriver': {'water': {'kind': 'river', 'bed': 'Soil_Sand_Ashen', 'plants': [], 'density': 0}, 'zone': 4, 'name': 'Ashen River', 'weather': W + 'Zone4/Zone4_Wastes.json', 'tintFrom': B + 'Volcanic1/Volcanic1_River.json',
-                 'ground': 'Soil_Sand_Ashen', 'under': 'Rock_Volcanic', 'hills': 1,
-                 'plants': [['Plant_Bush_Dead_Twisted', 2], ['Plant_Grass_Arid_Short', 3, 1]], 'density': 0.05,
-                 'trees': [first('Palo/Stage_3/')], 'treeCount': 14},
-    'ashshore': {'water': {'kind': 'shore', 'bed': 'Soil_Sand_Ashen', 'plants': [], 'density': 0}, 'zone': 4, 'name': 'Ashen Shore', 'weather': W + 'Zone4/Zone4_Storm.json', 'tintFrom': B + 'Volcanic1/Volcanic1_Shore.json',
-                 'ground': 'Soil_Sand_Ashen', 'under': 'Soil_Clay_Smooth_Black', 'hills': 1,
-                 'plants': [['Plant_Bush_Dead_Twisted', 2]], 'density': 0.03,
-                 'trees': [first('Ash_Dead/Stage_2/')], 'treeCount': 20},
-    # ---- the sea between the zones (Ocean1, Env_Zone0 -> Zone1_Sunny): open water round a sand island, seaweed and coral on the bed.
-    # The swim moves switch to it on their own.
-    'ocean': {'zone': 5, 'name': 'Open Sea', 'weather': W + 'Zone1/Zone1_Sunny.json', 'tintFrom': B + 'Ocean1/Oceans.json',
-              'water': {'kind': 'sea', 'bed': 'Soil_Sand', 'depth': 3, 'density': 0.22,
-                        'plants': [['Plant_Seaweed_Grass', 10, 1], ['Plant_Seaweed_Grass_Tall', 6], ['Plant_Seaweed_Grass_Stack', 3],
-                                   ['Plant_Coral_Bush_Pink', 2], ['Plant_Coral_Bush_Cyan', 2], ['Plant_Coral_Bush_Yellow', 1], ['Plant_Coral_Bush_Purple', 1]]},
-              'ground': 'Soil_Sand', 'under': 'Soil_Sand', 'hills': 1,
-              'plants': [['Plant_Grass_Arid_Short', 4, 1]], 'density': 0.05,
-              'trees': [first('Palm/Stage_2/')], 'treeCount': 10},
-}
+
+
+def hexc(c): return '#' + ''.join('%02x' % max(0, min(255, round(v))) for v in c)
+
+
+def loose(raw):   # the world generator's files carry // and /* */ notes and trailing commas
+    t = raw.decode('utf-8'); out = []; i = 0; q = False
+    while i < len(t):
+        c = t[i]
+        if q:
+            out.append(c)
+            if c == '\\': out.append(t[i + 1]); i += 1
+            elif c == '"': q = False
+        elif c == '"': q = True; out.append(c)
+        elif t.startswith('//', i):
+            while i < len(t) and t[i] != '\n': i += 1
+            continue
+        elif t.startswith('/*', i): i = t.index('*/', i) + 2; continue
+        else: out.append(c)
+        i += 1
+    return json.loads(re.sub(r',(\s*[}\]])', r'\1', ''.join(out)))
+
+
+ENVS = {p.split('/')[-1][:-5]: p for p in names if p.startswith('Server/Environments/') and p.endswith('.json')}
+WEATHERS = {p.split('/')[-1][:-5]: p for p in names if p.startswith(W) and p.endswith('.json')}
+def weather(env):   # the weather an environment most often has at noon (its own forecast, or its parent's)
+    d = json.loads(z.read(ENVS[env]))
+    if 'WeatherForecasts' not in d: return weather(d['Parent'])
+    return WEATHERS[max(d['WeatherForecasts']['12'], key=lambda w: w['Weight'])['WeatherId']]
+
+def tint(d):   # the tile's grass colours, blended by their weights
+    t = d.get('Tint') or {}; t = t.get('Default', t)
+    cs = [c[-6:] for c in t.get('Colors', [])]; ws = t.get('Weights') or [1] * len(cs)
+    if not cs: return None
+    return hexc([sum(int(c[i:i + 2], 16) * w for c, w in zip(cs, ws)) / sum(ws) for i in (0, 2, 4)])
+
+def size(n):   # 1 low, 2 knee-high, None tall
+    if re.search(r'Tall|Wild|Reeds|Fern_Tall|Fern_Wet_Big|Bamboo|Cactus_(?!Ball)', n): return None
+    if re.search(r'Short|Flower_Common|Moss_Rug|Moss_Short|_Floor|Crop_Mushroom|Cactus_Ball|^Plant_Moss_(Green|Yellow|Blue)$', n): return 1
+    return 2
+
+def plants(d, keep=9):   # the tile's plant covers, each weighted by its density; flowers and mushrooms grow in patches, so count for less
+    got = {}
+    for c in d.get('Covers', []):
+        if c.get('OnWater'): continue
+        ts = c['Type']; ws = c.get('Weight') or [1] * len(ts); tot = sum(ws) or 1
+        for t, w in zip(ts, ws):
+            if not isinstance(t, str) or not t.startswith('Plant_') or t not in ITEMS: continue
+            if t.startswith('Plant_Crop_') and 'Mushroom' not in t: continue
+            if t.startswith('Plant_Seeds') or t.startswith('Plant_Seaweed'): continue
+            patchy = 0.3 if re.search(r'Flower_|Crop_Mushroom|Bush', t) else 1
+            got[t] = got.get(t, 0) + (c.get('Density') or 0) * w / tot * patchy
+    top = sorted(got.items(), key=lambda x: -x[1])[:keep]
+    if not top: return []
+    hi = top[0][1]
+    return [[n, max(1, round(v / hi * 30))] + ([size(n)] if size(n) else []) for n, v in top]
+
+def prefab(name):   # 'Trees.Birch.Stage_2.*' -> the first prefab in that folder, in the game's own numbering
+    parts = name.rstrip('.*').split('.')
+    for root in ('Server/Prefabs/Orbis/', 'Server/Prefabs/'):
+        for p in ['/'.join(parts) + '/', '/'.join(parts) + '_']:
+            found = sorted(f for f in names if f.startswith(root + p) and f.endswith('.prefab.json'))
+            if found: return found[0]
+    return None
+
+def trees(d, keep=4):   # the tile's trees, grown ones first; logs and stumps only when nothing else stands there
+    got = {}
+    for e in d.get('Prefabs', {}).get('Entries', []):
+        ps = e['Prefab']; ws = e.get('Weight') or [1] * len(ps); tot = sum(ws) or 1
+        for p, w in zip(ps, ws):
+            if not p.startswith('Trees.') and not p.startswith('Plants.Cacti') and not p.startswith('Plants.Mushroom_Large'): continue
+            stage = re.search(r'Stage_(\d+)', p); grown = int(stage.group(1)) if stage else 2
+            lying = bool(re.search(r'Logs|Stumps|Rocks', p))
+            got[p] = got.get(p, 0) + w / tot * (0.2 if lying else 1) * (0.25 if grown < 1 or '_0' in p else 1)
+    out = []
+    for p, _ in sorted(got.items(), key=lambda x: -x[1]):
+        f = prefab(p)
+        if f and f not in out: out.append(f)
+        if len(out) == keep: break
+    return out
+
+
+# Every surface biome of the game's real world generator (Server/World/Default/Zones/<Zone>_<Tier>/Tile.<Name>.json), zone by
+# zone and tier by tier. From each tile: its plant covers with their weights, its trees, its grass tint and its environment's usual
+# noon weather. By hand: the ground and the block under it (the tiles lay those in noise layers), how hilly, how thick the plants and
+# how many trees. The keys meadow, desert, tundra and volcanic are the original backgrounds' keys, kept so a saved choice still works.
+# [key, zone, tier, tile, name, ground, under, hills, density, treeCount, more]
+BIOMES = [
+    ['forest_birch', 1, 1, 'Zone1_Tier1/Tile.Forest_Birch', 'Birch Forest', 'Soil_Grass', 'Soil_Dirt', 2, 0.45, 40, {}],
+    ['forest_flower', 1, 1, 'Zone1_Tier1/Tile.Forest_Flower', 'Flower Forest', 'Soil_Grass', 'Soil_Dirt', 2, 0.5, 34, {}],
+    ['plains_birch', 1, 1, 'Zone1_Tier1/Tile.Plains_Birch', 'Birch Plains', 'Soil_Grass_Full', 'Soil_Dirt', 2, 0.45, 18, {}],
+    ['meadow', 1, 1, 'Zone1_Tier1/Tile.Plains_Smooth', 'Meadow', 'Soil_Grass_Full', 'Soil_Dirt', 1, 0.45, 14, {}],
+    ['forest_aspen', 1, 2, 'Zone1_Tier2/Tile.Forest_Aspen', 'Aspen Forest', 'Soil_Grass', 'Soil_Dirt', 3, 0.45, 40, {}],
+    ['forest_gully', 1, 2, 'Zone1_Tier2/Tile.Forest_Gully', 'Gully Forest', 'Soil_Grass_Deep', 'Soil_Dirt', 6, 0.45, 34, {}],
+    ['plains_gorge', 1, 2, 'Zone1_Tier2/Tile.Plains_Gorge', 'Gorge Plains', 'Soil_Grass', 'Rock_Chalk', 7, 0.45, 16, {}],
+    ['plains_tallgrass', 1, 2, 'Zone1_Tier2/Tile.Plains_Tallgrass', 'Tallgrass Plains', 'Soil_Grass_Full', 'Soil_Dirt', 2, 0.55, 12, {}],
+    ['forest_autumn', 1, 3, 'Zone1_Tier3/Tile.Forest_Autumn', 'Autumn Forest', 'Soil_Grass', 'Soil_Dirt', 3, 0.45, 40, {}],
+    ['forest_azure', 1, 3, 'Zone1_Tier3/Tile.Forest_Azure', 'Azure Forest', 'Soil_Grass', 'Soil_Dirt', 3, 0.5, 34, {}],
+    ['forest_moss', 1, 3, 'Zone1_Tier3/Tile.Forest_Moss', 'Moss Forest', 'Soil_Grass', 'Soil_Dirt', 2, 0.5, 36, {}],
+    ['forest_swamp', 1, 3, 'Zone1_Tier3/Tile.Forest_Swamp', 'Swamp', 'Soil_Grass', 'Soil_Mud', 1, 0.45, 32,
+     {'water': {'kind': 'shore', 'bed': 'Soil_Mud', 'plants': [['Plant_Reeds_Marsh', 4], ['Plant_Flower_Water_Green', 2, 1]], 'density': 0.12}}],
+    ['savannah_boab', 2, 1, 'Zone2_Tier1/Tile.Savannah_Boab', 'Boab Savannah', 'Soil_Grass_Dry', 'Soil_Clay', 2, 0.35, 14, {}],
+    ['savannah_forest', 2, 1, 'Zone2_Tier1/Tile.Savannah_Forest', 'Savannah Forest', 'Soil_Grass_Dry', 'Soil_Clay', 2, 0.35, 26, {}],
+    ['savannah_plains', 2, 1, 'Zone2_Tier1/Tile.Savannah_Plains', 'Savannah', 'Soil_Grass_Dry', 'Soil_Clay', 1, 0.35, 10, {}],
+    ['savannah_rock', 2, 1, 'Zone2_Tier1/Tile.Savannah_Rock', 'Rocky Savannah', 'Soil_Gravel_Sand_White', 'Rock_Sandstone', 5, 0.15, 16, {}],
+    ['scrub_bushland', 2, 1, 'Zone2_Tier1/Tile.Scrub_Bushland', 'Bushland', 'Soil_Grass_Dry', 'Soil_Sand_Red', 2, 0.35, 18, {}],
+    ['desert_oasis', 2, 2, 'Zone2_Tier2/Tile.Desert_Oasis', 'Oasis', 'Soil_Sand_White', 'Rock_Sandstone_White', 2, 0.12, 10,
+     {'water': {'kind': 'shore', 'bed': 'Soil_Sand_White', 'plants': [['Plant_Reeds_Marsh', 3]], 'density': 0.06}, 'trees': ['Trees.Palm_Green.Stage_3', 'Trees.Palm_Green.Stage_2', 'Plants.Cacti.Full.Stage_1']}],
+    ['desert_red', 2, 2, 'Zone2_Tier2/Tile.Desert_Red', 'Red Desert', 'Soil_Sand_Red', 'Rock_Sandstone_Red', 4, 0.1, 6,
+     {'trees': ['Trees.Dry_Dead', 'Plants.Cacti.Full.Stage_2']}],
+    ['desert_rock', 2, 2, 'Zone2_Tier2/Tile.Desert_Rock', 'Rocky Desert', 'Soil_Sand_White', 'Rock_Sandstone_White', 6, 0.1, 12, {}],
+    ['desert_springs', 2, 2, 'Zone2_Tier2/Tile.Desert_Springs', 'Desert Springs', 'Soil_Sand_White', 'Soil_Clay', 2, 0.1, 8, {}],
+    ['desert', 2, 3, 'Zone2_Tier3/Tile.Desert_Barren', 'Barren Desert', 'Soil_Sand_White', 'Soil_Dirt_Dry', 2, 0.06, 5,
+     {'trees': ['Trees.Dry_Dead', 'Trees.Petrified_Dead.Stage_5']}],
+    ['desert_mushroom', 2, 3, 'Zone2_Tier3/Tile.Desert_Mushroom', 'Mushroom Desert', 'Soil_Sand_White', 'Soil_Dirt_Dry', 2, 0.06, 14,
+     {'trees': ['Plants.Mushroom_Large.Yellow.Stage_3', 'Plants.Mushroom_Large.Green.Stage_3', 'Plants.Mushroom_Large.Yellow.Stage_1']}],
+    ['forest_fir', 3, 1, 'Zone3_Tier1/Tile.Forest_Fir', 'Fir Forest', 'Soil_Grass_Cold', 'Soil_Dirt_Cold', 3, 0.4, 40, {}],
+    ['forest_redwood', 3, 1, 'Zone3_Tier1/Tile.Forest_Redwood', 'Redwood Forest', 'Soil_Needles', 'Soil_Dirt_Cold', 2, 0.35, 36, {}],
+    ['forest_tundra', 3, 1, 'Zone3_Tier1/Tile.Forest_Tundra', 'Tundra Forest', 'Soil_Grass_Cold', 'Soil_Dirt_Cold', 2, 0.35, 22, {}],
+    ['plains_hotsprings', 3, 1, 'Zone3_Tier1/Tile.Plains_Hotsprings', 'Hot Springs', 'Soil_Grass_Cold', 'Rock_Basalt', 2, 0.35, 14,
+     {'water': {'kind': 'shore', 'bed': 'Soil_Gravel', 'plants': [['Plant_Reeds_Winter', 3]], 'density': 0.05}}],
+    ['plains_shire', 3, 1, 'Zone3_Tier1/Tile.Plains_Shire', 'Shire', 'Soil_Grass', 'Soil_Dirt_Cold', 2, 0.45, 12, {}],
+    ['forest_cedar', 3, 2, 'Zone3_Tier2/Tile.Forest_Cedar', 'Cedar Forest', 'Soil_Grass', 'Soil_Dirt', 3, 0.4, 36, {}],
+    ['forest_cedar_mixed', 3, 2, 'Zone3_Tier2/Tile.Forest_Cedar_Mixed', 'Mixed Cedar Forest', 'Soil_Grass', 'Soil_Dirt', 3, 0.35, 32, {}],
+    ['plains_frozen', 3, 2, 'Zone3_Tier2/Tile.Plains_Frozen', 'Frozen Plains', 'Soil_Snow', 'Soil_Dirt_Cold', 2, 0.2, 12, {}],
+    ['plains_tundra', 3, 2, 'Zone3_Tier2/Tile.Plains_Tundra', 'Tundra', 'Soil_Grass_Cold', 'Soil_Dirt_Cold', 2, 0.4, 10, {}],
+    ['glacier', 3, 2, 'Zone3_Tier2/Custom.Valley_Glacier', 'Glacier', 'Rock_Ice', 'Rock_Ice_Permafrost', 6, 0.04, 0,
+     {'plants': [['Plant_Bush_Winter_Snow', 3], ['Plant_Bush_Winter_Sharp', 2, 2]], 'trees': []}],
+    ['tundra', 3, 3, 'Zone3_Tier3/Tile.Forest_Frozen', 'Frozen Forest', 'Soil_Snow', 'Soil_Dirt_Cold', 3, 0.2, 34, {}],
+    ['forest_frozen_light', 3, 3, 'Zone3_Tier3/Tile.Forest_Frozen_Light', 'Light Frozen Forest', 'Soil_Grass_Cold', 'Soil_Dirt_Cold', 3, 0.35, 30, {}],
+    ['plains_frozen_frost', 3, 3, 'Zone3_Tier3/Tile.Plains_Frozen_Frost', 'Frost Plains', 'Soil_Snow', 'Rock_Ice_Permafrost', 2, 0.15, 10, {}],
+    ['volcanic', 4, 4, 'Zone4_Tier4/Tile.Desert_Dunes', 'Jungle Dunes', 'Soil_Grass_Deep', 'Soil_Ash', 4, 0.45, 30, {}],
+    ['forest_ghost', 4, 4, 'Zone4_Tier4/Tile.Forest_Ghost', 'Ghost Forest', 'Soil_Grass_Burnt', 'Soil_Dirt_Burnt', 3, 0.4, 34, {}],
+    ['forest_swamp_4', 4, 4, 'Zone4_Tier4/Tile.Forest_Swamp', 'Poison Swamp', 'Soil_Grass_Burnt', 'Soil_Dirt_Poisoned', 1, 0.45, 28,
+     {'water': {'kind': 'shore', 'bed': 'Soil_Dirt_Poisoned', 'plants': [['Plant_Reeds_Poison', 3], ['Plant_Reeds_Water', 3]], 'density': 0.12}}],
+    ['wastes_geysers', 4, 4, 'Zone4_Tier4/Tile.Wastes_Geysers', 'Geysers', 'Soil_Grass_Burnt', 'Rock_Basalt', 4, 0.3, 14, {}],
+    ['wastes_grasslands', 4, 4, 'Zone4_Tier4/Tile.Wastes_Grasslands', 'Burnt Grasslands', 'Soil_Grass_Burnt', 'Soil_Dirt_Burnt', 2, 0.4, 18, {}],
+    ['desert_ash', 4, 5, 'Zone4_Tier5/Tile.Desert_Ash', 'Ash Desert', 'Soil_Ash', 'Rock_Slate', 3, 0.3, 20, {}],
+    ['forest_burned', 4, 5, 'Zone4_Tier5/Tile.Forest_Burned', 'Burned Forest', 'Soil_Grass_Burnt', 'Rock_Volcanic', 3, 0.4, 30, {'lava': True}],
+    ['forest_roots', 4, 5, 'Zone4_Tier5/Tile.Forest_Roots', 'Root Forest', 'Soil_Grass_Burnt', 'Soil_Dirt_Burnt', 2, 0.45, 26, {}],
+    ['wastes_ash', 4, 5, 'Zone4_Tier5/Tile.Wastes_Ash', 'Ash Wastes', 'Soil_Sand_Ashen', 'Rock_Slate', 3, 0.3, 18, {}],
+    ['wastes_lava', 4, 5, 'Zone4_Tier5/Tile.Wastes_Lava', 'Lava Wastes', 'Rock_Volcanic', 'Rock_Volcanic', 6, 0.2, 12, {'lava': True}],
+]
+SCENES = {}
+for key, zone, tier, tile, name, ground, under, hills, density, count, more in BIOMES:
+    d = loose(z.read(Z + tile + '.json'))
+    env = (d.get('Environment', {}).get('Default') or d.get('Environment', {})).get('Names', ['Env_Zone%d' % zone])[0]
+    s = {'zone': zone, 'tier': tier, 'name': name, 'weather': weather(env), 'tint': tint(d), 'ground': ground, 'under': under, 'hills': hills,
+         'plants': plants(d), 'density': density,
+         'trees': [prefab(t) for t in more.pop('trees')] if 'trees' in more else trees(d), 'treeCount': count}
+    s.update(more)
+    if not s['trees']: s['treeCount'] = 0
+    SCENES[key] = s
+
+# Rivers and shores, and the open sea the swim moves switch to (zone 5). Their names and keys are the ones saved choices use.
+def wet(key, zone, tier, name, like, kind, bed, wplants, wdens, ground, under, plants_, density, trees_, count, weather_=None):
+    s = dict(SCENES[like]); s.update({'zone': zone, 'tier': tier, 'name': name, 'ground': ground, 'under': under, 'hills': 1, 'density': density,
+                                       'water': {'kind': kind, 'bed': bed, 'plants': wplants, 'density': wdens}, 'treeCount': count})
+    if plants_ is not None: s['plants'] = plants_
+    if trees_ is not None: s['trees'] = [prefab(t) for t in trees_]
+    if weather_: s['weather'] = W + weather_
+    SCENES[key] = s
+SEAWEED = [['Plant_Seaweed_Grass', 6, 1]]
+wet('riverbank', 1, 1, 'Riverbank', 'meadow', 'river', 'Soil_Gravel', SEAWEED, 0.12, 'Soil_Grass', 'Soil_Gravel',
+    GRASS + [['Plant_Reeds_Marsh', 4], ['Plant_Fern_Forest', 2, 2], ['Plant_Flower_Bushy_Green', 2, 1]], 0.5,
+    ['Trees.Oak.Stage_5', 'Trees.Birch.Stage_1', 'Trees.Beech_Fallen.Stage_1'], 30, 'Zone1/Zone1_Sunny_Fireflies.json')
+wet('desertriver', 2, 1, 'Dry River', 'savannah_plains', 'river', 'Soil_Gravel_Sand', [], 0, 'Soil_Gravel_Sand', 'Soil_Clay_Orange', None, 0.12,
+    ['Trees.Palo.Stage_3'], 16)
+wet('desertshore', 2, 2, 'Desert Shore', 'desert_springs', 'shore', 'Soil_Sand_White', [['Plant_Seaweed_Grass', 4, 1]], 0.06,
+    'Soil_Sand_White', 'Rock_Sandstone', [['Plant_Grass_Arid_Short', 6, 1], ['Plant_Grass_Arid', 3, 2]], 0.05, ['Trees.Palm.Stage_2'], 8)
+wet('taigariver', 3, 1, 'Cold River', 'forest_fir', 'river', 'Soil_Gravel', SEAWEED, 0.1, 'Soil_Grass_Cold', 'Soil_Gravel', None, 0.4,
+    ['Trees.Fir.Stage_2', 'Trees.Fir.Stage_1', 'Trees.Cedar_Logs.Small'], 30, 'Zone3/Zone3_Rain.json')
+wet('taigashore', 3, 1, 'Cold Shore', 'forest_fir', 'shore', 'Soil_Gravel_Sand', [['Plant_Seaweed_Grass', 4, 1]], 0.1, 'Soil_Gravel_Sand', 'Soil_Gravel',
+    [['Plant_Grass_Sharp', 6, 2], ['Plant_Grass_Rocky', 4, 1]], 0.15, ['Trees.Fir.Stage_2', 'Trees.Cedar_Burnt.Stage_2'], 18)
+wet('ashriver', 4, 4, 'Ashen River', 'wastes_grasslands', 'river', 'Soil_Sand_Ashen', [], 0, 'Soil_Sand_Ashen', 'Rock_Volcanic',
+    [['Plant_Bush_Dead_Twisted', 2], ['Plant_Grass_Gnarled_Short', 3, 1]], 0.05, ['Trees.Ash_Dead.Stage_2'], 14)
+wet('ashshore', 4, 4, 'Ashen Shore', 'wastes_grasslands', 'shore', 'Soil_Sand_Ashen', [], 0, 'Soil_Sand_Ashen', 'Soil_Clay_Smooth_Black',
+    [['Plant_Bush_Dead_Twisted', 2]], 0.03, ['Trees.Ash_Dead.Stage_2'], 20, 'Zone4/Zone4_Storm.json')
+# the sea between the zones (Env_Zone0 -> Zone1_Sunny): water to the haze, seaweed and coral on the bed. Not in the menu: the swim moves
+# switch to it on their own (swim: True).
+SCENES['ocean'] = {'swim': True, 'zone': 0, 'tier': 0, 'name': 'Open Sea', 'weather': W + 'Zone1/Zone1_Sunny.json', 'tintFrom': B + 'Ocean1/Oceans.json',
+                   'water': {'kind': 'sea', 'bed': 'Soil_Sand', 'depth': 3, 'density': 0.22,
+                             'plants': [['Plant_Seaweed_Grass', 10, 1], ['Plant_Seaweed_Grass_Tall', 6], ['Plant_Seaweed_Grass_Stack', 3],
+                                        ['Plant_Coral_Bush_Pink', 2], ['Plant_Coral_Bush_Cyan', 2], ['Plant_Coral_Bush_Yellow', 1], ['Plant_Coral_Bush_Purple', 1]]},
+                   'ground': 'Soil_Sand', 'under': 'Soil_Sand', 'hills': 1,
+                   'plants': [], 'density': 0,
+                   'trees': [], 'treeCount': 0}
+# old keys from the first set of backgrounds -> the biome nearest them, so a saved choice still finds its place
+ALIASES = {'hills': 'plains_tallgrass', 'gorges': 'plains_gorge', 'trork': 'forest_aspen', 'oasis': 'desert_oasis', 'rocky': 'desert_rock',
+           'taiga': 'forest_fir', 'redwood': 'forest_redwood', 'hedera': 'forest_tundra', 'caldera': 'wastes_lava'}
+for k, s in SCENES.items():
+    if None in s['trees']: raise KeyError('no tree prefab in ' + k)
+
 # the things the moves use, from the game's village furniture set and benches
 SET_PIECES = {'chair': 'Furniture_Village_Chair', 'bed': 'Furniture_Village_Bed', 'ladder': 'Furniture_Village_Ladder', 'bench': 'Bench_WorkBench', 'wall': 'Wood_Softwood_Planks'}
 
@@ -151,7 +244,6 @@ for s in SCENES.values():
             except KeyError: print('no definition for', b)
 for k, b in SET_PIECES.items(): blocks[b] = block(b)
 
-import re
 def noon(keys):   # a weather's colour keys at 12:00, blended between the keys either side (as the site does)
     ks = sorted((float(k['Hour']), '#' + m.group(1)) for k in keys for m in [re.search(r'#([0-9a-fA-F]{6})', str(k.get('Color', '')))] if m)
     lo = [k for k in ks if k[0] <= 12]; hi = [k for k in ks if k[0] >= 12]
@@ -165,13 +257,12 @@ def avg(path, tint=None):   # a texture's average colour; greyscale grass tops t
     im = Image.open(io.BytesIO(z.read('Common/' + path))).convert('RGBA'); px = [q for q in im.get_flattened_data() if q[3] > 128]
     c = [sum(q[i] for q in px) / len(px) for i in range(3)]
     return [v / 255 * tv for v, tv in zip(c, tint)] if tint else c
-def hexc(c): return '#' + ''.join('%02x' % max(0, min(255, round(v))) for v in c)
-import re
 for s in SCENES.values():   # the menu's chip: the place's noon sky over its ground
     sky = noon(json.loads(z.read(s['weather'])).get('SkyTopColors', []))
     b = blocks[s['ground']]; top = b.get('cube', {}).get('top'); top = top[0] if isinstance(top, list) else top
     tint = [int(b['tint'][i:i + 2], 16) for i in (1, 3, 5)] if str(b.get('tint', '')).startswith('#') else None
-    if b.get('tintUp') and s.get('tintFrom'):
+    if b.get('tintUp') and s.get('tint'): tint = [int(s['tint'][i:i + 2], 16) for i in (1, 3, 5)]
+    elif b.get('tintUp') and s.get('tintFrom'):
         m = re.search(r'"Color"\s*:\s*"(#[0-9a-fA-F]{6})"', z.read(s['tintFrom']).decode('utf-8'))
         if m: tint = [int(m.group(1)[i:i + 2], 16) for i in (1, 3, 5)]
     s['chip'] = [hexc(sky), hexc(avg(top, tint)) if top else '#808080']
@@ -190,6 +281,7 @@ with open(out, 'w', encoding='utf-8', newline='\n') as f:
     f.write('// and the move set pieces are built from. Paths, names and colours only.\n')
     f.write('export const ZONES = ' + json.dumps(ZONES) + ';\n')
     f.write('export const SCENES = ' + json.dumps(SCENES, indent=1) + ';\n')
+    f.write('export const SCENE_ALIASES = ' + json.dumps(ALIASES) + ';\n')
     f.write('export const SET_PIECES = ' + json.dumps(SET_PIECES) + ';\n')
     f.write('export const BLOCKS = ' + json.dumps(blocks, indent=1) + ';\n')
     f.write('export const SCENE_FILES = ' + json.dumps(sorted(files)) + ';\n')

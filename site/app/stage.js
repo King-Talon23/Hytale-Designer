@@ -7,7 +7,12 @@ import * as prefs from './prefs.js';
 
 export function createStage(app) {
   const { $, el, say, animThumb, viewInset } = app;
-  const BACKDROPS = [['dark', 'Studio'], ...Object.entries(game.SCENES).map(([k, b]) => [k, b.name])];
+  const BACKDROPS = [
+    ['dark', 'Studio'],
+    ...Object.entries(game.SCENES)
+      .filter(([, b]) => !b.swim)
+      .map(([k, b]) => [k, b.name]),
+  ]; /* the open sea is not in the list: the swim moves bring it */
   // a place's chip: its noon sky over its ground (Studio keeps the plain dark one)
   const chip = k => {
     const c = el('span', { class: 'bdchip' }),
@@ -50,9 +55,11 @@ export function createStage(app) {
     const top = atNoon(w.SkyTopColors),
       fog = atNoon(w.FogColors) || top;
     if (!top) throw new Error('no sky colours in ' + sc.weather);
-    const tint = sc.tintFrom
-      ? hexIn((/"Color"\s*:\s*"(#[0-9a-fA-F]{6})"/.exec(JSON.stringify(await game.json(sc.tintFrom))) || [])[1])
-      : null;
+    const tint = sc.tint
+      ? hexIn(sc.tint)
+      : sc.tintFrom
+        ? hexIn((/"Color"\s*:\s*"(#[0-9a-fA-F]{6})"/.exec(JSON.stringify(await game.json(sc.tintFrom))) || [])[1])
+        : null;
     const spec = { sky: { top, fog }, sc, tint };
     BD_MADE.set(key, spec);
     return spec;
@@ -149,9 +156,10 @@ export function createStage(app) {
       box._ro.observe(box);
     } // the Creator's view buttons keep clear of the background button
     let bd = tempBd || prefs.get('se_backdrop');
-    if (!BACKDROPS.some(b => b[0] === bd)) bd = 'dark';
+    bd = game.SCENE_ALIASES[bd] || bd;
+    if (!(bd === tempBd && game.SCENES[bd]) && !BACKDROPS.some(b => b[0] === bd)) bd = 'dark';
     showBackdrop(bd);
-    const name = BACKDROPS.find(b => b[0] === bd)[1],
+    const name = game.SCENES[bd]?.name || 'Studio',
       clean = stg.classList.contains('clean');
     box.replaceChildren(
       ...[
@@ -166,6 +174,7 @@ export function createStage(app) {
             onclick: e => {
               e.stopPropagation();
               box._open = !box._open;
+              box._zone = null;
               box._focus = box._open ? 'menu' : 'btn';
               drawStageBtns();
             },
@@ -189,7 +198,7 @@ export function createStage(app) {
                   }
                   if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
                   e.preventDefault();
-                  const os = [...e.currentTarget.querySelectorAll('.bdopt')],
+                  const os = [...e.currentTarget.querySelectorAll('.bdopt, .bdzhead')],
                     i = os.indexOf(document.activeElement),
                     n = os.length;
                   os[
@@ -201,7 +210,7 @@ export function createStage(app) {
                   ]?.focus();
                 },
               },
-              /* arrows move through the backgrounds; the places are grouped by the game's zones */ (() => {
+              /* arrows move through the backgrounds; the places are grouped by the game's zones (one open at a time) and their tiers */ (() => {
                 const opt = (k, n) =>
                   el(
                     'button',
@@ -221,23 +230,48 @@ export function createStage(app) {
                     chip(k),
                     el('b', { text: n })
                   );
-                return [
-                  opt('dark', 'Studio'),
-                  ...Object.entries(game.ZONES).map(([z, zn]) =>
+                if (box._zone == null) box._zone = String(game.SCENES[bd]?.zone || 1);
+                const zone = (z, zn) => {
+                  const all = Object.entries(game.SCENES).filter(([, s]) => String(s.zone) === z && !s.swim);
+                  const open = box._zone === z,
+                    tiers = [...new Set(all.map(([, s]) => s.tier))].sort((a, b) => a - b);
+                  return el(
+                    'div',
+                    { class: 'bdzone', role: 'group', 'aria-label': zn },
                     el(
-                      'div',
-                      { class: 'bdzone', role: 'group', 'aria-label': zn },
-                      el('div', { class: 'bdzhead', text: zn }),
-                      el(
-                        'div',
-                        { class: 'bdgrid' },
-                        Object.entries(game.SCENES)
-                          .filter(([, s]) => String(s.zone) === z)
-                          .map(([k, s]) => opt(k, s.name))
-                      )
-                    )
-                  ),
-                ];
+                      'button',
+                      {
+                        class: 'bdzhead' + (all.some(([k]) => k === bd) ? ' has' : ''),
+                        'aria-expanded': String(open),
+                        'data-zone': z,
+                        onclick: e => {
+                          e.stopPropagation();
+                          box._zone = open ? '' : z;
+                          box._focus = 'zone:' + z;
+                          drawStageBtns();
+                        },
+                      },
+                      el('span', { class: 'caret', text: open ? '▾' : '▸' }),
+                      el('span', { text: zn }),
+                      el('span', { class: 'bdcount', text: String(all.length) })
+                    ),
+                    open
+                      ? tiers.map(t =>
+                          el(
+                            'div',
+                            { class: 'bdtier', role: 'group', 'aria-label': 'Tier ' + t },
+                            el('div', { class: 'bdthead', text: 'Tier ' + t }),
+                            el(
+                              'div',
+                              { class: 'bdgrid' },
+                              all.filter(([, s]) => s.tier === t).map(([k, s]) => opt(k, s.name))
+                            )
+                          )
+                        )
+                      : null
+                  );
+                };
+                return [opt('dark', 'Studio'), ...Object.entries(game.ZONES).map(([z, zn]) => zone(z, zn))];
               })()
             )
           : null,
@@ -312,7 +346,12 @@ export function createStage(app) {
     if (box._focus) {
       const f = box._focus;
       box._focus = null;
-      (f === 'menu' ? box.querySelector('.bdopt.on') || box.querySelector('.bdopt') : box.querySelector('.stbtn'))?.focus();
+      (f.startsWith('zone:')
+        ? box.querySelector(`.bdzhead[data-zone="${f.slice(5)}"]`)
+        : f === 'menu'
+          ? box.querySelector('.bdopt.on') || box.querySelector('.bdopt')
+          : box.querySelector('.stbtn')
+      )?.focus();
     } // keyboard focus follows the menu
   }
   addEventListener('keydown', e => {
