@@ -455,7 +455,8 @@ export function createWorkspace(app) {
     });
   }
   // a number you can type, or drag left and right on its letter, like Blender and Blockbench
-  function scrub(label, get, set, step = 1, min = -64, max = 64, prec = step) {
+  const PLACE = 128; // how far a part may be moved from its parent's middle (the saved shape allows 512)
+  function scrub(label, get, set, step = 1, min = -PLACE, max = PLACE, prec = step) {
     // prec: how finely a typed value is kept (turns keep 0.01)
     const clamp = v => Math.max(min, Math.min(max, Math.round(v / prec) * prec));
     const shown = () => Math.round(get() * 100) / 100;
@@ -1287,11 +1288,29 @@ export function createWorkspace(app) {
   }
   function finishShape(before) {
     for (const b of boxesOf(app.ED.model)) if (/^Box_/.test(b.node.name)) bakeOffset(b.node);
-    for (const b of boxesOf(app.ED.model)) {
-      const p = b.node.position;
-      for (const o of [p, b.node.shape?.offset])
-        if (o) for (const k of ['x', 'y', 'z']) if (typeof o[k] === 'number') o[k] = Math.max(-64, Math.min(64, o[k]));
-    } /* every move path (gizmo, drag, Bring forward) keeps the same ±64 limit as the fields */
+    {
+      // every move path (gizmo, drag, Bring forward) keeps the fields' ±PLACE limit, counted in the part's own parent; a value
+      // that already lies past it (a game item's tilted horn) stays where it is and may move back in, so no edit pulls it back
+      const old = new Map(),
+        walk = n => {
+          old.set(n.name, n);
+          (n.children || []).forEach(walk);
+        };
+      JSON.parse(before).nodes.forEach(walk);
+      for (const b of boxesOf(app.ED.model)) {
+        const was = old.get(b.node.name);
+        for (const [o, w] of [
+          [b.node.position, was?.position],
+          [b.node.shape?.offset, was?.shape?.offset],
+        ])
+          if (o)
+            for (const k of ['x', 'y', 'z'])
+              if (typeof o[k] === 'number') {
+                const lim = Math.max(PLACE, Math.abs(w?.[k] ?? 0));
+                o[k] = Math.max(-lim, Math.min(lim, o[k]));
+              }
+      }
+    }
     const paints = tidyResized(before);
     recordShape(before, shapeEdit.sel);
     if (paints.length) {
@@ -1370,8 +1389,8 @@ export function createWorkspace(app) {
           o[k] = { x: 0, y: 0, z: 0, ...o[k], [ax]: v - other };
         },
         0.5,
-        -64,
-        64
+        -PLACE,
+        PLACE
       );
     const act = (t, fn, tip) => el('button', { class: 'chip', text: t, title: tip ? `${t} (${tip})` : '', onclick: fn });
     const nudgeZ = d => () => {
@@ -1411,7 +1430,7 @@ export function createWorkspace(app) {
           y: 0,
           z: 0,
           ...o_[k_],
-          [ax]: Math.max(-64, Math.min(64, d * sg > 0 ? Math.floor(v0 * 2 + 1e-6) / 2 + 0.5 : Math.ceil(v0 * 2 - 1e-6) / 2 - 0.5)),
+          [ax]: Math.max(-PLACE, Math.min(PLACE, d * sg > 0 ? Math.floor(v0 * 2 + 1e-6) / 2 + 0.5 : Math.ceil(v0 * 2 - 1e-6) / 2 - 0.5)),
         };
       });
     }; /* off-grid parts snap to the next half step, then move evenly */
@@ -2987,7 +3006,7 @@ export function createWorkspace(app) {
       }
       if (copy.position)
         for (const a of ['x', 'y', 'z'])
-          copy.position[a] = Math.max(-64, Math.min(64, copy.position[a] ?? 0)); /* copies never wander past the Place limits */
+          copy.position[a] = Math.max(-PLACE, Math.min(PLACE, copy.position[a] ?? 0)); /* copies never wander past the Place limits */
       const lay = allocLayout(cs) || (growAny() ? allocLayout(cs) : null) || (growAny() ? allocLayout(cs) : null);
       if (lay) {
         cs.textureLayout = lay;
