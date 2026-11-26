@@ -1,4 +1,5 @@
 // The Create workspace: shapes, the tool bar and side panels, selection, mirrored boxes and Combine.
+import * as THREE from '../vendor/three.module.min.js';
 import * as game from './game.js';
 import * as fig from './figure.js';
 import * as assets from './assets.js';
@@ -2327,7 +2328,7 @@ export function createWorkspace(app) {
     }
   };
   const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
-  function mirrorNode(src, dst) {
+  function mirrorNode(src, dst, dstParent) {
     // dst becomes src flipped across the middle (left to right)
     const s = src.shape,
       d = dst.shape,
@@ -2340,6 +2341,41 @@ export function createWorkspace(app) {
     d.offset = { x: neg(o.x), y: o.y ?? 0, z: o.z ?? 0 };
     dst.position = { x: neg(p.x), y: p.y ?? 0, z: p.z ?? 0 };
     dst.orientation = { x: q.x ?? 0, y: neg(q.y), z: neg(q.z), w: q.w ?? 1 };
+    // beside it in the same parent: flipped across the body's middle, not the parent's own (a turned or off-centre hat piece)
+    const sp = nodeNamed(src.name)?.parent || null,
+      dp = dstParent !== undefined ? dstParent || null : nodeNamed(dst.name)?.parent || null,
+      w = sp === dp ? frameMirror(src) : null;
+    if (w) {
+      dst.position = w.p;
+      dst.orientation = w.q;
+    }
+  }
+  // the part's place flipped left to right across the body's middle, kept in the same parent: the parent's frame comes from the
+  // 3D view (bones and the parts it hangs on), the part's own place from its numbers
+  function frameMirror(src) {
+    const mesh = app.st?.findMesh(o => o.material?.map?.image === app.ED.canvas && o.userData.nodeName === src.name),
+      frame = mesh?.parent?.parent;
+    if (!frame) return null;
+    let root = frame;
+    while (root.parent && root.parent.type !== 'Scene') root = root.parent;
+    root.updateMatrixWorld(true);
+    const F = new THREE.Matrix4().copy(root.matrixWorld).invert().multiply(frame.matrixWorld),
+      p = src.position || {},
+      q = src.orientation || {},
+      L = new THREE.Matrix4().compose(
+        new THREE.Vector3(p.x ?? 0, p.y ?? 0, p.z ?? 0),
+        new THREE.Quaternion(q.x ?? 0, q.y ?? 0, q.z ?? 0, q.w ?? 1),
+        new THREE.Vector3(1, 1, 1)
+      ),
+      M = new THREE.Matrix4().makeScale(-1, 1, 1),
+      out = new THREE.Matrix4().copy(F).invert().multiply(M).multiply(F).multiply(L).multiply(M),
+      pos = new THREE.Vector3(),
+      rot = new THREE.Quaternion(),
+      sc = new THREE.Vector3();
+    out.decompose(pos, rot, sc);
+    const r = v => Math.round(v * 100) / 100 || 0,
+      k = v => Math.round(v * 1e6) / 1e6 || 0;
+    return { p: { x: r(pos.x), y: r(pos.y), z: r(pos.z) }, q: { x: k(rot.x), y: k(rot.y), z: k(rot.z), w: k(rot.w) } };
   }
   // the other side's name: L-Arm <-> R-Arm, Left_Boot <-> Right_Boot, Glove_L <-> Glove_R; null for a name with no side
   function sideSwap(name) {
@@ -2907,7 +2943,7 @@ export function createWorkspace(app) {
         cs = copy.shape;
       copy.name = 'Box_' + Math.random().toString(36).slice(2, 7);
       cs.offset = { x: 0, y: 0, z: 0, ...cs.offset };
-      if (kind === 'mirror') mirrorNode(n, copy);
+      if (kind === 'mirror') mirrorNode(n, copy, into || b.parent || null);
       else if (kind === 'add' && at) {
         cs.type = 'box';
         cs.settings = { ...cs.settings, normal: undefined, size: { x: 4, y: 4, z: 4 } }; // always a solid box, even when started from a flat part
