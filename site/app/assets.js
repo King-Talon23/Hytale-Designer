@@ -57,9 +57,10 @@ export async function save(a) {
       a.labels && typeof a.labels === 'object'
         ? Object.fromEntries(
             Object.entries(a.labels)
-              .filter(([k, v]) => typeof k === 'string' && k.length <= 64 && typeof v === 'string')
-              .slice(0, 64)
-              .map(([k, v]) => [k, clip(cleanName(v), 30)])
+              .filter(([k, v]) => typeof k === 'string' && k.length <= 67 && typeof v === 'string')
+              .slice(0, 160)
+              // "@g:<part>": the added item a part came from (slot|item id|colour|its name there), kept as it is; the rest are names
+              .map(([k, v]) => [k, k.startsWith('@g:') ? (/^[\w .+|-]{1,200}$/.test(v) ? v : '') : clip(cleanName(v), 30)])
               .filter(([, v]) => v)
           )
         : undefined,

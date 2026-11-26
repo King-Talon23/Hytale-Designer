@@ -3914,3 +3914,48 @@ nav button.make.on::after {
 .bugdone {
   margin: 14px 0 6px;
 }
+/* parts list: an added item's parts under its own heading, with its colours; Shift-picked parts lit */
+.partgroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 6px 3px;
+  border-top: 1px solid #ffffff14;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.partgroup .swatches {
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.outliner .partgroup .swatch,
+.combinecolours .swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid #0a121d;
+  box-shadow: 0 0 0 1px #ffffff22;
+}
+.outliner .partgroup .swatch.on,
+.combinecolours .swatch.on {
+  box-shadow: 0 0 0 2px var(--gold);
+}
+.outliner .partrow.also > button:first-child {
+  background: #1b2e48;
+  border-color: #6fa8dc88;
+}
+.combinecolours {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 22px;
+  margin-top: 8px;
+}
+.combinecolours .swatch {
+  width: 22px;
+  height: 22px;
+}

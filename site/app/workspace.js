@@ -4,7 +4,7 @@ import * as fig from './figure.js';
 import * as assets from './assets.js';
 import { SHAPES, ONCE } from './paint.js';
 import { toolIcon } from './toolicons.js';
-import { cleanName, clip, parse, LABEL } from './skin.js';
+import { cleanName, clip, parse, nice, LABEL } from './skin.js';
 import * as prefs from './prefs.js';
 
 export function createWorkspace(app) {
@@ -103,7 +103,9 @@ export function createWorkspace(app) {
         }
       };
       walk(app.ED.model.nodes); /* names of parts that are gone are dropped */
-      const kept = Object.fromEntries(Object.entries(app.ED.asset.labels).filter(([k]) => have.has(k)));
+      const kept = Object.fromEntries(
+        Object.entries(app.ED.asset.labels).filter(([k]) => have.has(k.startsWith(GROUP) ? k.slice(GROUP.length) : k))
+      );
       if (Object.keys(kept).length !== Object.keys(app.ED.asset.labels).length) app.ED.asset = { ...app.ED.asset, labels: kept };
     }
     registerAssets();
@@ -127,11 +129,13 @@ export function createWorkspace(app) {
     if (app.ED) app.ED.partLit = null;
     if (!app.ED || !app.ED.shapeOpen || !app.ED.model) return app.st.highlight(null);
     const b = boxesOf(app.ED.model)[app.ED.box || 0],
-      tw = app.ED.sym ? twinOf(b) : null;
+      tw = app.ED.sym ? twinOf(b) : null,
+      more = new Set(multiOf().map(x => x.node.name));
     app.st.highlight(
       b
         ? o =>
-            o.material?.map?.image === app.ED.canvas && (o.userData.nodeName === b.node.name || (!!tw && o.userData.nodeName === tw.name))
+            o.material?.map?.image === app.ED.canvas &&
+            (o.userData.nodeName === b.node.name || (!!tw && o.userData.nodeName === tw.name) || more.has(o.userData.nodeName))
         : null
     );
   }
@@ -334,7 +338,18 @@ export function createWorkspace(app) {
       b0 = curBox(),
       tw = symTwin();
     shapeEdit.sel = b0?.node.name;
+    const at = n => ['x', 'y', 'z'].map(ax => (n.position?.[ax] ?? 0) + (n.shape?.offset?.[ax] ?? 0)),
+      was = b0 && at(b0.node);
     fn();
+    // parts picked with Shift move along with the picked one
+    if (b0 && multiOf().length) {
+      const d = at(b0.node).map((v, j) => v - was[j]);
+      if (d.some(v => Math.abs(v) > 1e-9))
+        for (const x of multiOf()) {
+          const o = (x.node.shape.offset ||= { x: 0, y: 0, z: 0 });
+          ['x', 'y', 'z'].forEach((ax, j) => (o[ax] = (o[ax] ?? 0) + d[j]));
+        }
+    }
     if (tw && b0 && b0.node !== tw && boxesOf(app.ED.model).some(x => x.node === b0.node) && boxesOf(app.ED.model).some(x => x.node === tw))
       mirrorNode(b0.node, tw);
     finishShape(before);
@@ -386,6 +401,25 @@ export function createWorkspace(app) {
   function curBox() {
     return app.ED.model ? boxesOf(app.ED.model)[app.ED.box || 0] : null;
   }
+  // parts picked with Shift besides the current one (by name, so they survive edits); none that hold or hang on the current one
+  function multiOf() {
+    const cur = curBox(),
+      names = app.ED.multi;
+    if (!cur || !names?.size) return [];
+    const inCur = new Set(boxesOf({ nodes: [cur.node] }).map(x => x.node));
+    return boxesOf(app.ED.model).filter(
+      x =>
+        names.has(x.node.name) && x.node !== cur.node && !inCur.has(x.node) && !boxesOf({ nodes: [x.node] }).some(y => y.node === cur.node)
+    );
+  }
+  // a combined item's parts carry where they came from in the labels, under "@g:" + the part's name: "slot|item id|colour|its name there"
+  const GROUP = '@g:';
+  const groupOf = n => {
+    const v = (app.ED.asset.labels || {})[GROUP + n.name];
+    if (!v) return null;
+    const [f, id, color, from] = v.split('|');
+    return { key: f + '|' + id, f, id, color: color || null, from: from || n.name };
+  };
   function placeGizmo() {
     if (!app.st) return;
     wsAnim();
@@ -1388,42 +1422,68 @@ export function createWorkspace(app) {
         el('button', { class: 'iconbtn', text: '+', title: 'Add part (A)', 'aria-label': 'Add part', onclick: startPlacing }),
         el('button', { class: 'iconbtn', text: '⧉', title: 'Add item…', 'aria-label': 'Add item', onclick: guard(combinePick) })
       ),
-      el(
-        'div',
-        { class: 'outliner' },
-        boxes.map((x, k) => {
-          const name = boxLabel(x.node),
-            same = boxes.filter(y => boxLabel(y.node) === name),
-            nth = same.length > 1 ? ' ' + (same.findIndex(y => y.node === x.node) + 1) : '';
-          return el(
-            'div',
-            { class: 'partrow' + (k === i ? ' on' : '') },
-            el('button', {
-              class: k === i ? 'on' : '',
-              text: name + nth,
-              onclick: e => {
-                const now = Date.now(),
-                  again = app.ED.box === k && now - (app.ED.pickAt || 0) < 450;
-                app.ED.pickAt = now;
-                if (again) return renameBox(e.currentTarget, x.node);
-                app.ED.box = k;
-                render();
-                placeGizmo();
-                app.st.showMesh(app.st.findMesh(o => o.material?.map?.image === app.ED.canvas && o.userData.nodeName === x.node.name));
-              },
-              onmouseenter: () => app.st.highlight(o => o.material?.map?.image === app.ED.canvas && o.userData.nodeName === x.node.name),
-              onmouseleave: () => outlineBox(),
-            }),
-            el('button', {
-              class: 'partdel',
-              text: '✕',
-              title: 'Delete (Del)',
-              'aria-label': 'Delete ' + name + nth,
-              onclick: () => delBox(k),
-            })
-          );
-        })
-      ),
+      (() => {
+        const multi = (app.ED.multi ||= new Set()),
+          row = (x, k) => {
+            const name = boxLabel(x.node),
+              same = boxes.filter(y => boxLabel(y.node) === name),
+              nth = same.length > 1 ? ' ' + (same.findIndex(y => y.node === x.node) + 1) : '',
+              picked = k === i || (multi.has(x.node.name) && k !== i);
+            return el(
+              'div',
+              { class: 'partrow' + (k === i ? ' on' : picked ? ' also' : '') },
+              el('button', {
+                class: k === i ? 'on' : '',
+                text: name + nth,
+                onclick: e => {
+                  if (e.shiftKey) {
+                    // Shift: add the part to the picked ones (or take it out); the current part stays the one the fields edit
+                    if (k === i) return;
+                    multi.has(x.node.name) ? multi.delete(x.node.name) : multi.add(x.node.name);
+                    render();
+                    outlineBox();
+                    return;
+                  }
+                  const now = Date.now(),
+                    again = app.ED.box === k && now - (app.ED.pickAt || 0) < 450;
+                  app.ED.pickAt = now;
+                  if (again) return renameBox(e.currentTarget, x.node);
+                  multi.clear();
+                  app.ED.box = k;
+                  render();
+                  placeGizmo();
+                  app.st.showMesh(app.st.findMesh(o => o.material?.map?.image === app.ED.canvas && o.userData.nodeName === x.node.name));
+                },
+                onmouseenter: () => app.st.highlight(o => o.material?.map?.image === app.ED.canvas && o.userData.nodeName === x.node.name),
+                onmouseleave: () => outlineBox(),
+              }),
+              el('button', {
+                class: 'partdel',
+                text: '✕',
+                title: 'Delete (Del)',
+                'aria-label': 'Delete ' + name + nth,
+                onclick: () => delBox(k),
+              })
+            );
+          };
+        // the item's own parts first, then each added item under its own heading (with its colours, to swap them)
+        const own = [],
+          groups = new Map();
+        boxes.forEach((x, k) => {
+          const g = groupOf(x.node);
+          if (!g) return own.push(row(x, k));
+          if (!groups.has(g.key)) groups.set(g.key, { g, rows: [] });
+          groups.get(g.key).rows.push(row(x, k));
+        });
+        const list = el(
+          'div',
+          { class: 'outliner', onscroll: e => (app.ED.olTop = e.currentTarget.scrollTop) },
+          own,
+          [...groups.values()].map(({ g, rows }) => [groupHead(g), rows])
+        );
+        queueMicrotask(() => (list.scrollTop = app.ED?.olTop || 0)); // the list keeps its place when it is drawn again (a part picked or deleted)
+        return list;
+      })(),
       el('div', { class: 'options' }, act('Reset item', resetShape)),
       el('div', { class: 'wshead', text: boxLabel(b.node) }),
       el(
@@ -1470,6 +1530,27 @@ export function createWorkspace(app) {
   }
   const dupBox = () => addBox('dup');
   function delBox(k = app.ED.box || 0) {
+    // the current part with others picked by Shift: all of them go, as one undo step
+    const more = k === (app.ED.box || 0) ? multiOf() : [];
+    if (more.length) {
+      const names = [curBox().node.name, ...more.map(x => x.node.name)],
+        h0 = app.ED.hist.length;
+      app.ED.multi.clear();
+      for (const nm of names) {
+        const j = boxesOf(app.ED.model).findIndex(x => x.node.name === nm);
+        if (j >= 0) delOne(j, true);
+      }
+      if (app.ED.hist.length - h0 > 1) app.ED.hist.push({ k: 'g', parts: app.ED.hist.splice(h0) });
+      render();
+      const top = app.ED.hist[app.ED.hist.length - 1];
+      sayUndo(`Deleted ${names.length} parts`, () => {
+        if (app.ED && app.ED.hist[app.ED.hist.length - 1] === top) wsUndo(false);
+      });
+      return;
+    }
+    delOne(k);
+  }
+  function delOne(k, quiet) {
     const boxes = boxesOf(app.ED.model),
       i = k,
       b = boxes[i];
@@ -1501,6 +1582,7 @@ export function createWorkspace(app) {
       for (let k = 0; k < W * H; k++) if (!used[k]) d[k * 4 + 3] = 0;
     });
     app.ED.hist.push({ k: 'g', parts: app.ED.hist.splice(-2) });
+    if (quiet) return;
     render();
     if (gone > 1) {
       const top = app.ED.hist[app.ED.hist.length - 1];
@@ -2414,7 +2496,7 @@ export function createWorkspace(app) {
     v.addEventListener('pointerup', up);
   }
   // ---- Combine: another item's parts and paint join the one being edited (worn together as one piece in this slot)
-  async function combineSource(f, e) {
+  async function combineSource(f, e, color) {
     // that item's model and its painted texture
     if (e.custom) {
       const a = app.ASSETS.find(x => 'Custom_' + x.id === e.Id);
@@ -2426,16 +2508,18 @@ export function createWorkspace(app) {
     }
     if (editLocked(e))
       throw new Error(`${itemName(e)} is a ${TIERS[tierOf(e)]} item. Paid items can only be used by an account that owns them.`);
-    const r = app.R.resolve(f, { ...app.cur.skin, [f]: app.R.partStr(e) });
+    const r = app.R.resolve(f, { ...app.cur.skin, [f]: app.R.partStr(e, color) });
     if (!r) throw new Error('That item could not be read.');
     const c = await fig.bakedCanvas(r.tex, r.tint).catch(() => {
       throw new Error(`${itemName(e)} is not in your game files.`);
     });
     return { model: structuredClone(await game.json(game.common(r.model))), canvas: c };
   }
-  async function combineWith(f, e) {
+  async function combineWith(f, e, color) {
     say('');
-    const src = await combineSource(f, e);
+    if (!e.custom) color = parse(app.R.partStr(e, color)).color; // the colour it is drawn in (its first one when none was picked)
+    const src = await combineSource(f, e, color);
+    const fromName = new Map(); // each added part's name in the other item, to recolour it later
     await editModel();
     const names = new Set(),
       seen = list => {
@@ -2454,6 +2538,7 @@ export function createWorkspace(app) {
       return k;
     }; /* names stay under the 64-character limit */
     const renameAll = n => {
+      fromName.set(n, n.name);
       n.name = fresh(n.name);
       for (const c of n.children || []) renameAll(c);
     };
@@ -2512,6 +2597,11 @@ export function createWorkspace(app) {
       SH = S.height,
       sd = S.data;
     recordShape(before);
+    {
+      const lab = { ...(app.ED.asset.labels || {}) };
+      for (const [n] of added) lab[GROUP + n.name] = [f, e.Id, color || '', fromName.get(n) || n.name].join('|');
+      app.ED.asset = { ...app.ED.asset, labels: lab };
+    } /* the parts are listed under the item they came from (undo takes this back with the shape) */
     app.ED.painter.write((d, W, H) => {
       added.forEach(([n, from], i) => {
         const to = lays[i];
@@ -2553,6 +2643,86 @@ export function createWorkspace(app) {
       }
     } /* the added item comes in picked and in view */
   }
+  // an added item's heading in the parts list: its name, and its colours to swap the paint of its parts to
+  function groupHead(g) {
+    const e = app.CAT.items[g.f]?.find(x => x.Id === g.id),
+      cols = e && !e.custom ? app.R.colorsOf(e) : [];
+    return el(
+      'div',
+      { class: 'partgroup' },
+      el('span', { class: 'grow', text: e ? itemName(e) : 'Added item' }),
+      cols.length > 1
+        ? el(
+            'span',
+            { class: 'swatches' },
+            cols.map(([k, hex]) => swatch(k, hex, k === g.color, () => recolourGroup(g, k)))
+          )
+        : null
+    );
+  }
+  const swatch = (k, hex, on, onclick) =>
+    el('button', {
+      type: 'button',
+      class: 'swatch' + (on ? ' on' : ''),
+      title: nice(k),
+      'aria-label': nice(k),
+      style: `background:${hex[0] || '#888'}`,
+      onclick,
+    });
+  // repaint an added item's parts in another of its colours (its own paint, face by face; one undo step)
+  const recolourGroup = guard(async (g, color) => {
+    if (color === g.color) return;
+    const e = app.CAT.items[g.f]?.find(x => x.Id === g.id);
+    if (!e) throw new Error('That item is not in your game files.');
+    const src = await combineSource(g.f, e, color),
+      byName = new Map(),
+      walk = n => {
+        byName.set(n.name, n);
+        (n.children || []).forEach(walk);
+      };
+    src.model.nodes.forEach(walk);
+    const parts = boxesOf(app.ED.model).filter(x => groupOf(x.node)?.key === g.key),
+      S = src.canvas.getContext('2d').getImageData(0, 0, src.canvas.width, src.canvas.height),
+      sd = S.data,
+      was = JSON.stringify(app.ED.asset.labels || null);
+    app.ED.painter.write((d, W, H) => {
+      for (const x of parts) {
+        const sn = byName.get(groupOf(x.node).from);
+        if (!sn?.shape?.textureLayout) continue;
+        const dims = new Map(faceDims(sn.shape).map(([fc, fu, fv]) => [fc, [fu, fv]]));
+        for (const [fc, fu, fv] of faceDims(x.node.shape)) {
+          const a = x.node.shape.textureLayout?.[fc],
+            b = sn.shape.textureLayout[fc],
+            lim = dims.get(fc);
+          if (!a || !b || !lim) continue;
+          for (let v = 0; v < Math.min(fv, lim[1]); v++)
+            for (let u = 0; u < Math.min(fu, lim[0]); u++) {
+              const [dx, dy] = texelAt(a, u, v),
+                [sx, sy] = texelAt(b, u, v);
+              if (dx < 0 || dy < 0 || dx >= W || dy >= H || sx < 0 || sy < 0 || sx >= S.width || sy >= S.height) continue;
+              const j = (dy * W + dx) * 4,
+                k = (sy * S.width + sx) * 4;
+              d[j] = sd[k];
+              d[j + 1] = sd[k + 1];
+              d[j + 2] = sd[k + 2];
+              d[j + 3] = sd[k + 3];
+            }
+        }
+      }
+    });
+    const lab = { ...(app.ED.asset.labels || {}) };
+    for (const x of parts) {
+      const v = lab[GROUP + x.node.name].split('|');
+      v[2] = color;
+      lab[GROUP + x.node.name] = v.join('|');
+    }
+    app.ED.asset = { ...app.ED.asset, labels: lab };
+    app.ED.hist.push({ k: 'l', other: was });
+    app.ED.hist.push({ k: 'g', parts: app.ED.hist.splice(-2) });
+    app.ED.fut = [];
+    queueAssetSave();
+    render();
+  });
   async function combinePick() {
     if (app.ED?.model && boxesOf(app.ED.model).length >= assets.MAX_BOXES) return say(`Limit is ${assets.MAX_BOXES} parts`, true); // types down the left (hovering one shows its items at once), item pictures on the right
     const slots = game.FIELDS.filter(f => app.CAT.items[f]?.length);
@@ -2565,7 +2735,22 @@ export function createWorkspace(app) {
       hov = 0,
       shown = null;
     const find = el('input', { type: 'text', placeholder: 'Search', maxLength: 40, autocomplete: 'off' }),
-      grid = el('div', { class: 'cards combinegrid' });
+      grid = el('div', { class: 'cards combinegrid' }),
+      colours = el('div', { class: 'combinecolours' });
+    // the chosen item's colours: it is added in the one picked (its first by default)
+    const drawColours = () => {
+      const cols = chosen && !chosen.e.custom ? app.R.colorsOf(chosen.e) : [];
+      colours.replaceChildren(
+        ...(cols.length > 1
+          ? cols.map(([k, hex]) =>
+              swatch(k, hex, k === (chosen.color || cols[0][0]), () => {
+                chosen.color = k;
+                drawColours();
+              })
+            )
+          : [])
+      );
+    };
     const fill = (f, force) => {
       if (f === shown && !force) return;
       shown = f;
@@ -2595,6 +2780,7 @@ export function createWorkspace(app) {
                 cur_ = g;
                 types();
                 chosen = { f: g, e };
+                drawColours();
                 const add = [...$('dlgbtns').children].find(b => b.value === 'yes');
                 if (add) add.disabled = false;
                 for (const c of grid.children) c.classList.toggle('on', c === card);
@@ -2661,7 +2847,7 @@ export function createWorkspace(app) {
     $('dlg').classList.add('wide');
     const asked = ask(
       'Add item',
-      [find, el('div', { class: 'combinebody' }, typeList, grid)],
+      [find, el('div', { class: 'combinebody' }, typeList, grid), colours],
       [
         { label: 'Cancel', value: '' },
         { label: 'Add', value: 'yes', primary: true },
@@ -2677,7 +2863,7 @@ export function createWorkspace(app) {
     combinePick.last = chosen.f;
     document.body.classList.add('busy');
     try {
-      await combineWith(chosen.f, chosen.e);
+      await combineWith(chosen.f, chosen.e, chosen.color);
     } finally {
       document.body.classList.remove('busy');
     }
@@ -2777,7 +2963,13 @@ export function createWorkspace(app) {
       if (into) (into.children ||= []).push(copy);
       else (b.parent ? b.parent.children : app.ED.model.nodes).push(copy);
       app.ED.box = boxesOf(app.ED.model).findIndex(x => x.node === copy);
-      app.ED.asset = { ...app.ED.asset, labels: { ...(app.ED.asset.labels || {}), [copy.name]: label } };
+      {
+        const g = kind !== 'add' && (app.ED.asset.labels || {})[GROUP + b.node.name]; // a copy of an added item's part stays under that item
+        app.ED.asset = {
+          ...app.ED.asset,
+          labels: { ...(app.ED.asset.labels || {}), [copy.name]: label, ...(g ? { [GROUP + copy.name]: g } : {}) },
+        };
+      }
     });
     if (full) {
       const e = app.ED.hist.pop();
