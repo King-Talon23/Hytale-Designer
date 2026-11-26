@@ -66,7 +66,8 @@ public final class SkinEditorPlugin extends JavaPlugin {
         "undertop", "overtop", "shoes", "headAccessory", "faceAccessory", "earAccessory", "skinFeature", "gloves", "cape" };
     static final Set<String> SLOTS = Set.of(FIELDS);
     static final String LIVE = "SkinEditor_Live";
-    static final String VERSION = "1.3.0";
+    static final String VERSION = "1.4.0";
+    static final String WARDROBE_ITEM = "HytaleDesigner_Wardrobe";
     static final Pattern WORD = Pattern.compile("^[A-Za-z0-9_ -]{1,64}$");
     static final Map<String, String> GENERIC = Map.of("Short", "GenericShort", "Medium", "GenericMedium", "Long", "GenericLong");   // Cosmetics/CharacterCreator/HaircutFallbacks.json
 
@@ -85,7 +86,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
     public SkinEditorPlugin(JavaPluginInit init) {
         super(init);
         // the live pack must be a valid pack before the server loads asset packs (after plugins are found, before setup)
-        try { locate(); ensureLivePack(); syncAssets(true); syncAnims(true); } catch (Throwable ignored) { }   // prune before the packs are read: removing a file after that crashes clients
+        try { locate(); ensureLivePack(); syncAssets(true); syncAnims(true); wardrobe.prune(); wardrobe.looks(); } catch (Throwable ignored) { }   // prune before the packs are read: removing a file after that crashes clients
         // a world only loads packs it was told about (single-player worlds start with "default mods enabled" off), so the live pack is
         // switched on here, unless the player turned it off themselves
         try { var cfg = com.hypixel.hytale.server.core.HytaleServer.get().getConfig().getModConfig();
@@ -97,6 +98,12 @@ public final class SkinEditorPlugin extends JavaPlugin {
     @Override
     protected void setup() {
         try { locate(); ensureLivePack(); syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not prepare: " + e); }
+        // the in-game wardrobe: the Designer Wardrobe item opens it (no commands); every player gets one the first time they join
+        com.hypixel.hytale.server.core.modules.interaction.interaction.config.server.OpenCustomUIInteraction.registerSimple(this, WardrobePage.class, WardrobePage.PAGE_ID, pr -> new WardrobePage(pr, wardrobe));
+        getEventRegistry().registerGlobal(com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent.class, e -> {
+            Ref<EntityStore> r = e.getPlayerRef(); if (r == null || !r.isValid()) return;
+            r.getStore().getExternalData().getWorld().execute(() -> giveWardrobe(r));
+        });
         tick = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "SkinEditor"); t.setDaemon(true); return t; });
         tick.scheduleWithFixedDelay(this::step, 2, 1, TimeUnit.SECONDS);
         // the website saves straight into the skins folder through this (no folder picking): this computer only, the Hytale Designer site only
@@ -106,6 +113,26 @@ public final class SkinEditorPlugin extends JavaPlugin {
     }
 
     private SkinBridge bridge;
+    final Wardrobe wardrobe = new Wardrobe(() -> skinsDir, () -> liveCommon);
+
+    /** one Designer Wardrobe per player, given once (a player who throws it away can craft another from 4 fibre) */
+    private void giveWardrobe(Ref<EntityStore> ref) {
+        try {
+            if (!ref.isValid()) return; Store<EntityStore> store = ref.getStore();
+            PlayerRef pr = store.getComponent(ref, PlayerRef.getComponentType()); if (pr == null) return;
+            Path given = getDataDirectory().resolve("wardrobe-given.txt");
+            List<String> who = Files.isRegularFile(given) ? Files.readAllLines(given) : new ArrayList<>();
+            if (who.contains(pr.getUuid().toString())) return;
+            var hotbar = store.getComponent(ref, com.hypixel.hytale.server.core.inventory.InventoryComponent.Hotbar.getComponentType());
+            var storage = store.getComponent(ref, com.hypixel.hytale.server.core.inventory.InventoryComponent.Storage.getComponentType());
+            var item = new com.hypixel.hytale.server.core.inventory.ItemStack(WARDROBE_ITEM, 1);
+            if (hotbar != null && hotbar.getInventory().canAddItemStack(item)) { hotbar.getInventory().addItemStack(item); hotbar.markDirty(); }
+            else if (storage != null && storage.getInventory().canAddItemStack(item)) { storage.getInventory().addItemStack(item); storage.markDirty(); }
+            else return;   // full: tried again next join
+            Files.createDirectories(given.getParent()); Files.writeString(given, pr.getUuid() + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            pr.sendMessage(com.hypixel.hytale.server.core.Message.raw("Hytale Designer Sync: use the Designer Wardrobe to wear any skin from your Locker."));
+        } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not give the wardrobe: " + e); }
+    }
     @Override
     protected void shutdown() { if (bridge != null) bridge.stop(); if (tick != null) tick.shutdownNow(); }
 

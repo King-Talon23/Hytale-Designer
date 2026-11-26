@@ -111,3 +111,16 @@ test('caseless: a rename that only changed case is the same file and is not dele
   assert.equal(sync.known.has('Animations/wave (1).blockyanim'), false);
   assert.equal(sync.known.has('Animations/Wave (1).blockyanim'), true);
 });
+
+test('a made file (a skin picture) is made only when its mark changed, and kept while it cannot be made', async () => {
+  const d = folder(),
+    sync = { written: new Map(), known: new Set() };
+  let made = 0;
+  const pic = () => (made++, 'png');
+  await mirrorDir(d, 'My skins', [['A.png', pic, 'pic|1']], sync);
+  await mirrorDir(d, 'My skins', [['A.png', pic, 'pic|1']], sync);
+  assert.equal(made, 1);
+  await mirrorDir(d, 'My skins', [['A.png', () => null, 'pic|2']], sync);
+  assert.equal(d.files['A.png'], 'png');
+  assert.equal(sync.known.has('My skins/A.png'), true);
+});

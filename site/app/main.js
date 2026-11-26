@@ -439,6 +439,7 @@ async function startApp() {
   META = await game.status();
   CAT = await game.catalog();
   R = rules(CAT);
+  store.setPictureMaker(async skin => fig.snapshot(await fig.build(R.fit(skin), R), 'full', false, 160)); /* the mod's wardrobe pictures */
   setAssets(await assets.list().catch(() => []));
   registerAssets();
   await applyRescue().catch(e => console.warn(e));

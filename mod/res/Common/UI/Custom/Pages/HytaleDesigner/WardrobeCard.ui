@@ -1,0 +1,51 @@
+// One saved skin in the wardrobe grid: its picture and name on the game's memory tile. The gold frame marks the skin worn.
+$C = "../../Common.ui";
+
+@NameStyle = LabelStyle(
+  FontSize: 13,
+  TextColor: #b4c8c9,
+  FontName: "Secondary",
+  RenderBold: true,
+  RenderUppercase: true,
+  HorizontalAlignment: Center,
+  VerticalAlignment: Center,
+  ShrinkTextToFit: true,
+  MinShrinkTextToFitFontSize: 9
+);
+
+Group {
+  Anchor: (Width: 152, Height: 184, Right: 8, Bottom: 8);
+
+  Group #Worn {
+    Anchor: (Full: 0);
+    Background: (TexturePath: "../Memories/Tiles/TileSelected.png", Border: 12);
+    Visible: false;
+  }
+
+  Button #Card {
+    Anchor: (Full: 4);
+    LayoutMode: Top;
+    Padding: (Full: 8);
+    Style: (
+      Default: (Background: (TexturePath: "../Memories/Tiles/TileDefault.png", Border: 8)),
+      Hovered: (Background: (TexturePath: "../Memories/Tiles/TileHovered.png", Border: 8)),
+      Pressed: (Background: (TexturePath: "../Memories/Tiles/TileHovered.png", Border: 8)),
+      Sounds: $C.@ButtonSounds
+    );
+
+    Group {
+      LayoutMode: Middle;
+      Anchor: (Height: 128);
+
+      AssetImage #Pic {
+        Anchor: (Width: 128, Height: 128);
+        FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
+      }
+    }
+
+    Label #Name {
+      Anchor: (Height: 24);
+      Style: @NameStyle;
+    }
+  }
+}

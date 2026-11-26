@@ -11,8 +11,10 @@ export async function mirrorDir(d, sub, wanted, { written, known, caseless = fal
       mark = stamp || body;
     keep.add(path);
     if (written.get(path) === mark) continue;
+    const data = typeof body === 'function' ? await body() : body; /* made only when it changed (a skin's picture) */
+    if (data == null) continue;
     const w = await (await d.getFileHandle(name, { create: true })).createWritable();
-    await w.write(body);
+    await w.write(data);
     await w.close();
     written.set(path, mark);
     known.add(path);

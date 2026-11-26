@@ -1,0 +1,44 @@
+{
+  "TranslationProperties": {
+    "Name": "server.items.HytaleDesigner_Wardrobe.name",
+    "Description": "server.items.HytaleDesigner_Wardrobe.description"
+  },
+  "Icon": "Icons/ItemsGenerated/Furniture_Lumberjack_Wardrobe.png",
+  "Categories": [
+    "Items.Tools"
+  ],
+  "PlayerAnimationsId": "Item",
+  "Model": "Items/Tools/Repair_Kit/Repair_Kit_Crude.blockymodel",
+  "Texture": "Items/Tools/Repair_Kit/Repair_Kit_Crude_Texture.png",
+  "IconProperties": {
+    "Rotation": [22.5, 45, 22.5],
+    "Scale": 0.36,
+    "Translation": [14.4, -23.4]
+  },
+  "Interactions": {
+    "Primary": {
+      "Interactions": [
+        { "Type": "OpenCustomUI", "Page": { "Id": "HytaleDesigner_Wardrobe" } }
+      ]
+    },
+    "Secondary": {
+      "Interactions": [
+        { "Type": "OpenCustomUI", "Page": { "Id": "HytaleDesigner_Wardrobe" } }
+      ]
+    }
+  },
+  "Utility": {
+    "Compatible": true
+  },
+  "Recipe": {
+    "Input": [
+      { "ItemId": "Ingredient_Fibre", "Quantity": 4 }
+    ]
+  },
+  "Quality": "Common",
+  "MaxStack": 1,
+  "Tags": {
+    "Type": ["Tool"]
+  },
+  "ItemSoundSetId": "ISS_Weapons_Wood"
+}

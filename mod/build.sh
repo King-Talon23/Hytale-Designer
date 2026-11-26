@@ -16,5 +16,8 @@ with zipfile.ZipFile(os.path.join(b, "out", f"HytaleDesignerSync-{v}.jar"), "w",
     for r, _, fs in os.walk(os.path.join(b, "classes")):
         for f in fs:
             p = os.path.join(r, f); z.write(p, os.path.relpath(p, os.path.join(b, "classes")))
+    for r, _, fs in os.walk(os.path.join(b, "res")):   # the asset pack: wardrobe page, item, names
+        for f in fs:
+            p = os.path.join(r, f); z.write(p, os.path.relpath(p, os.path.join(b, "res")).replace(os.sep, "/"))
 EOF
 echo "built out/HytaleDesignerSync-$V.jar"

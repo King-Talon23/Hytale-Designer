@@ -1,8 +1,8 @@
 {
   "Group": "KingTalon23",
   "Name": "SkinEditor",
-  "Version": "1.3.0",
-  "Description": "Hytale Designer Sync: shows the skin and custom assets you are wearing on hytaledesigner.com in your own worlds. Unofficial; not affiliated with Hypixel Studios.",
+  "Version": "1.4.0",
+  "Description": "Hytale Designer Sync: shows the skin and custom assets you are wearing on hytaledesigner.com in your own worlds, and a Designer Wardrobe to wear any skin from your Locker in game. Unofficial; not affiliated with Hypixel Studios.",
   "Authors": [
     {
       "Name": "KingTalon23"
@@ -13,5 +13,6 @@
   "ServerVersion": "*",
   "Dependencies": {},
   "OptionalDependencies": {},
-  "DisabledByDefault": false
+  "DisabledByDefault": false,
+  "IncludesAssetPack": true
 }

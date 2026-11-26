@@ -240,6 +240,19 @@ const SUB = { custom: 'My skins', game: 'In-game slots' },
   ASSET_DIR = 'Custom assets',
   ANIM_DIR = 'Animations';
 export const sync = () => mirror();
+// a skin's picture as PNG bytes (set by the app once the game files are loaded); null until then
+let pictureMaker = null;
+export const setPictureMaker = fn => (pictureMaker = fn);
+async function skinPicture(skin) {
+  if (!pictureMaker) return null;
+  try {
+    const url = await pictureMaker(skin);
+    if (!url) return null;
+    return Uint8Array.from(atob(url.slice(url.indexOf(',') + 1)), c => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
 // what the player is wearing, for the companion mod: "<skins folder>/Wearing.json" (on:false when Show in game is off)
 let lastWearing = null;
 export async function writeWearing(data) {
@@ -621,6 +634,8 @@ async function doMirror() {
       while (used.has(n.toLowerCase())) n = `${b} (${i++})`;
       used.add(n.toLowerCase());
       want.set(`${SUB.custom}/${n}.json`, file(r));
+      // its picture, for the mod's wardrobe screen in game (made only when the skin changed)
+      want.set(`${SUB.custom}/${n}.png`, [() => skinPicture(r.skin), 'pic|' + JSON.stringify(r.skin)]);
     }
     const sync = { written, known };
     for (const kind of ['custom', 'game']) {
@@ -629,7 +644,9 @@ async function doMirror() {
       await mirrorDir(
         d,
         SUB[kind],
-        [...want].filter(([path]) => path.startsWith(top)).map(([path, text]) => [path.slice(top.length), text]),
+        [...want]
+          .filter(([path]) => path.startsWith(top))
+          .map(([path, v]) => (Array.isArray(v) ? [path.slice(top.length), ...v] : [path.slice(top.length), v])),
         sync
       );
     }

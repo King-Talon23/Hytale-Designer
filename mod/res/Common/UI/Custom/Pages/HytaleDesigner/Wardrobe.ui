@@ -1,0 +1,91 @@
+// Hytale Designer Sync: the in-game wardrobe, in the style of the game's Memories page. The plugin appends one
+// WardrobeCard.ui per saved skin into #Grid.
+$C = "../../Common.ui";
+
+@HeaderStyle = LabelStyle(
+  FontSize: 15,
+  VerticalAlignment: Center,
+  RenderUppercase: true,
+  TextColor: #89899f,
+  FontName: "Secondary",
+  RenderBold: true,
+  LetterSpacing: 0.5
+);
+
+$C.@PageOverlay {
+  LayoutMode: Middle;
+
+  $C.@DecoratedContainer {
+    Anchor: (Width: 726, Height: 590);
+
+    #Title {
+      $C.@Title {
+        @Text = "Wardrobe";
+      }
+    }
+
+    #Content {
+      LayoutMode: Top;
+      Padding: (Full: 9);
+
+      Group {
+        LayoutMode: Left;
+        Anchor: (Height: 30);
+        Padding: (Horizontal: 20, Top: 10);
+
+        Label {
+          Text: "My skins";
+          Style: @HeaderStyle;
+        }
+
+        Group { FlexWeight: 1; }
+
+        Label #Count {
+          Text: "0";
+          Style: @HeaderStyle;
+        }
+      }
+
+      Group {
+        FlexWeight: 1;
+        Padding: (Left: 24, Right: 8);
+
+        Group {
+          LayoutMode: TopScrolling;
+          Anchor: (Vertical: 16);
+          ScrollbarStyle: $C.@DefaultScrollbarStyle;
+          FlexWeight: 1;
+
+          Group #Grid {
+            LayoutMode: LeftWrap;
+          }
+
+          Label #Empty {
+            Anchor: (Height: 120);
+            Text: "No saved skins";
+            Style: (...@HeaderStyle, HorizontalAlignment: Center);
+            Visible: false;
+          }
+        }
+      }
+
+      Group {
+        LayoutMode: Left;
+        Anchor: (Height: 52);
+        Padding: (Horizontal: 20, Bottom: 8);
+
+        Label #Status {
+          FlexWeight: 1;
+          Style: (FontSize: 13, VerticalAlignment: Center, TextColor: #96a9be);
+        }
+
+        $C.@SecondaryTextButton #OwnButton {
+          @Text = "My own skin";
+          @Anchor = Anchor(Width: 200);
+        }
+      }
+    }
+  }
+}
+
+$C.@BackButton {}
