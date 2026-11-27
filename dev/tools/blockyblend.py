@@ -3,6 +3,8 @@
 # Run: blender -b -P blockyblend.py -- <config.json>   (copied from HyCreator live-tools; renders the wardrobe screen's art)
 # config: {"model": path, "texture": path, "out": png, "width": px, "height": px, "pose": {"<node name>": {"yaw": deg}},
 #          "extra": [{"name", "position":[x,y,z], "size":[x,y,z], "uv":{"<face>":[x,y]}}],   (more boxes, textured from the same sheet)
+#          an extra with "attach": {"node": "<name>", "at": [x,y,z], "flip": true} sits in that node's posed frame (from the centre of its
+#          box; flip turns it round to face the box's back), so it swings with a door,
 #          "camera": {"target":[x,y,z], "distance": u, "yaw": deg, "pitch": deg, "lens": mm, "ortho": units or 0},
 #          "marks": {"name": [[x,y,z], ...]}, "samples": n, "no_model": true to draw only the extra boxes}
 # Writes the picture and <out>.json with each mark projected to picture pixels (for laying UI over the render).
@@ -64,14 +66,15 @@ def box(size, stretch, off, lay, M, T, quad_normal=None):
         add_face(cs, us4)
 
 marks_world = {}
-def walk(n, M, T):
+FRAMES = {}
+def walk(n, M, T, draw=True):
     p = n.get('position', {}); pos = np.array([p.get('x', 0), p.get('y', 0), p.get('z', 0)], float)
     R = qmat(n.get('orientation', {}))
     pose = cfg.get('pose', {}).get(n.get('name'), {})
     if 'yaw' in pose: R = R @ yawm(pose['yaw'])
     M2 = M @ R; T2 = T + M @ pos
     sh = n.get('shape') or {}
-    if sh.get('visible', True) and sh.get('type') in ('box', 'quad'):
+    if draw and sh.get('visible', True) and sh.get('type') in ('box', 'quad'):
         sz = sh.get('settings', {}).get('size', {}); st = sh.get('stretch', {}); of = sh.get('offset', {})
         size = np.array([sz.get('x', 0), sz.get('y', 0), sz.get('z', 0)], float)
         stretch = np.array([st.get('x', 1), st.get('y', 1), st.get('z', 1)], float)
@@ -85,14 +88,18 @@ def walk(n, M, T):
         box(size, stretch, off, lay, M2, T2, qn)
     so = sh.get('offset', {}) or {}
     TC = T2 + M2 @ np.array([so.get('x', 0), so.get('y', 0), so.get('z', 0)], float)
-    for k in n.get('children', []): walk(k, M2, TC)
+    FRAMES.setdefault(n.get('name'), (M2, TC))
+    for k in n.get('children', []): walk(k, M2, TC, draw)
 
 m = json.load(open(cfg['model'], encoding='utf-8'))
-if not cfg.get('no_model'):
-    for n in m['nodes']: walk(n, np.eye(3), np.zeros(3))
+for n in m['nodes']: walk(n, np.eye(3), np.zeros(3), not cfg.get('no_model'))
 for e in cfg.get('extra', []):
     lay = {f: {'offset': {'x': v[0], 'y': v[1]}, 'angle': v[2] if len(v) > 2 else 0} for f, v in e['uv'].items()}   # [x, y(, angle)]
-    box(np.array(e['size'], float), np.ones(3), np.zeros(3), lay, np.eye(3), np.array(e['position'], float))
+    M, T = np.eye(3), np.zeros(3)
+    if e.get('attach'):
+        a = e['attach']; FM, FT = FRAMES[a['node']]
+        M = FM @ (yawm(180) if a.get('flip') else np.eye(3)); T = FT + FM @ np.array(a.get('at', [0, 0, 0]), float)
+    box(np.array(e['size'], float), np.ones(3), np.zeros(3), lay, M, T + M @ np.array(e['position'], float))
 
 me = bpy.data.meshes.new('model'); me.from_pydata(verts, [], faces); me.update()
 uvl = me.uv_layers.new()

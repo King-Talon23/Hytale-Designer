@@ -48,17 +48,23 @@ with zipfile.ZipFile(ASSETS) as z:
 model, tex = os.path.join(tmp, 'Wardrobe.blockymodel'), os.path.join(tmp, 'Wardrobe_Texture.png')
 CAM = {'target': [-16, 36, 8], 'distance': 420, 'yaw': 0, 'pitch': 5, 'lens': 133.8}   # lens sets the scale: interior 520 UI units wide
 
-def render(name, **over):
+def render(name, crop=None, same=None, **over):
     cfg = {'model': model, 'texture': tex, 'out': os.path.join(tmp, name + '.png'), 'width': 2400, 'height': 2000, 'samples': 128,
            'pose': {'Door-L': {'yaw': 128}, 'Door-R': {'yaw': -128}}, 'lights': {'key': 3.6, 'fill': 0.6, 'rim': 1.0}, 'camera': CAM,
            'marks': {'interior': [[IN_X0, IN_TOP, FACE_Z], [IN_X1, IN_BOT, FACE_Z]]}}
     cfg.update(over); cj = os.path.join(tmp, name + '.json'); json.dump(cfg, open(cj, 'w'))
     subprocess.run([BLENDER, '-b', '-P', os.path.join(HERE, 'blockyblend.py'), '--', cj], check=True, capture_output=True)
     im = Image.open(cfg['out']); marks = json.load(open(cfg['out'] + '.json'))
+    if crop:                                            # a piece laid over the art: cut to the art's frame, then to itself
+        im = im.crop(crop); b = im.getbbox(); b = (b[0] // 2 * 2, b[1] // 2 * 2, (b[2] + 1) // 2 * 2, (b[3] + 1) // 2 * 2)
+        if same: b = (same[0] * 2, same[1] * 2, (same[0] + same[2]) * 2, (same[1] + same[3]) * 2)   # a hover picture: the plain one's frame
+        im.crop(b).resize(((b[2] - b[0]) // 2, (b[3] - b[1]) // 2), Image.LANCZOS).save(os.path.join(OUT, name + '@2x.png'), optimize=True)
+        return [b[0] // 2, b[1] // 2, (b[2] - b[0]) // 2, (b[3] - b[1]) // 2]
     box = im.getbbox(); box = (box[0] - 4, box[1] - 4, box[2] + 4, box[3] + 4)
     im = im.crop(box)
     if im.width % 2: im = im.crop((0, 0, im.width + 1, im.height))         # whole UI units
     if im.height % 2: im = im.crop((0, 0, im.width, im.height + 1))
+    render.box = (box[0], box[1], box[0] + im.width, box[1] + im.height)
     # stored at one pixel per UI unit: a full @2x picture this big came out scrambled in game (the client's UI atlas)
     im.resize((im.width // 2, im.height // 2), Image.LANCZOS).save(os.path.join(OUT, name + '@2x.png'), optimize=True)
     return im, {k: [[(p[0] - box[0]) / 2, (p[1] - box[1]) / 2] for p in v] for k, v in marks.items()}
@@ -71,6 +77,7 @@ rail2 = [{'position': [IN_X0 + HALF * (i + 0.5), (RAIL_TOP + RAIL_BOT) / 2 - ROW
           'uv': {'front': IRON, 'top': IRON, 'bottom': IRON}} for i in (0, 1)]
 art, m = render('Wardrobe', extra=rail2, marks={'interior': [[IN_X0, IN_TOP, FACE_Z], [IN_X1, IN_BOT, FACE_Z]],
                                                   'rail2': [[IN_X0, RAIL_TOP - ROW, FACE_Z]]})
+ART_BOX = render.box
 (ix0, iy0), (ix1, iy1) = m['interior']
 v = lambda y: iy0 + (IN_TOP - y) * (iy1 - iy0) / (IN_TOP - IN_BOT)
 
@@ -87,12 +94,15 @@ for sx in (-1, 1):
              {'position': [sx * 2.35, SHOULDER - 0.45, FACE_Z + 1.15], 'size': [0.6, 0.6, 0.8], 'uv': {f: WOOD for f in ('front', 'top', 'left', 'right', 'bottom')}}]
 him, hm = render('Hanger', no_model=True, extra=hook, marks={'c': [[0, RAIL_TOP + 0.6, FACE_Z]]})
 
-def plaque(name, sign, key):
-    # a plank board with an arrow carved into it (pointing right, or left when sign is -1) and an iron nail at the arrow's tail
-    W, H, D, CUT, RIM = 24, 13, 1.6, 1.0, 0.5
-    head = {14: (2, 10), 15: (3, 9), 16: (4, 8), 17: (5, 7), 18: (6, 6)}
+def plaque(name, door, sign, key, same=None):
+    # a plank board nailed to the inside of a door (swung open as in the art, so it takes the door's angle), with an arrow carved
+    # into it (pointing right, or left when sign is -1) and an iron nail at the arrow's tail; rendered alone with the art's camera
+    W, H, D, CUT, RIM = 18, 11, 1.2, 0.8, 0.4
+    head = {10: (2, 8), 11: (3, 7), 12: (4, 6), 13: (5, 5)}
     kind = lambda x, y: ('rim' if x in (0, W - 1) or y in (0, H - 1) else
-                         'cut' if (6 <= x <= 14 and 5 <= y <= 7) or (x in head and head[x][0] <= y <= head[x][1]) else 'board')
+                         'cut' if (4 <= x <= 10 and 4 <= y <= 6) or (x in head and head[x][0] <= y <= head[x][1]) else 'board')
+    at = {'node': door, 'at': [0, PLAQUE_Y - 37.5, -1], 'flip': True}   # from the door box's centre (y 37.5); -1 = its inside face
+    K = 0.7                                                            # model units per plaque cell
     ex = []
     for y in range(H):
         x = 0
@@ -100,23 +110,23 @@ def plaque(name, sign, key):
             k = kind(x, y); x1 = x
             while k != 'cut' and x1 + 1 < W and kind(x1 + 1, y) == k: x1 += 1   # cut cells one by one (a small dark patch)
             n = x1 - x + 1
-            front, back = {'cut': -CUT, 'board': 0, 'rim': RIM}[k], -D
-            u, v = {'cut': (117 + x % 5, 118 + y % 4), 'board': (2 + x, 76 + y), 'rim': (66 + x, 96 + y)}[k]   # cut: the dark end grain; board: the lit logs
-            ex.append({'position': [(x + n / 2 - W / 2) * sign, H / 2 - y - 0.5, (front + back) / 2], 'size': [n, 1, front - back],
+            front = {'cut': D - CUT, 'board': D, 'rim': D + RIM}[k]
+            u, v = {'cut': (117 + x % 5, 118 + y % 4), 'board': (2 + x, 76 + y), 'rim': (66 + x, 96 + y)}[k]   # cut: dark end grain
+            ex.append({'position': [(x + n / 2 - W / 2) * sign * K, (H / 2 - y - 0.5) * K, front / 2 * K], 'size': [n * K, K, front * K], 'attach': at,
                        'uv': {f: [u, v] for f in ('front', 'top', 'bottom', 'left', 'right')}})
             x = x1 + 1
-    ex.append({'position': [(3 - W / 2) * sign, 0, 0.35], 'size': [1.4, 1.4, 0.7],
+    ex.append({'position': [(2.5 - W / 2) * sign * K, 0, (D + 0.3) * K], 'size': [1.2 * K, 1.2 * K, 0.6 * K], 'attach': at,
                'uv': {'front': [57, 109], 'top': [51, 109], 'bottom': [51, 109], 'left': [51, 114], 'right': [51, 114]}})
-    im, _ = render(name, no_model=True, extra=ex, width=600, height=400, samples=96, lights={'key': key, 'fill': 0.6, 'rim': 1.0},
-                   camera={'target': [0, 0, 0], 'distance': 200, 'yaw': 0, 'pitch': 0, 'ortho': 24 * 600 / 216}, marks={})
-    return im
-for side, sign in (('Left', -1), ('Right', 1)):
-    a = plaque('Page' + side, sign, 3.6); plaque('Page' + side + 'Hover', sign, 6.5)
+    return render(name, crop=ART_BOX, same=same, no_model=True, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
+PLAQUE_Y = IN_TOP - 300 / (402 / (IN_TOP - IN_BOT))                  # level with the middle of the bottom rack
+plaques = {}
+for side, door, sign in (('Left', 'Door-R', -1), ('Right', 'Door-L', 1)):     # the model's Door-R swings open on the picture's left
+    plaques[side] = plaque('Page' + side, door, sign, 3.6); plaque('Page' + side + 'Hover', door, sign, 6.5, plaques[side])
 
 lay = {'art': [art.width // 2, art.height // 2],
        'interior': [round(ix0), round(iy0), round(ix1 - ix0), round(iy1 - iy0)],
        'rail_y': [round(v(RAIL_TOP) - iy0, 1), round(v(RAIL_BOT) - iy0, 1)], 'rail2_top': round(m['rail2'][0][1] - iy0, 1),
        'hanger': {'size': [him.width // 2, him.height // 2], 'top_from_rack': round(v(RAIL_TOP + 0.6) - iy0 - hm['c'][0][1], 1),
                   'center_x_in_image': round(hm['c'][0][0], 1)},
-       'plaque': [a.width // 2, a.height // 2]}
+       'plaques': plaques}
 print(json.dumps(lay))
