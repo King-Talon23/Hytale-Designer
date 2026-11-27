@@ -27,11 +27,17 @@ export const SCENERY_TEX = {
   water: 'BlockTextures/Fluid_Water.png',
   lava: 'BlockTextures/Fluid_Lava.png',
   stone: 'BlockTextures/Rock_Stone.png',
+  // the game's portal art, for the strip's portals
+  portalRing: 'Particles/Textures/Circles/Portal_Blue.png',
+  portalSwirl: 'Particles/Textures/Circles/Portal_Wind_Hollow.png',
+  portalWarp: 'Particles/Textures/Circles/Portal_Round_Distortion.png',
 };
 // backgrounds behind the character and the set pieces of the moves: built from the game's own files (see scene-data.js)
 export { SCENES, SCENE_ALIASES, SET_PIECES, ZONES } from './scene-data.js';
 // which set of files a connect reads; raised when the site starts needing more, so a remembered Assets.zip is read again
-export const FILES_V = 12;
+// (13 on local ?strip test pages, which also need the portal art; the live site moves to 13 when the strip goes live)
+export const FILES_V =
+  typeof location !== 'undefined' && location.hostname.endsWith('localhost') && /[?&]strip/.test(location.search) ? 13 : 12;
 const PROP_FILES = new Set(
   [...Object.values(PROPS).flat(), ...Object.values(SCENERY_TEX)]
     .filter(p => typeof p === 'string')

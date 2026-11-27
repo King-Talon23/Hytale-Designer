@@ -1,81 +1,129 @@
 // The strip (a prototype, on local test pages with ?strip): the character walks a straight flat lane through the biome's land, the land
-// moving with the walk, and at the lane's left and right edges a pair of frameless portals opens as the character comes near either
-// edge. The two are one doorway: through the near one is the far edge of the lane, and across the lane the far one shows the near
-// edge, with the character standing there. Through either the character sees itself, a lane's width away, as the lane really joins.
-// Walking into one carries the character out of the other without a seam.
+// moving with the walk, and at the lane's left and right edges a pair of portals opens when the character comes near either edge.
+// The two are one doorway: through the near one is the far edge of the lane, and across the lane the far one shows the near edge with
+// the character standing there. They are drawn with the game's own portal art (its blue portal ring, a swirl and a ripple map, read
+// from the player's game files), open with a flicker and a swirl, and close again when the character walks away.
+// Going through: only the camera passing through a bubble carries the view across. A camera swung past an edge anywhere else is
+// behind that portal, and through its back it sees the land beyond the other edge, as a real doorway would show.
 import * as THREE from '../vendor/three.module.min.js';
-
-const ring = (a, b, t) => (t <= a ? 0 : t >= b ? 1 : ((t - a) / (b - a)) ** 2 * (3 - 2 * ((t - a) / (b - a))));
 
 const VERT = [
   'varying vec2 vUv; varying float vFacing;',
   'void main() {',
   '  vUv = uv;',
   '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
-  // how squarely the camera looks at the bubble: seen edge-on, its rim fades so it never shows as a line standing in the field
+  // how squarely the camera looks at the bubble: seen edge-on, its ring fades so it never shows as a line standing in the field
   '  vFacing = abs(dot(normalize(normalMatrix * normal), normalize(-mv.xyz)));',
   '  gl_Position = projectionMatrix * mv;',
   '}',
 ].join('\n');
 const FRAG = [
-  'uniform sampler2D map; uniform vec2 size; uniform float open; uniform float time; uniform float aspect; varying vec2 vUv; varying float vFacing;',
+  'uniform sampler2D map; uniform sampler2D ring; uniform sampler2D swirl; uniform sampler2D warp;',
+  'uniform vec2 size; uniform float open; uniform float swirlA; uniform float time; uniform float aspect;',
+  'varying vec2 vUv; varying float vFacing;',
+  'vec2 turn(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }',
   'void main() {',
-  // an oval bubble that opens from its middle; its rim wobbles a little, like a surface settling
-  '  vec2 p = (vUv - 0.5) * vec2(aspect, 1.0) * 2.0;',
-  '  float a = atan(p.y, p.x);',
-  '  float r = length(p) / (0.5 * (aspect + 1.0));',
-  '  float edge = open * (1.0 + 0.025 * sin(a * 7.0 + time * 2.3) + 0.018 * sin(a * 13.0 - time * 3.1));',
-  '  if (r > edge) discard;',
-  '  vec4 c = texture2D(map, gl_FragCoord.xy / size);',
-  // a faint bright line just inside the rim, so the opening reads as a surface and not a hole in the picture
-  '  float rim = smoothstep(edge - 0.035, edge, r) * (1.0 - smoothstep(edge - 0.008, edge, r));',
-  '  gl_FragColor = vec4(mix(c.rgb, vec3(0.85, 0.9, 1.0), rim * 0.55 * smoothstep(0.2, 0.6, vFacing)), 1.0);',
+  '  vec2 p = (vUv - 0.5) * 2.0;', // the oval fills the quad: 1 where it meets the quad's sides
+  '  float a = atan(p.y, p.x * aspect);',
+  '  float r = length(p);',
+  '  float R = max(0.001, 0.62 * open * (1.0 + 0.02 * sin(a * 7.0 + time * 2.3)));',
+  '  float face = smoothstep(0.12, 0.5, vFacing);',
+  // the game's portal ring, its band centred on the bubble's edge, turning slowly
+  '  vec4 rc = texture2D(ring, 0.5 + turn(p, time * 0.35) / R * 0.3);', // the ring's band just inside to well outside the edge
+  '  vec3 ringC = rc.rgb * rc.a * face;',
+  '  if (r > R) {',
+  '    float aOut = rc.a * face * min(1.0, open * 3.0);',
+  '    if (aOut < 0.02) discard;',
+  '    gl_FragColor = vec4(rc.rgb * 1.2, aOut);',
+  '    #include <colorspace_fragment>',
+  '    return;',
+  '  }',
+  // inside: the far side, rippling with the game's distortion map toward the rim, a swirl while it opens, and the ring over it
+  '  vec2 w = texture2D(warp, vUv * 1.3 + vec2(time * 0.02, time * 0.013)).rg - 0.5;',
+  '  vec2 q = gl_FragCoord.xy + w * size.y * 0.035 * smoothstep(R * 0.45, R, r);',
+  '  vec3 c = texture2D(map, q / size).rgb;',
+  '  vec4 sw = texture2D(swirl, 0.5 + turn(p / R, -time * 2.5) * 0.5);',
+  '  c = mix(c, vec3(0.55, 0.8, 1.0), clamp(sw.a * dot(sw.rgb, vec3(0.333)) * swirlA * 1.6, 0.0, 1.0));',
+  '  gl_FragColor = vec4(c + ringC, 1.0);',
   '  #include <colorspace_fragment>',
   '}',
 ].join('\n');
 
-// sky: () => the sky dome (drawn whole in a portal's view); who: () => the objects that are the character (figure, its mount, its
-// shadow), drawn again where the lane puts the character on the far side
-export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who }) {
+const backOut = k => 1 + 2.2 * (k - 1) ** 3 + 1.2 * (k - 1) ** 2; // eases in with a little overshoot
+
+// sky: () => the sky dome; who: () => the objects that are the character (figure, mount, shadow); art: path -> Promise<texture>
+export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who, art }) {
   const half = (width / 2) * BLOCK,
     span = width * BLOCK,
-    OPEN_AT = 16 * BLOCK, // the portals start to open when the character or camera is this near an edge ...
-    FULL_AT = 6 * BLOCK, // ... and are fully open from here
-    PW = 22 * BLOCK, // the bubble: across (along the lane) and up
-    PH = 16 * BLOCK;
+    OPEN_D = 10 * BLOCK, // the pair opens when the character or the camera comes this near an edge ...
+    CLOSE_D = 14 * BLOCK, // ... and closes once both are this far away again
+    PW = 28 * BLOCK, // the bubble's quad (room round the bubble for the ring's glow): across (along the lane) and up
+    PH = 20 * BLOCK,
+    MID = PH * 0.3; // the bubble's middle above the ground (its bottom just reaches the ground)
   let px = 0,
     pz = 0,
     world = null,
     t = 0,
-    camGap = Infinity; // how far the camera is from the nearer open portal
+    want = false, // the pair is wanted open
+    o = 0, // how far through opening it is (0 shut, 1 open)
+    behind = 0, // -1 / 1: the camera went past that edge without going through, and is behind its portal
+    camGap = Infinity,
+    shownR = 0, // the bubble's opening now (in its quad's units), for telling whether the camera passes through it
+    lastCx = 0, // where across the lane the camera was last frame ...
+    lastY = 0, // ... how high ...
+    lastZ = 0; // ... and where along the lane, relative to the character
   const size = new THREE.Vector2(),
     plane = new THREE.Plane(),
     V = new THREE.Vector3(),
-    // the pair: s -1 at the lane's left edge, 1 at its right. Through the one at edge s is the lane from its other edge: the land
-    // moved s lanes over
-    portals = [-1, 1].map(s => {
-      const rt = new THREE.WebGLRenderTarget(4, 4, { samples: 4 }),
-        mat = new THREE.ShaderMaterial({
-          uniforms: {
-            map: { value: rt.texture },
-            size: { value: size },
-            open: { value: 0 },
-            time: { value: 0 },
-            aspect: { value: PW / PH },
-          },
-          transparent: true,
-          side: THREE.DoubleSide,
-          vertexShader: VERT,
-          fragmentShader: FRAG,
-        }),
-        mesh = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), mat);
-      mesh.rotation.y = Math.PI / 2; // faces along the x axis, across the lane
-      mesh.visible = false;
-      mesh.frustumCulled = false;
-      scene.add(mesh);
-      return { s, rt, mat, mesh };
-    });
-  // the part of the screen a bubble covers, in pixels of the drawing buffer (null when it is off screen), so its view is drawn only there
+    N = new THREE.Vector3(),
+    tex = (bytes, w = 1) => {
+      const d = new THREE.DataTexture(new Uint8Array(bytes), w, 1);
+      d.needsUpdate = true;
+      return d;
+    },
+    uniforms = { ring: { value: tex([0, 0, 0, 0]) }, swirl: { value: tex([0, 0, 0, 0]) }, warp: { value: tex([128, 128, 128, 255]) } };
+  // the game's own portal art, from the player's files (the bubble works without it, plainer)
+  for (const [k, path] of [
+    ['ring', 'Particles/Textures/Circles/Portal_Blue.png'],
+    ['swirl', 'Particles/Textures/Circles/Portal_Wind_Hollow.png'],
+    ['warp', 'Particles/Textures/Circles/Portal_Round_Distortion.png'],
+  ])
+    art(path)
+      .then(tx => {
+        tx.wrapS = tx.wrapT = k === 'warp' ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+        tx.colorSpace = k === 'warp' ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+        tx.needsUpdate = true;
+        uniforms[k].value = tx;
+      })
+      .catch(() => {});
+  // the pair: s -1 at the lane's left edge, 1 at its right. Through the one at edge s is the land moved s lanes over
+  const portals = [-1, 1].map(s => {
+    const rt = new THREE.WebGLRenderTarget(4, 4, { samples: 4 }),
+      mat = new THREE.ShaderMaterial({
+        uniforms: {
+          ...uniforms,
+          map: { value: rt.texture },
+          size: { value: size },
+          open: { value: 0 },
+          swirlA: { value: 0 },
+          time: { value: 0 },
+          aspect: { value: PW / PH },
+        },
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        vertexShader: VERT,
+        fragmentShader: FRAG,
+      }),
+      mesh = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), mat);
+    mesh.rotation.y = Math.PI / 2; // faces along the x axis, across the lane
+    mesh.visible = false;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 5;
+    scene.add(mesh);
+    return { s, rt, mat, mesh };
+  });
+  // the part of the screen a bubble covers, in pixels of the drawing buffer (null when off screen), so its view is drawn only there
   const box = mesh => {
     let x0 = Infinity,
       y0 = Infinity,
@@ -90,58 +138,88 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who 
       V.set(u * PW * 0.5, v * PH * 0.5, 0)
         .applyMatrix4(mesh.matrixWorld)
         .project(cam);
-      if (V.z > 1) return [0, 0, size.x, size.y]; // a corner behind the camera: the whole screen
+      if (V.z > 1) return [0, 0, size.x, size.y];
       x0 = Math.min(x0, V.x);
       y0 = Math.min(y0, V.y);
       x1 = Math.max(x1, V.x);
       y1 = Math.max(y1, V.y);
     }
     if (x1 < -1 || x0 > 1 || y1 < -1 || y0 > 1) return null;
-    const px0 = Math.max(0, Math.floor(((x0 + 1) / 2) * size.x) - 2),
-      py0 = Math.max(0, Math.floor(((y0 + 1) / 2) * size.y) - 2),
-      px1 = Math.min(size.x, Math.ceil(((x1 + 1) / 2) * size.x) + 2),
-      py1 = Math.min(size.y, Math.ceil(((y1 + 1) / 2) * size.y) + 2);
-    return [px0, py0, px1 - px0, py1 - py0];
+    const a = Math.max(0, Math.floor(((x0 + 1) / 2) * size.x) - 2),
+      b = Math.max(0, Math.floor(((y0 + 1) / 2) * size.y) - 2);
+    return [
+      a,
+      b,
+      Math.min(size.x, Math.ceil(((x1 + 1) / 2) * size.x) + 2) - a,
+      Math.min(size.y, Math.ceil(((y1 + 1) / 2) * size.y) + 2) - b,
+    ];
   };
   const only = keep => {
-    const shown = scene.children.map(o => o.visible);
-    scene.children.forEach(o => (o.visible = keep.includes(o) && o.visible));
-    return () => scene.children.forEach((o, i) => (o.visible = shown[i]));
+    const shown = scene.children.map(c => c.visible);
+    scene.children.forEach(c => (c.visible = !!((keep.includes(c) || c.isLight) && c.visible))); // lights stay, or what is drawn is black
+    return () => scene.children.forEach((c, i) => (c.visible = shown[i]));
   };
+  // is a point (scene units) inside the open bubble, as seen square on?
+  const inBubble = (y, z) => Math.hypot(z / (PW / 2), (y - MID) / (PH / 2)) < shownR * 0.95;
 
   return {
     attach(w) {
       world = w;
-      px = 0;
-      pz = 0;
+      px = pz = 0;
+      lastCx = cam.position.x;
+      behind = 0;
+      want = false;
+      o = 0;
       if (world) world.position.set(0, 0, 0);
     },
-    // the walk: the land moves the other way. What crosses is the camera's view: when the camera reaches an edge, everything moves
-    // across to the other edge together, so the picture never jumps (until then the character is seen walking on through the portal)
     step(dt, vx, vz) {
       t += dt;
       if (!world) return;
+      const was = lastCx;
       px += vx * dt;
       pz += vz * dt;
       let cx = px + cam.position.x;
-      if (cx < -half) px += span;
-      else if (cx > half) px -= span;
-      cx = px + cam.position.x;
-      world.position.set(-px, 0, -pz);
-      // the pair opens as far as the character or the camera is near either edge (or through it)
-      const near = Math.min(half - Math.abs(cx), Math.min(px + half, half - px)),
-        open = 1 - ring(FULL_AT, OPEN_AT, near);
-      for (const p of portals) {
-        p.mat.uniforms.open.value = open * 0.98;
-        p.mat.uniforms.time.value = t;
-        p.mesh.visible = open > 0.001;
-        p.mesh.position.set(p.s * half - px, PH * 0.34, 0);
+      // the camera past an edge: through the open bubble it carries everything across; anywhere else it is only behind that portal
+      for (const s of [-1, 1]) {
+        const past = s * cx > half,
+          wasPast = s * was > half;
+        if (behind === s) {
+          if (!past) behind = 0; // back in front of it
+        } else if (behind === 0 && past) {
+          // where on its way the camera met the edge's line: through the bubble, or beside it
+          const f = wasPast ? 1 : (s * half - was) / (cx - was || 1),
+            y = lastY + (cam.position.y - lastY) * f,
+            z = lastZ + (cam.position.z - lastZ) * f;
+          if (!wasPast && !(o > 0.6 && inBubble(y, z))) behind = s;
+          else px -= s * span;
+        }
       }
-      camGap = open > 0.001 ? half - Math.abs(cx) : Infinity;
+      cx = px + cam.position.x;
+      lastCx = cx;
+      lastY = cam.position.y;
+      lastZ = cam.position.z;
+      world.position.set(-px, 0, -pz);
+      // open when the character or camera comes near either edge; shut once both are well away (never half open by distance)
+      const near = Math.min(half - Math.abs(cx), px + half, half - px);
+      if (near < OPEN_D || behind) want = true;
+      else if (near > CLOSE_D) want = false;
+      o = Math.max(0, Math.min(1, o + (want ? dt / 0.75 : -dt / 0.4)));
+      // a moment's flicker, then a swirl as it opens from the middle with a little overshoot
+      const k = Math.max(0, (o - 0.15) / 0.85),
+        open = o <= 0 ? 0 : o < 0.15 ? 0.05 + 0.04 * Math.sin(t * 55) : backOut(k);
+      shownR = 0.62 * open;
+      for (const p of portals) {
+        p.mat.uniforms.open.value = open;
+        p.mat.uniforms.swirlA.value = o > 0 ? 1 - Math.min(1, Math.max(0, (o - 0.35) / 0.55)) : 0;
+        p.mat.uniforms.time.value = t;
+        p.mesh.visible = o > 0;
+        p.mesh.position.set(p.s * half - px, MID, 0);
+      }
+      camGap = o > 0 ? half - Math.abs(cx) : Infinity;
     },
     // before the frame is drawn: the view through each open portal, drawn into a picture the bubble shows. It is the scene with the land
-    // moved a lane's width over, cut at the portal so nothing on this side of it shows, and the character drawn once more where the
-    // lane puts it on that side
+    // moved a lane's width over, cut at the portal so only what lies beyond it shows. From in front (the lane side) the character shows
+    // there too, where the lane puts it; from behind, the bubble shows the land beyond the other edge and hides what stands behind it
     before() {
       if (!world || !portals[0].mesh.visible) return;
       renderer.getDrawingBufferSize(size);
@@ -158,30 +236,34 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who 
         const b = boxes[i];
         if (!b) return;
         if (p.rt.width !== size.x || p.rt.height !== size.y) p.rt.setSize(size.x, size.y);
-        const X0 = p.mesh.position.x;
-        p.s < 0 ? plane.set(new THREE.Vector3(-1, 0, 0), X0) : plane.set(new THREE.Vector3(1, 0, 0), -X0);
+        const X0 = p.mesh.position.x,
+          camSide = Math.sign(cam.position.x - X0) || 1,
+          front = camSide === -p.s; // the camera is on the lane's side of this portal
+        plane.set(N.set(-camSide, 0, 0), camSide * X0);
         renderer.setRenderTarget(p.rt);
         renderer.setScissorTest(true);
         renderer.setScissor(b[0], b[1], b[2], b[3]);
         renderer.clear();
         world.position.x += p.s * span;
-        // the sky whole (it is all round, the cut would halve it), then everything else cut at the portal
         if (s) {
           const back = only([s]);
           renderer.clippingPlanes = [];
           renderer.render(scene, cam);
           back();
-          s.visible = false;
         }
+        // the land (and from in front the character crossing over), cut at the portal
+        const showMe = front ? null : only(scene.children.filter(c => !me.includes(c)));
+        if (s) s.visible = false;
         renderer.clippingPlanes = [plane];
         renderer.render(scene, cam);
         if (s) s.visible = true;
-        // the character a lane's width over: the one on this side of the doorway, as seen through it
-        if (me.length) {
+        showMe?.();
+        // from in front: the character again, a lane's width over, where the lane puts it on that side
+        if (front && me.length) {
           const back = only(me);
-          me.forEach(o => (o.position.x += p.s * span));
+          me.forEach(c => (c.position.x += p.s * span));
           renderer.render(scene, cam);
-          me.forEach(o => (o.position.x -= p.s * span));
+          me.forEach(c => (c.position.x -= p.s * span));
           back();
         }
         world.position.x -= p.s * span;
@@ -195,5 +277,6 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who 
     // the camera's near cut must stay closer than the portal, or the bubble is cut away just as the camera reaches it
     nearCap: () => Math.max(0.5, camGap * 0.5),
     where: () => [px / BLOCK, pz / BLOCK],
+    state: () => ({ behind, open: o }),
   };
 }

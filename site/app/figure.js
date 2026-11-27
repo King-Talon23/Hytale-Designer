@@ -1424,6 +1424,31 @@ export function stage(canvas, Controls) {
   const ctl = new Controls(cam, canvas);
   ctl.target.set(0, 62, 0);
   ctl.enablePan = false;
+  // Shift sprints, and the controls take a Shift-drag for a pan (switched off here), so while the character moves the drag is passed on
+  // without the Shift and turns the view as any drag does
+  canvas.addEventListener(
+    'pointerdown',
+    e => {
+      if (!e.isTrusted || !e.shiftKey || !anim.move) return;
+      e.stopImmediatePropagation();
+      canvas.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          pointerId: e.pointerId,
+          pointerType: e.pointerType,
+          isPrimary: e.isPrimary,
+          button: e.button,
+          buttons: e.buttons,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          screenX: e.screenX,
+          screenY: e.screenY,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    },
+    { capture: true }
+  );
   ctl.zoomToCursor = false; // zoom stays on the figure's centre, lined up with the buttons under it
   ctl.minDistance = 40;
   ctl.maxDistance = 1250;
@@ -1489,7 +1514,17 @@ export function stage(canvas, Controls) {
     flowing = [],
     mist = null,
     clearAt = 1.7;
-  const strip = STRIP ? createStrip({ scene, cam, renderer, BLOCK, sky: () => sky, who: () => [figure, mountRoot, disc] }) : null;
+  const strip = STRIP
+    ? createStrip({
+        scene,
+        cam,
+        renderer,
+        BLOCK,
+        sky: () => sky,
+        who: () => [figure, mountRoot, disc],
+        art: p => canvasOf(p).then(c => new THREE.CanvasTexture(c)),
+      })
+    : null;
   // the climbing wall: the same grid stood up in front of the figure, sliding the other way as it climbs
   const wallG = new THREE.GridHelper(CELL * 16, 16, 0x4a76ad, 0x33557f);
   wallG.rotation.x = Math.PI / 2;
