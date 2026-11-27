@@ -14,6 +14,47 @@ const STRIP = typeof location !== 'undefined' && location.hostname.endsWith('loc
 const cache = new Map(),
   once = (k, f) => (cache.has(k) ? cache.get(k) : (cache.set(k, f()), cache.get(k)));
 export const clearCache = () => cache.clear();
+// a strip land plant's material: the plant sinks out of the clearing round the character (uNearClear blocks) and the camera's
+// lens, and one between the camera and the character shrinks down below the sight line to its feet (see layout() on the plain)
+// cover false: only the clearing (a tall tree is not shrunk to show the character, only kept off it)
+function nearPlant(m, U, bb, cover = true) {
+  const c = m.clone(),
+    tall = Math.max(0.1, bb.max.y / BLOCK),
+    wide = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) / BLOCK;
+  c.userData = { ...m.userData, nearPlant: true };
+  c.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader =
+      'uniform vec3 uNearWho; uniform vec3 uNearCam; uniform float uNearClear; uniform float uNearBody;\n' +
+      sh.vertexShader.replace(
+        '#include <begin_vertex>',
+        [
+          '#include <begin_vertex>',
+          '#ifdef USE_INSTANCING',
+          'vec3 nearO = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz / ' + BLOCK.toFixed(4) + ';',
+          'vec3 nearW = uNearWho / ' + BLOCK.toFixed(4) + ', nearC = uNearCam / ' + BLOCK.toFixed(4) + ';',
+          'vec2 nearP = nearO.xz - nearW.xz, nearV = nearC.xz - nearW.xz;',
+          'float nearK = min(smoothstep(0.0, 1.0, (length(nearP) - uNearClear) / 1.8), smoothstep(0.0, 1.0, (length(nearO.xz - nearC.xz) - 1.2) / 2.2));',
+          'float nearL = max(length(nearV), 0.001), nearT = dot(nearP, nearV) / (nearL * nearL);',
+          'float nearX = abs(nearP.x * nearV.y - nearP.y * nearV.x) / nearL;',
+          'float nearS = 1.0;',
+          'if (' + (cover ? 'true' : 'false') + ' && nearT > 0.0 && nearT < 1.0) {',
+          '  float lim = clamp((nearT * (nearC.y - nearW.y) - (nearO.y - nearW.y) - 0.1) / ' + tall.toFixed(3) + ', 0.15, 1.0);',
+          '  nearS = mix(lim, 1.0, smoothstep(' +
+            wide.toFixed(3) +
+            ' + uNearBody + 0.4, ' +
+            wide.toFixed(3) +
+            ' + uNearBody + 1.0, nearX));',
+          '}',
+          'transformed *= nearK < 0.02 ? 0.0 : nearS;',
+          'transformed.y -= (1.0 - nearK) * 2.2 * ' + BLOCK.toFixed(4) + ';',
+          '#endif',
+        ].join('\n')
+      );
+  };
+  c.customProgramCacheKey = () => 'near' + tall.toFixed(3) + '|' + wide.toFixed(3) + (cover ? 'c' : '');
+  return c;
+}
 // a custom asset's texture comes from the asset creator (the live canvas while it is being painted), not from the game files
 let customSource = null;
 export const setCustomSource = f => {
@@ -1159,11 +1200,30 @@ async function buildWorld(sc, tint, renderer) {
       // (on the strip, every tree a lane's length either way of the walk stays a model, so the lane going round never swaps one)
       ((STRIP ? Math.abs(T[i]) <= 100 : Math.hypot(T[i], T[i + 1]) <= NEAR_TREES) ? near : far)[T[i + 3]].push(m);
     }
+    // on the strip the character walks over the land itself (no plain slides under it), so its plants (and its bushes, which are trees) make way as the plain's do:
+    // sinking out of a clearing round the character and the camera's lens, and shrinking when they stand between the camera and
+    // the character. Worked out on the card (the land is laid many times down the lane); the page feeds g.userData.near each frame
+    const nearU = STRIP
+      ? {
+          uNearWho: { value: new THREE.Vector3() },
+          uNearCam: { value: new THREE.Vector3() },
+          uNearClear: { value: 1.7 },
+          uNearBody: { value: 0.5 },
+        }
+      : null;
+    g.userData.near = nearU;
     index.forEach((p, k) => {
       const md = models.get(p),
         pk = p + '|' + tint;
       if (near[k].length) {
-        const im = new THREE.InstancedMesh(md.geo, md.mats, near[k].length);
+        let mats = md.mats;
+        if (nearU) {
+          if (!md.geo.boundingBox) md.geo.computeBoundingBox();
+          const bb = md.geo.boundingBox,
+            cover = bb.max.y / BLOCK < 6; // a bush shrinks to show the character; a tall tree only keeps off it
+          mats = Array.isArray(mats) ? mats.map(m => nearPlant(m, nearU, bb, cover)) : nearPlant(mats, nearU, bb, cover);
+        }
+        const im = new THREE.InstancedMesh(md.geo, mats, near[k].length);
         near[k].forEach((m, i) => im.setMatrixAt(i, m));
         im.frustumCulled = false;
         g.add(im);
@@ -1191,7 +1251,10 @@ async function buildWorld(sc, tint, renderer) {
     for (const [name, ms] of plants) {
       const p = (await parts(name).catch(() => null))?.[0];
       if (!p) continue;
-      const im = new THREE.InstancedMesh(p.geo, p.mat, ms.length);
+      if (nearU && !p.geo.boundingBox) p.geo.computeBoundingBox();
+      const bb = nearU ? p.geo.boundingBox : null,
+        mat = nearU ? (Array.isArray(p.mat) ? p.mat.map(m => nearPlant(m, nearU, bb)) : nearPlant(p.mat, nearU, bb)) : p.mat;
+      const im = new THREE.InstancedMesh(p.geo, mat, ms.length);
       ms.forEach((m, i) => im.setMatrixAt(i, m));
       im.frustumCulled = false;
       g.add(im);
@@ -1668,6 +1731,13 @@ export function stage(canvas, Controls) {
       const clearTo = Math.max(mountRoot ? 2.3 : 1.7, plantClear, painting ? 4 : 0);
       clearAt += (clearTo - clearAt) * (1 - Math.exp(-dt * 3));
       world.userData.clear = clearAt;
+      const near = world.userData.landGroup?.userData.near;
+      if (near && strip) {
+        near.uNearWho.value.set(0, 0, 0); // the strip slides its land under the character, which stays at the middle
+        near.uNearCam.value.copy(cam.position);
+        near.uNearClear.value = clearAt;
+        near.uNearBody.value = world.userData.who[0];
+      }
       let mx = anim.move ? -vel.x * dt : 0,
         mz = anim.move ? -vel.y * dt : 0;
       if (strip) {
@@ -2942,7 +3012,7 @@ export function stage(canvas, Controls) {
   // lc: the land's own clock (REV.lt), which starts when the new land is ready, so a land still being worked out never holds up the plain
   const waveMat = (m, inside, lc) => {
     const c = m.clone(),
-      own = m.userData.billboard ? m.onBeforeCompile : null;
+      own = m.userData.billboard || m.userData.nearPlant ? m.onBeforeCompile : null;
     c.defines = { ...(c.defines || {}), [inside ? 'WAVE_IN' : 'WAVE_OUT']: '', ...(lc ? { WAVE_LC: '' } : {}) };
     c.onBeforeCompile = (sh, r) => {
       own?.call(m, sh, r);
@@ -2995,7 +3065,8 @@ export function stage(canvas, Controls) {
           ].join('\n')
         );
     };
-    c.customProgramCacheKey = () => 'wave' + (inside ? 'in' : 'out') + (own ? 'bb' : '') + (lc ? 'lc' : '');
+    c.customProgramCacheKey = () =>
+      'wave' + (inside ? 'in' : 'out') + (own ? 'bb' + (m.customProgramCacheKey?.() || '') : '') + (lc ? 'lc' : '');
     return c;
   }; /* a new block grows from its foot with a little overshoot; an old one shrinks smoothly away */
   // skip: a part left out (a world's land, which runs on the land's clock)
