@@ -22,7 +22,7 @@ import java.util.stream.Stream;
 final class WardrobeSets {
     /** sets with art; Lumberjack is the Designer Wardrobe's own look */
     static final List<String> SETS = List.of("Lumberjack", "Temple_Dark", "Ancient", "Crude", "Desert", "Feran", "Frozen_Castle", "Human_Ruins",
-        "Jungle", "Kweebec", "Tavern", "Temple_Emerald", "Temple_Light", "Village");
+        "Jungle", "Kweebec", "Royal_Magic", "Tavern", "Temple_Emerald", "Temple_Light", "Temple_Wind", "Village");
     static final Pattern ITEM = Pattern.compile("^Server/Item/Items/Furniture/([A-Za-z_]+)/Furniture_([A-Za-z_]+)_Wardrobe\\.json$");
 
     static String pageId(String set) { return set.equals("Lumberjack") ? WardrobePage.PAGE_ID : WardrobePage.PAGE_ID + "_" + set; }

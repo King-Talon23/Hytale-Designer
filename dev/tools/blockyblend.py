@@ -4,7 +4,7 @@
 # config: {"model": path, "texture": path, "out": png, "width": px, "height": px, "pose": {"<node name>": {"yaw": deg}},
 #          "extra": [{"name", "position":[x,y,z], "size":[x,y,z], "uv":{"<face>":[x,y]}}],   (more boxes, textured from the same sheet)
 #          an extra with "attach": {"node": "<name>", "at": [x,y,z], "flip": true} sits in that node's posed frame (from the centre of its
-#          box; flip turns it round to face the box's back), so it swings with a door,
+#          box; flip turns it round to face the box's back; "<name>#2" is the second node of that name), so it swings with a door,
 #          "camera": {"target":[x,y,z], "distance": u, "yaw": deg, "pitch": deg, "lens": mm, "ortho": units or 0},
 #          "marks": {"name": [[x,y,z], ...]}, "samples": n, "no_model": true to draw only the extra boxes}
 # Writes the picture and <out>.json with each mark projected to picture pixels (for laying UI over the render).
@@ -66,7 +66,7 @@ def box(size, stretch, off, lay, M, T, quad_normal=None):
         add_face(cs, us4)
 
 marks_world = {}
-FRAMES = {}
+FRAMES = {}; SEEN = {}
 def walk(n, M, T, draw=True):
     p = n.get('position', {}); pos = np.array([p.get('x', 0), p.get('y', 0), p.get('z', 0)], float)
     R = qmat(n.get('orientation', {}))
@@ -89,6 +89,7 @@ def walk(n, M, T, draw=True):
     so = sh.get('offset', {}) or {}
     TC = T2 + M2 @ np.array([so.get('x', 0), so.get('y', 0), so.get('z', 0)], float)
     FRAMES.setdefault(n.get('name'), (M2, TC))
+    SEEN[n.get('name')] = SEEN.get(n.get('name'), 0) + 1; FRAMES['%s#%d' % (n.get('name'), SEEN[n.get('name')])] = (M2, TC)   # 'Door-L#2': the second node of that name
     for k in n.get('children', []): walk(k, M2, TC, draw)
 
 m = json.load(open(cfg['model'], encoding='utf-8'))

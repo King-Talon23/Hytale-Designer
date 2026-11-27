@@ -131,7 +131,7 @@ $C.@PageOverlay {
       }
 
       Button #NextPage {
-        Anchor: (Left: 885, Top: 455, Width: 137, Height: 90);
+        Anchor: (Left: 904, Top: 456, Width: 137, Height: 90);
         Style: (
           Default: (Background: (TexturePath: "PageRight_Crude.png")),
           Hovered: (Background: (TexturePath: "PageRightHover_Crude.png")),
