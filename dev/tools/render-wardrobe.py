@@ -1,5 +1,5 @@
 # Renders the in-game wardrobe screen's art (mod 1.4.0) from the game's own wardrobe models, doors swung open, in Blender with soft
-# light on a transparent background: the wardrobe with two racks, the coat hanger a skin hangs on, and the page plaques (an arrow
+# light on a transparent background: the wardrobe with two racks, the coat hanger a skin hangs on, each open door lit for when the pointer is on it (the doors turn the pages), and the page plaques (an arrow
 # carved into a board of the wardrobe's own material, held by a bolt in each top corner; lighter while the pointer is on them).
 # Lumberjack is the Designer Wardrobe's look (Wardrobe.ui, hand-kept); every other set in SETS gets its own art and a Wardrobe_<Set>.ui
 # made from Wardrobe.ui with that art's numbers (the mod opens it from that vanilla wardrobe; keep SETS in step with Wardrobe.java).
@@ -264,6 +264,50 @@ def render(name, model, tex, cam, crop=None, same=None, raw=False, **over):
     return im, {k: [[(p[0] - box[0]) / 2, (p[1] - box[1]) / 2] for p in v] for k, v in marks.items()}
 
 
+# The open doors are the page buttons (user 11-27 had the plaques, pegs, hanging tags and a wheel-scrolled rack tried side by side;
+# the doors won: they are each wardrobe's own art, so they suit every look, and nothing is added to it). Under the pointer a door
+# lights up with a warm edge. Each door is rendered alone, lit, in the art's frame; its button is the door's box, kept off the
+# interior. The boxes go to DOORS_FILE and into the layout (render with --doors to redo them).
+DOORS_FILE = os.path.join(HERE, 'wardrobe-doors.json')
+DOORS = json.load(open(DOORS_FILE)) if os.path.isfile(DOORS_FILE) else {}
+
+
+def doors(c, sfx, model, tex, cam, fw, box, lay):
+    from PIL import ImageEnhance, ImageFilter
+    ix0, iy0, iw, ih = lay['interior']
+    out = {}
+    for side, door in (('Left', c['doors'][0]), ('Right', c['doors'][1])):
+        im = render('Door' + side + sfx, model, tex, cam, crop=box, raw=True, **fw, only=[door], lights={'key': 4.6, 'fill': 0.8, 'rim': 1.2}, marks={})
+        a = im.getchannel('A'); lit = ImageEnhance.Brightness(im.convert('RGB')).enhance(1.12).convert('RGBA'); lit.putalpha(a)
+        h = Image.new('RGBA', im.size, (255, 200, 110, 0))          # the warm edge: the door's shape grown and softened
+        h.putalpha(a.filter(ImageFilter.MaxFilter(7)).filter(ImageFilter.GaussianBlur(14)).point(lambda v: int(v * 0.55))); h.alpha_composite(lit)
+        b = list(h.getbbox())
+        if side == 'Left': b[2] = min(b[2], ix0 * 2)
+        else: b[0] = max(b[0], (ix0 + iw) * 2)
+        b = [b[0] // 2 * 2, b[1] // 2 * 2, (b[2] + 1) // 2 * 2, (b[3] + 1) // 2 * 2]
+        h.crop(b).resize(((b[2] - b[0]) // 2, (b[3] - b[1]) // 2), Image.LANCZOS).save(os.path.join(OUT, 'Door' + side + 'Hover' + sfx + '@2x.png'), optimize=True)
+        out[side] = [b[0] // 2, b[1] // 2, (b[2] - b[0]) // 2, (b[3] - b[1]) // 2]
+    return out
+
+
+def doors_ui(set_name, s):
+    # fills the layout's @doors block: a clear button over each door, the lit door its hover picture
+    import re
+    d = DOORS.get(set_name)
+    if not d: return s
+    sfx = '' if set_name == 'Lumberjack' else '_' + set_name
+    blk = '      // @doors {\n'
+    for side, id_ in (('Left', 'DoorPrev'), ('Right', 'DoorNext')):
+        blk += ('      Button #%s {\n        Anchor: (Left: %d, Top: %d, Width: %d, Height: %d);\n        Visible: false;\n        Style: (\n'
+                '          Default: (Background: #000000(0)),\n          Hovered: (Background: (TexturePath: "Door%sHover%s.png")),\n'
+                '          Pressed: (Background: (TexturePath: "Door%sHover%s.png")),\n          Sounds: $C.@ButtonSounds\n        );\n      }\n'
+                % (id_, *d[side], side, sfx, side, sfx))
+    blk += '      // @doors }'
+    s, n = re.subn(r'[ ]*// @doors \{.*?// @doors \}', lambda _m: blk, s, flags=re.S)
+    if n != 1: sys.exit('Wardrobe.ui has no @doors block')
+    return s
+
+
 def make(set_name, c):
     model, tex = sheet(set_name)
     if c.get('widen'): widen(model, c['widen'])
@@ -415,13 +459,23 @@ def make(set_name, c):
         bright = render('Bright' + sfx, model, tex, cam, crop=box, raw=True, **fw, lights={'key': 6.5, 'fill': 0.6, 'rim': 1.0}, marks={})
     plaques = {}
     for i, (side, door, sign) in enumerate((('Left', c['doors'][0], -1), ('Right', c['doors'][1], 1))):   # the model's Door-R swings open on the picture's left
-        plaques[side] = control(side, door, sign, i)
+        if '--doors' in sys.argv and set_name != 'Lumberjack':   # the plaques as they are: their places read back from the set's layout
+            import re
+            u_ = open(os.path.join(OUT, 'Wardrobe%s.ui' % sfx), encoding='utf-8').read()
+            plaques[side] = [int(v) for v in re.search(r'#%s \{\s*Anchor: \(Left: (\d+), Top: (\d+), Width: (\d+), Height: (\d+)\)' % ('PrevPage' if side == 'Left' else 'NextPage'), u_).groups()]
+        elif '--doors' not in sys.argv: plaques[side] = control(side, door, sign, i)
     iw = round(ix1 - ix0)
     lay = {'art': [art.width // 2, art.height // 2], 'interior': [round(ix0), round(iy0), iw, round(iy1 - iy0)],
            'rack_x': c.get('rack_x', round(ix0 + (iw - RACK_UI) / 2)), 'plaques': plaques}
     if own: lay['own'], lay['grid'] = [lay['rack_x'], round(m['own'][0][1])], [lay['rack_x'], round(iy0)]   # else the own rack sits over the Locker rack
+    if '--doors' in sys.argv or set_name not in DOORS:
+        DOORS[set_name] = doors(c, sfx, model, tex, cam, fw, box, lay)
+        json.dump(DOORS, open(DOORS_FILE, 'w'), indent=1)
     if set_name != 'Lumberjack':
         write_ui(set_name, lay)
+    else:                                               # Wardrobe.ui is hand-kept: only its generated blocks are refreshed
+        f = os.path.join(OUT, 'Wardrobe.ui'); u_ = doors_ui(set_name, open(f, encoding='utf-8').read())
+        open(f, 'w', encoding='utf-8', newline='\n').write(u_)
     return lay
 
 
@@ -429,6 +483,8 @@ def write_ui(set_name, lay):
     # Wardrobe_<Set>.ui: Wardrobe.ui with this art's numbers (each swap must hit exactly as often as expected, or Wardrobe.ui changed shape)
     import re
     s = open(os.path.join(OUT, 'Wardrobe.ui'), encoding='utf-8').read()
+    for tag in ('doors',):              # Lumberjack's generated blocks out: the template's shape is the hand-kept part
+        s = re.sub(r'([ ]*// @%s \{).*?(// @%s \})' % (tag, tag), lambda m_: m_.group(1) + '\n' + ' ' * (len(m_.group(1)) - len(m_.group(1).lstrip())) + m_.group(2), s, flags=re.S)
     W, H = lay['art']; ix, iy = lay['interior'][:2]; rx = lay['rack_x']; sfx = '_' + set_name
     (ox, oy), (gx, gy) = lay.get('own', [rx, iy]), lay.get('grid', [rx, iy + 201])   # the own rack and the Locker rack, each with its header
     pl = lambda p: 'Anchor: (Left: %d, Top: %d, Width: %d, Height: %d);' % tuple(p)
@@ -449,6 +505,7 @@ def write_ui(set_name, lay):
     for pat, rep, count in swaps:
         s, n = re.subn(pat, rep, s)
         if n != count: sys.exit('Wardrobe.ui changed shape: %r matched %d times, not %d' % (pat, n, count))
+    s = doors_ui(set_name, s)
     open(os.path.join(OUT, 'Wardrobe%s.ui' % sfx), 'w', encoding='utf-8', newline='\n').write(s)
 
 

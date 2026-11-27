@@ -139,6 +139,29 @@ $C.@PageOverlay {
           Sounds: $C.@ButtonSounds
         );
       }
+
+      // @doors {
+      Button #DoorPrev {
+        Anchor: (Left: 0, Top: 118, Width: 285, Height: 637);
+        Visible: false;
+        Style: (
+          Default: (Background: #000000(0)),
+          Hovered: (Background: (TexturePath: "DoorLeftHover_Frozen_Castle.png")),
+          Pressed: (Background: (TexturePath: "DoorLeftHover_Frozen_Castle.png")),
+          Sounds: $C.@ButtonSounds
+        );
+      }
+      Button #DoorNext {
+        Anchor: (Left: 800, Top: 118, Width: 281, Height: 637);
+        Visible: false;
+        Style: (
+          Default: (Background: #000000(0)),
+          Hovered: (Background: (TexturePath: "DoorRightHover_Frozen_Castle.png")),
+          Pressed: (Background: (TexturePath: "DoorRightHover_Frozen_Castle.png")),
+          Sounds: $C.@ButtonSounds
+        );
+      }
+      // @doors }
     }
 
     Label #Status {

@@ -22,7 +22,7 @@ import javax.annotation.Nonnull;
 /**
  * The in-game wardrobe: the open Lumberjack wardrobe with two racks. The top one holds the player's own skin (the in-game preset
  * slots join it once Hytale allows sign-in); the bottom one the skins saved in the website's Locker ("My skins" in the skins folder),
- * five to a page turned with the arrows on the doors, each on a hook with the picture the site saves beside it. A click
+ * five to a page turned by clicking the open doors (each lights up under the pointer), each on a hook with the picture the site saves beside it. A click
  * wears that skin (the mod writes Wearing.json, so custom pieces and the keepOwn rule work as from the site); the own skin gives the
  * real one back. The skin under the pointer lifts off the rail; the worn one hangs forward in a warm light. Opened by using the
  * Designer Wardrobe block, or any of the game's wardrobes in WardrobeSets (each in its own look); no commands.
@@ -66,6 +66,11 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
         bind(ev, "#OwnCard", "own");
         ev.addEventBinding(CustomUIEventBindingType.Activating, "#PrevPage", EventData.of("Type", "Page").append("Slot", "-1"), false);
         ev.addEventBinding(CustomUIEventBindingType.Activating, "#NextPage", EventData.of("Type", "Page").append("Slot", "1"), false);
+        ev.addEventBinding(CustomUIEventBindingType.Activating, "#DoorPrev", EventData.of("Type", "Page").append("Slot", "-1"), false);
+        ev.addEventBinding(CustomUIEventBindingType.Activating, "#DoorNext", EventData.of("Type", "Page").append("Slot", "1"), false);
+        boolean doors = WardrobeSets.doorsTurnPages(WardrobeSets.setOf(layout));   // the open doors turn the pages, or the plaques on them
+        ui.set("#DoorPrev.Visible", doors); ui.set("#DoorNext.Visible", doors);
+        ui.set("#PrevPage.Visible", !doors); ui.set("#NextPage.Visible", !doors);
         ui.set("#Count.Text", looks.size() + " / 50");
         ui.set("#Empty.Visible", looks.isEmpty());
         fill(ui);
@@ -101,7 +106,7 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
         try { i = "own".equals(e.slot) ? -1 : Integer.parseInt(e.slot); } catch (NumberFormatException x) { return; }
         UICommandBuilder ui = new UICommandBuilder();
         if ("Page".equals(e.type)) {
-            int to = Math.floorMod(page + Integer.signum(i), pages()); if (to == page) return;   // both plaques always shown: paging wraps round
+            int to = Math.floorMod(page + Integer.signum(i), pages()); if (to == page) return;   // both doors always work: paging wraps round
             page = to; hovered = -2; fill(ui);
             if (spot != null) wardrobe.leavePage(spot, page);
         } else {

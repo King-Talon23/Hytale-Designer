@@ -1,6 +1,6 @@
 // Hytale Designer Sync: the in-game wardrobe. The picture is the game's Lumberjack wardrobe with its doors open and a second rack,
 // doors swung wide (160 degrees), rendered by dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 245,87 size 521 x 402, the inside seen between the front posts' shaded sides from x 272 to 746; the
-// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 94 to a rack from x 274; page plaques on the doors).
+// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 94 to a rack from x 274; the open doors turn the pages, lit under the pointer).
 // Top rack: the player's own skin (the in-game preset slots join it once Hytale allows sign-in). Bottom rack: the Locker's skins,
 // five to a page; the plugin appends five WardrobeCard.ui into #Grid and fills them for the page shown.
 $C = "../../Common.ui";
@@ -143,6 +143,29 @@ $C.@PageOverlay {
           Sounds: $C.@ButtonSounds
         );
       }
+
+      // @doors {
+      Button #DoorPrev {
+        Anchor: (Left: 0, Top: 54, Width: 245, Height: 483);
+        Visible: false;
+        Style: (
+          Default: (Background: #000000(0)),
+          Hovered: (Background: (TexturePath: "DoorLeftHover.png")),
+          Pressed: (Background: (TexturePath: "DoorLeftHover.png")),
+          Sounds: $C.@ButtonSounds
+        );
+      }
+      Button #DoorNext {
+        Anchor: (Left: 766, Top: 54, Width: 257, Height: 483);
+        Visible: false;
+        Style: (
+          Default: (Background: #000000(0)),
+          Hovered: (Background: (TexturePath: "DoorRightHover.png")),
+          Pressed: (Background: (TexturePath: "DoorRightHover.png")),
+          Sounds: $C.@ButtonSounds
+        );
+      }
+      // @doors }
     }
 
     Label #Status {

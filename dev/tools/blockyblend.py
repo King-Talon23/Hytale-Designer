@@ -6,7 +6,8 @@
 #          an extra with "attach": {"node": "<name>", "at": [x,y,z], "flip": true} sits in that node's posed frame (from the centre of its
 #          box; flip turns it round to face the box's back; "<name>#2" is the second node of that name), so it swings with a door,
 #          "camera": {"target":[x,y,z], "distance": u, "yaw": deg, "pitch": deg, "lens": mm, "ortho": units or 0},
-#          "marks": {"name": [[x,y,z], ...]}, "samples": n, "no_model": true to draw only the extra boxes}
+#          "marks": {"name": [[x,y,z], ...]}, "samples": n, "no_model": true to draw only the extra boxes,
+#          "only": ["<node>", ...] to draw only those nodes of the model}
 # Writes the picture and <out>.json with each mark projected to picture pixels (for laying UI over the render).
 import bpy, sys, json, math
 import numpy as np
@@ -67,14 +68,17 @@ def box(size, stretch, off, lay, M, T, quad_normal=None):
 
 marks_world = {}
 FRAMES = {}; SEEN = {}
-def walk(n, M, T, draw=True):
+ONLY = set(cfg.get('only', []))   # draw only these nodes (by name or 'Name#n') and what hangs on them
+def walk(n, M, T, draw=True, inside=False):
+    nm_ = n.get('name'); k_ = '%s#%d' % (nm_, SEEN.get(nm_, 0) + 1)
+    inside = inside or not ONLY or nm_ in ONLY or k_ in ONLY
     p = n.get('position', {}); pos = np.array([p.get('x', 0), p.get('y', 0), p.get('z', 0)], float)
     R = qmat(n.get('orientation', {}))
     pose = cfg.get('pose', {}).get(n.get('name'), {})
     if 'yaw' in pose: R = R @ yawm(pose['yaw'])
     M2 = M @ R; T2 = T + M @ pos
     sh = n.get('shape') or {}
-    if draw and sh.get('visible', True) and sh.get('type') in ('box', 'quad'):
+    if draw and inside and sh.get('visible', True) and sh.get('type') in ('box', 'quad'):
         sz = sh.get('settings', {}).get('size', {}); st = sh.get('stretch', {}); of = sh.get('offset', {})
         size = np.array([sz.get('x', 0), sz.get('y', 0), sz.get('z', 0)], float)
         stretch = np.array([st.get('x', 1), st.get('y', 1), st.get('z', 1)], float)
@@ -90,7 +94,7 @@ def walk(n, M, T, draw=True):
     TC = T2 + M2 @ np.array([so.get('x', 0), so.get('y', 0), so.get('z', 0)], float)
     FRAMES.setdefault(n.get('name'), (M2, TC))
     SEEN[n.get('name')] = SEEN.get(n.get('name'), 0) + 1; FRAMES['%s#%d' % (n.get('name'), SEEN[n.get('name')])] = (M2, TC)   # 'Door-L#2': the second node of that name
-    for k in n.get('children', []): walk(k, M2, TC, draw)
+    for k in n.get('children', []): walk(k, M2, TC, draw, inside)
 
 m = json.load(open(cfg['model'], encoding='utf-8'))
 for n in m['nodes']: walk(n, np.eye(3), np.zeros(3), not cfg.get('no_model'))
