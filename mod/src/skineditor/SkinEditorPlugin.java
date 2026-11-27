@@ -87,6 +87,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
         super(init);
         // the live pack must be a valid pack before the server loads asset packs (after plugins are found, before setup)
         try { locate(); ensureLivePack(); syncAssets(true); syncAnims(true); wardrobe.prune(); wardrobe.looks(); } catch (Throwable ignored) { }   // prune before the packs are read: removing a file after that crashes clients
+        try { WardrobeSets.write(modsDir.resolve(LIVE), assetsZip()); } catch (Throwable e) { System.err.println("[Hytale Designer Sync] could not set up the game's wardrobes: " + e); }   // the game's own wardrobes open the wardrobe screen
         // a world only loads packs it was told about (single-player worlds start with "default mods enabled" off), so the live pack is
         // switched on here, unless the player turned it off themselves
         try { var cfg = com.hypixel.hytale.server.core.HytaleServer.get().getConfig().getModConfig();
@@ -99,7 +100,8 @@ public final class SkinEditorPlugin extends JavaPlugin {
     protected void setup() {
         try { locate(); ensureLivePack(); syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not prepare: " + e); }
         // the in-game wardrobe: the Designer Wardrobe item opens it (no commands); every player gets one the first time they join
-        com.hypixel.hytale.server.core.modules.interaction.interaction.config.server.OpenCustomUIInteraction.registerSimple(this, WardrobePage.class, WardrobePage.PAGE_ID, pr -> new WardrobePage(pr, wardrobe));
+        for (String set : WardrobeSets.SETS)   // one page per wardrobe set, in that set's look
+            com.hypixel.hytale.server.core.modules.interaction.interaction.config.server.OpenCustomUIInteraction.registerSimple(this, WardrobePage.class, WardrobeSets.pageId(set), pr -> new WardrobePage(pr, wardrobe, WardrobeSets.layout(set)));
         getEventRegistry().registerGlobal(com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent.class, e -> {
             Ref<EntityStore> r = e.getPlayerRef(); if (r == null || !r.isValid()) return;
             r.getStore().getExternalData().getWorld().execute(() -> giveWardrobe(r));
@@ -381,10 +383,13 @@ public final class SkinEditorPlugin extends JavaPlugin {
     }
     private static String raw(String json, String key) { Matcher m = Pattern.compile("\"" + key + "\"\\s*:\\s*(true|false)").matcher(json); return m.find() ? m.group(1) : null; }
 
+    /** this PC's game assets (beside the server folder) */
+    static Path assetsZip() throws Exception { return Path.of(CosmeticsModule.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent().getParent().resolve("Assets.zip"); }
+
     /** None eyes: every face texture of the game, from this PC's own Assets.zip, with its eye area smoothed over (as the website draws
      *  it), written into the live pack once per game version. Kept out of Characters/SkinEditor, which the asset sync prunes. */
     static void makeNoEyeFaces(Path common) throws Exception {
-        Path jar = Path.of(CosmeticsModule.class.getProtectionDomain().getCodeSource().getLocation().toURI()), zip = jar.getParent().getParent().resolve("Assets.zip");
+        Path zip = assetsZip();
         if (!Files.isRegularFile(zip)) return;
         Path dir = common.resolve(NO_EYES), mark = dir.resolve("made-from.txt");
         String stamp = Files.size(zip) + " " + Files.getLastModifiedTime(zip).toMillis() + " v2";

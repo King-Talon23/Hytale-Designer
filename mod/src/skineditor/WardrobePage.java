@@ -25,7 +25,7 @@ import javax.annotation.Nonnull;
  * five to a page turned with the arrows on the doors, each on a hook with the picture the site saves beside it. A click
  * wears that skin (the mod writes Wearing.json, so custom pieces and the keepOwn rule work as from the site); the own skin gives the
  * real one back. The skin under the pointer lifts off the rail; the worn one hangs forward in a warm light. Opened by using the
- * Designer Wardrobe block; no commands.
+ * Designer Wardrobe block, or any of the game's wardrobes in WardrobeSets (each in its own look); no commands.
  */
 final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
     static final String PAGE_ID = "HytaleDesigner_Wardrobe";
@@ -34,6 +34,7 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
 
     private final Wardrobe wardrobe;
     private final PlayerRef who;
+    private final String layout;                                // the wardrobe set's own art and layout (WardrobeSets)
     private int hovered = -2;                                   // the hanger under the pointer: -1 = own skin, 0..4 = bottom rack, -2 = none
     private int page = 0;
     static final int RACK = 5;                                  // hangers on a rack
@@ -41,14 +42,14 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
     private List<Wardrobe.Look> looks = List.of();
     private String status = "";
 
-    WardrobePage(PlayerRef who, Wardrobe wardrobe) {
+    WardrobePage(PlayerRef who, Wardrobe wardrobe, String layout) {
         super(who, CustomPageLifetime.CanDismissOrCloseThroughInteraction, Event.CODEC);
-        this.wardrobe = wardrobe; this.who = who;
+        this.wardrobe = wardrobe; this.who = who; this.layout = layout;
     }
 
     @Override
     public void build(@Nonnull Ref<EntityStore> ref, @Nonnull UICommandBuilder ui, @Nonnull UIEventBuilder ev, @Nonnull Store<EntityStore> store) {
-        ui.append(LAYOUT);
+        ui.append(layout);
         looks = wardrobe.looks();
         String worn = wardrobe.wornName();                      // open on the page holding the skin worn
         for (int i = 0; i < looks.size(); i++) if (looks.get(i).name().equals(worn)) page = i / RACK;
