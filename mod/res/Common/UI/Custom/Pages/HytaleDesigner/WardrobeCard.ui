@@ -1,12 +1,12 @@
-// One saved skin in the wardrobe grid: its picture and name on the game's memory tile. The gold frame marks the skin worn.
+// One Locker skin on its hook, hanging from its own length of the wardrobe's rail (rows after the first; they scroll). The glow marks the skin worn;
+// the plugin lifts #Hang while the pointer is on it and brings the worn one forward. Art: dev/tools/render-wardrobe.py.
 $C = "../../Common.ui";
 
 @NameStyle = LabelStyle(
   FontSize: 13,
-  TextColor: #b4c8c9,
+  TextColor: #ecdcb8,
   FontName: "Secondary",
   RenderBold: true,
-  RenderUppercase: true,
   HorizontalAlignment: Center,
   VerticalAlignment: Center,
   ShrinkTextToFit: true,
@@ -14,38 +14,45 @@ $C = "../../Common.ui";
 );
 
 Group {
-  Anchor: (Width: 152, Height: 184, Right: 8, Bottom: 8);
+  Anchor: (Width: 120, Height: 200);
+
+  Group #Rail {
+    Anchor: (Left: 0, Top: 29, Width: 120, Height: 27);
+    Background: (TexturePath: "RailPiece.png");
+  }
 
   Group #Worn {
-    Anchor: (Full: 0);
-    Background: (TexturePath: "../Memories/Tiles/TileSelected.png", Border: 12);
+    Anchor: (Left: 0, Top: 56, Width: 120, Height: 150);
+    Background: (TexturePath: "WornGlow.png");
     Visible: false;
   }
 
   Button #Card {
-    Anchor: (Full: 4);
-    LayoutMode: Top;
-    Padding: (Full: 8);
+    Anchor: (Left: 0, Top: 0, Width: 120, Height: 200);
     Style: (
-      Default: (Background: (TexturePath: "../Memories/Tiles/TileDefault.png", Border: 8)),
-      Hovered: (Background: (TexturePath: "../Memories/Tiles/TileHovered.png", Border: 8)),
-      Pressed: (Background: (TexturePath: "../Memories/Tiles/TileHovered.png", Border: 8)),
+      Default: (Background: #000000(0)),
+      Hovered: (Background: (TexturePath: "HoverGlow.png")),
+      Pressed: (Background: (TexturePath: "HoverGlow.png")),
       Sounds: $C.@ButtonSounds
     );
 
-    Group {
-      LayoutMode: Middle;
-      Anchor: (Height: 128);
+    Group #Hang {
+      Anchor: (Left: 0, Top: 0, Width: 120, Height: 200);
+
+      Group {
+        Anchor: (Left: 50, Top: 23, Width: 19, Height: 54);
+        Background: (TexturePath: "Hook.png");
+      }
 
       AssetImage #Pic {
-        Anchor: (Width: 128, Height: 128);
+        Anchor: (Left: 6, Top: 68, Width: 108, Height: 108);
         FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
       }
-    }
 
-    Label #Name {
-      Anchor: (Height: 24);
-      Style: @NameStyle;
+      Label #Name {
+        Anchor: (Left: 0, Top: 178, Width: 120, Height: 18);
+        Style: @NameStyle;
+      }
     }
   }
 }

@@ -26,10 +26,10 @@ final class Wardrobe {
     static final String PICS = "UI/Custom/Pages/HytaleDesigner/Pics/";
     record Look(String name, JsonObject skin, Set<String> keepOwn, String picture) {}
 
-    private final Supplier<Path> skinsDir, liveCommon;
+    private final Supplier<Path> skinsDir, liveCommon, userData;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    Wardrobe(Supplier<Path> skinsDir, Supplier<Path> liveCommon) { this.skinsDir = skinsDir; this.liveCommon = liveCommon; }
+    Wardrobe(Supplier<Path> skinsDir, Supplier<Path> liveCommon, Supplier<Path> userData) { this.skinsDir = skinsDir; this.liveCommon = liveCommon; this.userData = userData; }
 
     /** the saved skins, by name; each picture copied into the live pack */
     synchronized List<Look> looks() {
@@ -56,15 +56,53 @@ final class Wardrobe {
     }
 
     private String picture(Path png) {
-        Path common = liveCommon.get(); if (common == null) return null;
         try {
             if (!Files.isRegularFile(png) || Files.size(png) > 1_000_000) return null;
             byte[] b = Files.readAllBytes(png); if (b.length < 8 || (b[0] & 0xff) != 0x89 || b[1] != 'P') return null;
+            return picture(b);
+        } catch (Exception e) { return null; }
+    }
+
+    private String picture(byte[] b) {
+        Path common = liveCommon.get(); if (common == null) return null;
+        try {
             // the client reads UI pictures from the @2x file (a plain one alone draws nothing); the page names the plain path
             String name = String.format("%08x", java.util.Arrays.hashCode(b));
             Path out = common.resolve(PICS + name + "@2x.png"); if (!Files.isRegularFile(out)) { Files.createDirectories(out.getParent()); Files.write(out, b); }
             return PICS + name + ".png";
         } catch (Exception e) { return null; }
+    }
+
+    /** the player's own skin as the game drew it for the account (UserData/CachedAvatarPreviews/<uuid>.png), its flat backdrop
+     *  taken out so it hangs like the others; null when the game has not drawn one on this PC */
+    String ownPicture(java.util.UUID who) {
+        Path ud = userData.get(); if (ud == null || who == null) return null;
+        Path f = ud.resolve("CachedAvatarPreviews").resolve(who + ".png");
+        try {
+            if (!Files.isRegularFile(f) || Files.size(f) > 1_000_000) return null;
+            java.awt.image.BufferedImage src = javax.imageio.ImageIO.read(f.toFile()); if (src == null) return null;
+            int w = src.getWidth(), h = src.getHeight();
+            java.awt.image.BufferedImage im = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            im.getGraphics().drawImage(src, 0, 0, null);
+            int bg = im.getRGB(0, 0) & 0xffffff; boolean[] seen = new boolean[w * h]; java.util.ArrayDeque<Integer> q = new java.util.ArrayDeque<>();
+            for (int x = 0; x < w; x++) { q.add(x); q.add((h - 1) * w + x); }
+            for (int y = 0; y < h; y++) { q.add(y * w); q.add(y * w + w - 1); }
+            while (!q.isEmpty()) {          // the backdrop reached from the edges goes; its anti-aliased rim fades out
+                int i = q.poll(); if (seen[i]) continue; seen[i] = true;
+                int x = i % w, y = i / w, c = im.getRGB(x, y); double d = dist(c & 0xffffff, bg);
+                if (d >= 80) continue;
+                if (d < 20) im.setRGB(x, y, 0);
+                else { im.setRGB(x, y, ((int) Math.round(255 * (d - 20) / 60) << 24) | (c & 0xffffff)); continue; }
+                if (x > 0) q.add(i - 1); if (x < w - 1) q.add(i + 1); if (y > 0) q.add(i - w); if (y < h - 1) q.add(i + w);
+            }
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(); javax.imageio.ImageIO.write(im, "png", out);
+            return picture(out.toByteArray());
+        } catch (Exception e) { return null; }
+    }
+
+    private static double dist(int a, int b) {
+        int dr = (a >> 16 & 255) - (b >> 16 & 255), dg = (a >> 8 & 255) - (b >> 8 & 255), db = (a & 255) - (b & 255);
+        return Math.sqrt(dr * dr + dg * dg + db * db);
     }
 
     /** removes pictures no saved skin uses any more (world start only: a picture removed while a client draws it can crash it) */
@@ -86,6 +124,9 @@ final class Wardrobe {
         JsonObject w = current(); if (w == null) { w = new JsonObject(); w.addProperty("format", "skin-editor-wearing"); w.addProperty("version", 1); }
         w.addProperty("on", false); write(w);
     }
+
+    /** true when the player wears their own skin (nothing from the site is switched on) */
+    boolean wearingOwn() { JsonObject w = current(); return w == null || !w.has("on") || !w.get("on").getAsBoolean(); }
 
     /** the saved skin being worn now (matched by its parts), or null */
     String wornName() {

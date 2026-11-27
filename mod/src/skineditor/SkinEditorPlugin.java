@@ -113,13 +113,14 @@ public final class SkinEditorPlugin extends JavaPlugin {
     }
 
     private SkinBridge bridge;
-    final Wardrobe wardrobe = new Wardrobe(() -> skinsDir, () -> liveCommon);
+    final Wardrobe wardrobe = new Wardrobe(() -> skinsDir, () -> liveCommon, () -> userData);
 
     /** one Designer Wardrobe per player, given once (a player who throws it away can craft another from 4 fibre) */
     private void giveWardrobe(Ref<EntityStore> ref) {
         try {
             if (!ref.isValid()) return; Store<EntityStore> store = ref.getStore();
             PlayerRef pr = store.getComponent(ref, PlayerRef.getComponentType()); if (pr == null) return;
+            UUID id = pr.getUuid(); tick.execute(() -> wardrobe.ownPicture(id));   // ready before the wardrobe is first opened
             Path given = getDataDirectory().resolve("wardrobe-given.txt");
             List<String> who = Files.isRegularFile(given) ? Files.readAllLines(given) : new ArrayList<>();
             if (who.contains(pr.getUuid().toString())) return;

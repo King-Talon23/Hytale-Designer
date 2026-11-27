@@ -1,89 +1,130 @@
-// Hytale Designer Sync: the in-game wardrobe, in the style of the game's Memories page. The plugin appends one
-// WardrobeCard.ui per saved skin into #Grid.
+// Hytale Designer Sync: the in-game wardrobe. The picture is the game's Lumberjack wardrobe with its doors open, rendered by
+// dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 177,87 size 521 x 402; the player's own
+// skin hangs left of the post, x 177 width 124; the Locker's skins right of it, x 317 width 381, three to a row of 200).
+// The plugin appends one WardrobeCard.ui per saved skin into #Grid.
 $C = "../../Common.ui";
 
-@HeaderStyle = LabelStyle(
-  FontSize: 15,
+@HeadStyle = LabelStyle(
+  FontSize: 12,
   VerticalAlignment: Center,
   RenderUppercase: true,
-  TextColor: #89899f,
+  TextColor: #c7ae7a,
   FontName: "Secondary",
   RenderBold: true,
   LetterSpacing: 0.5
 );
 
+@NameStyle = LabelStyle(
+  FontSize: 13,
+  TextColor: #ecdcb8,
+  FontName: "Secondary",
+  RenderBold: true,
+  HorizontalAlignment: Center,
+  VerticalAlignment: Center,
+  ShrinkTextToFit: true,
+  MinShrinkTextToFitFontSize: 9
+);
+
 $C.@PageOverlay {
   LayoutMode: Middle;
 
-  $C.@DecoratedContainer {
-    Anchor: (Width: 726, Height: 590);
+  Group {
+    Anchor: (Width: 888, Height: 760);
 
-    #Title {
-      $C.@Title {
-        @Text = "Wardrobe";
-      }
+    Label {
+      Anchor: (Left: 0, Top: 0, Width: 888, Height: 40);
+      Text: "Wardrobe";
+      Style: (...$C.@TitleStyle, FontSize: 22, HorizontalAlignment: Center, LetterSpacing: 1);
     }
 
-    #Content {
-      LayoutMode: Top;
-      Padding: (Full: 9);
+    Group {
+      Anchor: (Left: 0, Top: 40, Width: 888, Height: 694);
+      Background: (TexturePath: "Wardrobe.png");
+
+      Label {
+        Anchor: (Left: 177, Top: 93, Width: 124, Height: 22);
+        Text: "Your skin";
+        Style: (...@HeadStyle, HorizontalAlignment: Center);
+      }
 
       Group {
         LayoutMode: Left;
-        Anchor: (Height: 30);
-        Padding: (Horizontal: 20, Top: 10);
+        Anchor: (Left: 325, Top: 93, Width: 365, Height: 22);
 
         Label {
           Text: "My skins";
-          Style: @HeaderStyle;
+          Style: @HeadStyle;
         }
 
         Group { FlexWeight: 1; }
 
         Label #Count {
           Text: "0";
-          Style: @HeaderStyle;
+          Style: @HeadStyle;
+        }
+      }
+
+      // the player's own skin, worn whenever no Locker skin is
+      Group {
+        Anchor: (Left: 177, Top: 87, Width: 124, Height: 200);
+
+        Group #OwnWorn {
+          Anchor: (Left: 0, Top: 56, Width: 124, Height: 150);
+          Background: (TexturePath: "WornGlow.png");
+          Visible: false;
+        }
+
+        Button #OwnCard {
+          Anchor: (Left: 0, Top: 0, Width: 124, Height: 200);
+          Style: (
+            Default: (Background: #000000(0)),
+            Hovered: (Background: (TexturePath: "HoverGlow.png")),
+            Pressed: (Background: (TexturePath: "HoverGlow.png")),
+            Sounds: $C.@ButtonSounds
+          );
+
+          Group #OwnHang {
+            Anchor: (Left: 0, Top: 0, Width: 124, Height: 200);
+
+            Group {
+              Anchor: (Left: 52, Top: 23, Width: 19, Height: 54);
+              Background: (TexturePath: "Hook.png");
+            }
+
+            AssetImage #OwnPic {
+              Anchor: (Left: 27, Top: 68, Width: 70, Height: 112);
+              FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
+            }
+
+            Label #OwnName {
+              Anchor: (Left: 0, Top: 180, Width: 124, Height: 18);
+              Style: @NameStyle;
+            }
+          }
         }
       }
 
       Group {
-        FlexWeight: 1;
-        Padding: (Left: 24, Right: 8);
+        Anchor: (Left: 317, Top: 87, Width: 381, Height: 402);
+        LayoutMode: TopScrolling;
+        ScrollbarStyle: $C.@DefaultScrollbarStyle;
 
-        Group {
-          LayoutMode: TopScrolling;
-          Anchor: (Vertical: 16);
-          ScrollbarStyle: $C.@DefaultScrollbarStyle;
-          FlexWeight: 1;
+        Group #Grid {
+          LayoutMode: LeftWrap;
+        }
 
-          Group #Grid {
-            LayoutMode: LeftWrap;
-          }
-
-          Label #Empty {
-            Anchor: (Height: 120);
-            Text: "No saved skins";
-            Style: (...@HeaderStyle, HorizontalAlignment: Center);
-            Visible: false;
-          }
+        Label #Empty {
+          Anchor: (Height: 200);
+          Text: "No saved skins";
+          Style: (...@HeadStyle, HorizontalAlignment: Center);
+          Visible: false;
         }
       }
+    }
 
-      Group {
-        LayoutMode: Left;
-        Anchor: (Height: 52);
-        Padding: (Horizontal: 20, Bottom: 8);
-
-        Label #Status {
-          FlexWeight: 1;
-          Style: (FontSize: 13, VerticalAlignment: Center, TextColor: #96a9be);
-        }
-
-        $C.@SecondaryTextButton #OwnButton {
-          @Text = "My own skin";
-          @Anchor = Anchor(Width: 200);
-        }
-      }
+    Label #Status {
+      Anchor: (Left: 0, Top: 736, Width: 888, Height: 22);
+      Style: (FontSize: 14, HorizontalAlignment: Center, VerticalAlignment: Center, TextColor: #96a9be);
     }
   }
 }
