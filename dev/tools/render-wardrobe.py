@@ -14,50 +14,32 @@ arg = lambda k, d: sys.argv[sys.argv.index(k) + 1] if k in sys.argv else d
 BLENDER = arg('--blender', os.path.join(HERE, '..', '..', '..', 'tools', 'blender', 'blender-4.5.12-windows-x64', 'blender.exe'))
 ASSETS = arg('--assets', os.path.join(os.environ.get('APPDATA', ''), 'Hytale', 'install', 'release', 'package', 'game', 'latest', 'Assets.zip'))
 DOOR = 160                                           # how far the doors swing open: wide, so their insides (and the page plaques) face the player
+MIN_HIT = (120, 100)                                 # the smallest page picture, UI units: easy to hit, room for the hover's glow round the piece
 ROW_UI, RACK_UI = 200, 470                           # one rack's row and five hangers of 94, in UI units
 IN_H_UI = 402                                       # the interior's height on screen: two rows and the rails
 
 # Each set: its interior (the inside face the skins hang in front of: x0, x1, top, bottom, face z, in model units), the doors, and texels
-# picked from its own sheet: 'rail' [u, v, angle] for the rails (None: the model paints its own top rail), the plaque's 'board', 'rim'
-# and 'cut' (functions of the plaque cell x, y) and 'bolt' faces. Lumberjack's numbers are the original art's.
-BOLT = lambda u, v: {f: [u, v] for f in ('front', 'top', 'bottom', 'left', 'right')}   # a bolt all of one texel
-LJ_BOLT = {'front': [57, 109], 'top': [51, 109], 'bottom': [51, 109], 'left': [51, 114], 'right': [51, 114]}
+# picked from its own sheet: 'rail' [u, v, angle] for the rails (None: the model paints its own top rail), and its page controls (PAGES
+# below). Lumberjack's numbers are the original art's.
 SETS = {
     'Lumberjack': {'interior': (-41, 8, 56.65, 18.65, 8), 'painted_rail': (53.65, 51.65), 'rail': [10, 5], 'doors': ('Door-R', 'Door-L'),
-                   'door_mid': 37.5, 'door_z': 2, 'cam_lens': 133.8, 'cam_target': [-16, 36, 8], 'rack_x': 274,
-                   'board': lambda x, y: (2 + x, 76 + y), 'rim': lambda x, y: (66 + x, 96 + y), 'cut': lambda x, y: (117 + x % 5, 118 + y % 4),
-                   'bolt': LJ_BOLT},
-    'Temple_Dark': {'interior': (-39.25, 7.25, 58.5, 25.5, 11.85), 'rail': [2, 1, 90], 'doors': ('Door-R', 'Door-L'), 'door_mid': 42, 'door_z': 2,
-                    'board': lambda x, y: (64 + x, 68 + y), 'rim': lambda x, y: (1, 4), 'rim_cells': True,
-                    'cut': lambda x, y: (66 + x % 5, 78 + y % 2), 'bolt': {'front': [1, 1], 'top': [1, 4], 'bottom': [1, 4], 'left': [1, 4], 'right': [1, 4]}},
+                   'door_mid': 37.5, 'door_z': 2, 'cam_lens': 133.8, 'cam_target': [-16, 36, 8], 'rack_x': 274},
+    'Temple_Dark': {'interior': (-39.25, 7.25, 58.5, 25.5, 11.85), 'rail': [2, 1, 90], 'doors': ('Door-R', 'Door-L'), 'door_mid': 42, 'door_z': 2},
     # sets whose sheet paints the top rail (Ancient, Human Ruins, Tavern, Village): the interior's top sits 3 Lumberjack units over it
     'Ancient': {'frame_w': 3200, 'interior': (-37, 5, 56.11, 23.11, 11.85), 'painted_rail': (53.51, 51.51), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'),
-                'door_mid': (36.9, 43.5), 'door_z': 2, 'plaque_y': 36, 'plaque_dx': (-3, 3),
-                'board': lambda x, y: (14 + x, 63 + y), 'rim': lambda x, y: (30, 10), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(30, 10)},
-    'Crude': {'interior': (-37, 4, 49.5, 17.5, 12), 'rail': [0, 112], 'doors': ('Door-R', 'Door-L'), 'door_mid': (33, 32.7), 'door_z': (2, 1.7), 'plaque_dx': (0, -7.5),
-              'board': lambda x, y: (4 + x, 102 + y), 'rim': lambda x, y: (10, 112), 'rim_cells': True, 'cut': lambda x, y: (5, 32), 'bolt': BOLT(55, 88)},   # a dark plank nailed on
-    'Desert': {'frame_w': 3200, 'interior': (-42.5, 9.5, 47.5, 18.5, 11), 'rail': [70, 17], 'doors': ('Door-R', 'Door-L'), 'door_mid': 32.5, 'door_z': 2,
-               'board': lambda x, y: (96 + x, 14 + y), 'rim': lambda x, y: (10, 75), 'rim_cells': True, 'cut': lambda x, y: (10, 20), 'bolt': BOLT(10, 75)},
+                'door_mid': (36.9, 43.5), 'door_z': 2, 'plaque_y': 36, 'plaque_dx': (1.3, -1.3)},   # beside the medallion
+    'Crude': {'interior': (-37, 4, 49.5, 17.5, 12), 'rail': [0, 112], 'doors': ('Door-R', 'Door-L'), 'door_mid': (33, 32.7), 'door_z': (2, 1.7), 'plaque_dx': (0, -7.5)},   # a dark plank nailed on
+    'Desert': {'frame_w': 3200, 'interior': (-42.5, 9.5, 47.5, 18.5, 11), 'rail': [70, 17], 'doors': ('Door-R', 'Door-L'), 'door_mid': 32.5, 'door_z': 2},
     'Feran': {'frame_w': 3200, 'interior': (-34, 2.5, 46, 17, 11), 'rail': [17, 82], 'doors': ('Door-R', 'Door-L'), 'door_mid': 32, 'door_z': 0,
-              'plaque_y': 46.5,   # on the clear hide over the upper emblem
-              'board': lambda x, y: (81 + (y - 1) * 5 // 8, 14 + (x - 1) * 16 // 15), 'board_cells': True,   # hide (a clean strip of the door pelt, turned)
-              'rim': lambda x, y: (122, 22), 'rim_cells': True, 'cut': lambda x, y: (61, 9), 'bolt': BOLT(121, 20)},                    # in bone, the arrow burnt in
-    'Frozen_Castle': {'interior': (-36.8, 5.3, 53, 20, 12), 'rail': [196, 1], 'doors': ('Door-R', 'Door-L'), 'door_mid': 31, 'door_z': 2,
-                      'board': lambda x, y: (150 + x, 6 + y), 'rim': lambda x, y: (51, 20), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(51, 20)},
-    'Human_Ruins': {'frame_w': 3200, 'interior': (-41, 8, 56.84, 20.84, 12.5), 'painted_rail': (54, 52), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 38, 'door_z': 2,
-                    'board': lambda x, y: (2 + x, 68 + y), 'rim': lambda x, y: (61, 80), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(61, 80)},
-    'Jungle': {'frame_w': 3200, 'interior': (-38.5, 6, 60, 25, -14.77), 'rail': [10, 20, 90], 'doors': ('Door-R', 'Door-L'), 'door_mid': 35.51, 'door_z': 2,
-               'board': lambda x, y: (89 + x, 30 + y), 'rim': lambda x, y: (10, 20), 'rim_cells': True, 'cut': lambda x, y: (58, 49), 'bolt': BOLT(10, 20)},
-    'Kweebec': {'interior': (-35.5, 3.5, 43.5, 17.5, 1), 'rail': [66, 130], 'doors': ('Door-R', 'Door-L'), 'door_mid': 32.5, 'door_z': 0,
-                'board': lambda x, y: (45 + x, 116 + y), 'rim': lambda x, y: (9, 10), 'rim_cells': True, 'cut': lambda x, y: (64, 57), 'bolt': BOLT(9, 10)},   # moss frame
-    'Tavern': {'frame_w': 3200, 'interior': (-41, 8, 56.51, 18.51, 11.85), 'painted_rail': (53.51, 51.51), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 33.51, 'door_z': 2,
-               'board': lambda x, y: (2 + x, 64 + y), 'rim': lambda x, y: (118, 72), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(118, 72)},
-    'Temple_Emerald': {'frame_w': 3200, 'interior': (-39.25, 7.25, 55, 22, 13), 'rail': [1, 65], 'doors': ('Door-R', 'Door-L'), 'door_mid': 38.5, 'door_z': 2,
-                       'board': lambda x, y: (100 + x, 20 + y), 'rim': lambda x, y: (10, 70), 'rim_cells': True, 'cut': lambda x, y: (10, 20), 'bolt': BOLT(10, 70)},
-    'Temple_Light': {'frame_w': 3200, 'interior': (-38.9, 6.6, 60, 31, 10.14), 'rail': [14, 38], 'doors': ('Door-R', 'Door-L'), 'door_mid': 46.5, 'door_z': 2,
-                     'board': lambda x, y: (10 + x, 40 + y), 'rim': lambda x, y: (40, 78), 'rim_cells': True, 'cut': lambda x, y: (20, 15), 'bolt': BOLT(40, 78)},
-    'Village': {'frame_w': 3200, 'interior': (-41, 8, 56.18, 22.18, 12), 'painted_rail': (53.5, 51.5), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 40.5, 'door_z': 2,
-                'board': lambda x, y: (2 + x, 64 + y), 'rim': lambda x, y: (127, 80), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(127, 80)},
+              'plaque_y': 46.5},   # on the clear hide over the upper emblem
+    'Frozen_Castle': {'interior': (-36.8, 5.3, 53, 20, 12), 'rail': [196, 1], 'doors': ('Door-R', 'Door-L'), 'door_mid': 31, 'door_z': 2},
+    'Human_Ruins': {'frame_w': 3200, 'interior': (-41, 8, 56.84, 20.84, 12.5), 'painted_rail': (54, 52), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 38, 'door_z': 2},
+    'Jungle': {'frame_w': 3200, 'interior': (-38.5, 6, 60, 25, -14.77), 'rail': [10, 20, 90], 'doors': ('Door-R', 'Door-L'), 'door_mid': 35.51, 'door_z': 2},
+    'Kweebec': {'interior': (-35.5, 3.5, 43.5, 17.5, 1), 'rail': [66, 130], 'doors': ('Door-R', 'Door-L'), 'door_mid': 32.5, 'door_z': 0},   # moss frame
+    'Tavern': {'frame_w': 3200, 'interior': (-41, 8, 56.51, 18.51, 11.85), 'painted_rail': (53.51, 51.51), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 33.51, 'door_z': 2},
+    'Temple_Emerald': {'frame_w': 3200, 'interior': (-39.25, 7.25, 55, 22, 13), 'rail': [1, 65], 'doors': ('Door-R', 'Door-L'), 'door_mid': 38.5, 'door_z': 2},
+    'Temple_Light': {'frame_w': 3200, 'interior': (-38.9, 6.6, 60, 31, 10.14), 'rail': [14, 38], 'doors': ('Door-R', 'Door-L'), 'door_mid': 46.5, 'door_z': 2},
+    'Village': {'frame_w': 3200, 'interior': (-41, 8, 56.18, 22.18, 12), 'painted_rail': (53.5, 51.5), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 40.5, 'door_z': 2},
     # a tall narrow wardrobe made wider (widen) so five hangers fit at a page height of about 1000
     'Royal_Magic': {'frame_w': 3200, 'interior': (-48, 12, 80, 32.7, 12), 'cam_target': [-18, 56, 12], 'doors': ('Door-R', 'Door-L'), 'door_mid': 52, 'door_z': 2,
                     'widen': {'by': 28, 'centre': -18, 'ops': {
@@ -66,14 +48,42 @@ SETS = {
                         'Door-L': {'how': 'grow_out', 'pieces': [[0, 4, 0], [4, 12, 1], [12, 16, 0]]},                         # gold corners kept
                         'Door-R': {'how': 'grow_out', 'pieces': [[0, 4, 0], [4, 12, 1], [12, 16, 0]]},
                         'Wardrobe_Top_Decor_L#1': {'how': 'grow_out'}, 'Wardrobe_Top_Decor_R#1': {'how': 'grow_out'}}},
-                    'rail': [90, 100, 90], 'board': lambda x, y: (100 + x, 20 + y), 'rim': lambda x, y: (88, 120), 'rim_cells': True, 'cut': lambda x, y: (20, 72),
-                    'bolt': BOLT(88, 120)},
+                    'rail': [90, 100, 90]},
     # two openings: the own rack in the small upper one ('own': x0, x1, top, face), the Locker rack in the lower one (the interior);
     # both door pairs open, the plaques go on the lower pair (the second nodes of those names)
     'Temple_Wind': {'frame_w': 3200, 'interior': (-40, 8, 25.3, 25.3 - 402 / 13.6, 13), 'own': (-35, 3, 55.3, 10), 'cam_target': [-16, 32, 12], 'rail': [92, 22],
-                    'doors': ('Door-R#2', 'Door-L#2'), 'door_mid': 14, 'door_z': 2,
-                    'board': lambda x, y: (100 + x, 79 + y), 'rim': lambda x, y: (93, 23), 'rim_cells': True, 'cut': lambda x, y: (20, 50), 'bolt': BOLT(93, 23)},
+                    'doors': ('Door-R#2', 'Door-L#2'), 'door_mid': 14, 'door_z': 2},
 }
+# the page controls, made as a builder would make them on each door (the old bolted-on plaques looked added). 'hardware': the door's
+# own iron is the button ('hw': its box in the art, UI units, per picture side; 'mask': which of its pixels light up), with an arrow
+# beside it when it has no direction of its own; 'carve': the arrow cut into the door ('cut' dark inside, 'lip' the lit lower edge);
+# 'inlay': the arrow set in the door's trim material ('inlay'), raised a little. Texels from each set's own sheet; where it sits on
+# the door: plaque_dx / plaque_y (as for the plaques before)
+grey = lambda d, lo: lambda r, g, b: max(r, g, b) - min(r, g, b) < d and (r + g + b) / 3 > lo
+PAGES = {
+    'Lumberjack': {'style': 'carve', 'cut': [117, 118], 'lip': [4, 42]},
+    'Crude': {'style': 'carve', 'cut': [5, 32], 'lip': [10, 112]},
+    'Human_Ruins': {'style': 'carve', 'cut': [20, 20], 'lip': [4, 51], 'lip_h': 0.6},   # dark wood: a fuller lip so it reads
+    'Jungle': {'style': 'carve', 'cut': [66, 9], 'lip': [40, 50]},
+    'Desert': {'style': 'carve', 'cut': [10, 20], 'lip': [70, 17]},                     # in the outer square panel
+    'Temple_Dark': {'style': 'inlay', 'inlay': [1, 4]},                                 # steel
+    'Royal_Magic': {'style': 'inlay', 'arrow': 'embroider', 'thread': [[50, 70], [89, 120]], 'outline': [20, 72]},   # gold thread in the cloth
+    'Temple_Emerald': {'style': 'inlay', 'inlay': [10, 70]},                            # the pale gold stone of its frame, on the frame's foot
+    'Feran': {'style': 'inlay', 'inlay': [122, 22]},                                    # bone
+    'Frozen_Castle': {'style': 'inlay', 'inlay': [160, 10]},                            # the deep ice of its snowflake (pale frost vanished)
+    'Temple_Light': {'style': 'inlay', 'inlay': [40, 78]},                              # slate
+    'Temple_Wind': {'style': 'inlay', 'inlay': [93, 23]},                               # teal
+    'Tavern': {'style': 'hardware', 'hw': {'Left': [156, 244, 284, 388], 'Right': [916, 244, 1044, 388]}, 'keep': grey(30, 50)},   # the strap that points out
+    'Village': {'style': 'hardware', 'hw': {'Left': [30, 246, 106, 328], 'Right': [1132, 247, 1208, 326]}, 'keep': grey(32, 60),
+                'arrow': 'inlay', 'inlay': [127, 80]},                                   # the knob, an iron arrow beside it
+    'Kweebec': {'style': 'hardware', 'hw': {'Left': [35, 351, 117, 437], 'Right': [1076, 351, 1158, 437]}, 'keep': grey(32, 60),
+                'arrow': 'carve', 'cut': [64, 57], 'lip': [50, 104]},                    # the stone knob, an arrow cut beside it
+    'Ancient': {'style': 'hardware', 'hw': {'Left': [27, 297, 110, 429], 'Right': [1206, 311, 1289, 443]},
+                'keep': lambda r, g, b: (r + g + b) / 3 < 35 or (r + g + b) / 3 > 105 or r - b > 45, 'arrow': 'inlay', 'inlay': [30, 10]},   # the medallion
+}
+PLACE = {'Desert': {'plaque_dx': (4.7, -4.7)}, 'Temple_Emerald': {'plaque_y': 24.6}, 'Temple_Light': {'plaque_y': 39.5},
+         'Village': {'plaque_y': 41}, 'Kweebec': {'plaque_y': 30.6}}
+for _n, _p in PAGES.items(): SETS[_n]['page'] = _p; SETS[_n].update(PLACE.get(_n, {}))
 LJ = SETS['Lumberjack']['interior']
 LJ_SCALE = IN_H_UI / (LJ[2] - LJ[3])                 # UI units per model unit in the Lumberjack art (the hanger and plaque sizes are set there)
 
@@ -194,14 +204,44 @@ def widen(model, w):
     json.dump(m, open(model, 'w', encoding='utf-8'))
 
 
-def render(name, model, tex, cam, crop=None, same=None, **over):
-    cfg = {'model': model, 'texture': tex, 'out': os.path.join(tmp, name + '.png'), 'width': 2400, 'height': 2000, 'samples': 128,
+def pad(b, size, w=None, h=None):
+    # grows a picture's frame (even numbers, @2x) to at least the smallest easy click, round its middle, inside the art
+    w, h = w or MIN_HIT[0] * 2, h or MIN_HIT[1] * 2
+    b = [b[0] // 2 * 2, b[1] // 2 * 2, (b[2] + 1) // 2 * 2, (b[3] + 1) // 2 * 2]
+    for lo, hi, need, lim in ((0, 2, w, size[0]), (1, 3, h, size[1])):
+        grow = max(0, need - (b[hi] - b[lo]))
+        if grow:
+            b[lo] -= grow // 4 * 2; b[hi] = b[lo] + need
+            if b[lo] < 0: b[hi] -= b[lo]; b[lo] = 0
+            if b[hi] > lim: b[lo] -= b[hi] - lim; b[hi] = lim
+    return tuple(b)
+
+
+def hover_fx(name, lift=1.3, peak=0.55):
+    # a page control under the pointer, the same on every set: the piece lit brighter, as if a lamp swung onto it, and a soft warm
+    # light falling on the door round it (like HoverGlow), fading out inside the picture so it never shows an edge
+    import math
+    from PIL import ImageEnhance
+    path = os.path.join(OUT, name + '@2x.png'); im = Image.open(path).convert('RGBA'); w, h = im.size
+    lit = ImageEnhance.Brightness(im.convert('RGB')).enhance(lift).convert('RGBA'); lit.putalpha(im.getchannel('A'))
+    glow = Image.new('RGBA', (w, h)); px = glow.load()
+    for y in range(h):
+        for x in range(w):
+            d = math.hypot((x + 0.5 - w / 2) / (w / 2), (y + 0.5 - h / 2) / (h / 2))
+            px[x, y] = (255, 200, 110, int(max(0.0, 1 - d * d) ** 1.5 * peak * 255))   # broad in the middle, gone at the edge
+    glow.alpha_composite(lit); glow.save(path, optimize=True)
+
+
+def render(name, model, tex, cam, crop=None, same=None, raw=False, **over):
+    cfg = {'model': model, 'texture': tex, 'out': os.path.join(tmp, name + '.png'), 'width': 2400, 'height': 2000, 'samples': 24 if '--fast' in sys.argv else 128,
            'pose': {'Door-L': {'yaw': DOOR}, 'Door-R': {'yaw': -DOOR}}, 'lights': {'key': 3.6, 'fill': 0.6, 'rim': 1.0}, 'camera': cam}
     cfg.update(over); cj = os.path.join(tmp, name + '.json'); json.dump(cfg, open(cj, 'w'))
     subprocess.run([BLENDER, '-b', '-P', os.path.join(HERE, 'blockyblend.py'), '--', cj], check=True, capture_output=True)
     im = Image.open(cfg['out']); marks = json.load(open(cfg['out'] + '.json'))
     if crop:                                            # a piece laid over the art: cut to the art's frame, then to itself
-        im = im.crop(crop); b = im.getbbox(); b = (b[0] // 2 * 2, b[1] // 2 * 2, (b[2] + 1) // 2 * 2, (b[3] + 1) // 2 * 2)
+        im = im.crop(crop).convert('RGBA')
+        if raw: return im                               # the whole frame, for laying pieces together
+        b = pad(im.getbbox(), im.size)
         if same: b = (same[0] * 2, same[1] * 2, (same[0] + same[2]) * 2, (same[1] + same[3]) * 2)   # a hover picture: the plain one's frame
         im.crop(b).resize(((b[2] - b[0]) // 2, (b[3] - b[1]) // 2), Image.LANCZOS).save(os.path.join(OUT, name + '@2x.png'), optimize=True)
         return [b[0] // 2, b[1] // 2, (b[2] - b[0]) // 2, (b[3] - b[1]) // 2]
@@ -211,7 +251,8 @@ def render(name, model, tex, cam, crop=None, same=None, **over):
     if im.height % 2: im = im.crop((0, 0, im.width, im.height + 1))
     render.box = (box[0], box[1], box[0] + im.width, box[1] + im.height)
     # stored at one pixel per UI unit: a full @2x picture this big came out scrambled in game (the client's UI atlas)
-    im.resize((im.width // 2, im.height // 2), Image.LANCZOS).save(os.path.join(OUT, name + '@2x.png'), optimize=True)
+    if '--keep-art' not in sys.argv:                    # --keep-art: only the page pictures are written (Lumberjack's art is approved as it is)
+        im.resize((im.width // 2, im.height // 2), Image.LANCZOS).save(os.path.join(OUT, name + '@2x.png'), optimize=True)
     return im, {k: [[(p[0] - box[0]) / 2, (p[1] - box[1]) / 2] for p in v] for k, v in marks.items()}
 
 
@@ -247,36 +288,80 @@ def make(set_name, c):
     per = lambda v, i: v[i] if isinstance(v, (tuple, list)) else v   # door_mid / door_z: one for both doors, or (left, right) on the picture
     K = 0.7 * LJ_SCALE / k                             # model units per plaque cell: the same size on screen in every set
 
-    def plaque(name, door, sign, key, same=None, i=0):
-        # a board bolted to the inside of a door (swung open as in the art, so it takes the door's angle), with an arrow carved into it
-        # (pointing right, or left when sign is -1) and a bolt in each top corner; rendered alone with the art's camera
-        W, H, D, CUT, RIM = 18, 11, 1.2, 0.8, 0.4
-        head = {10: (2, 8), 11: (3, 7), 12: (4, 6), 13: (5, 5)}
-        kind = lambda x, y: ('rim' if x in (0, W - 1) or y in (0, H - 1) else
-                             'cut' if (4 <= x <= 10 and 4 <= y <= 6) or (x in head and head[x][0] <= y <= head[x][1]) else 'board')
-        at = {'node': door, 'at': [per(c.get('plaque_dx', 0), i), plaque_y - per(c['door_mid'], i), -per(c['door_z'], i) / 2], 'flip': True}   # from the door box's centre; its inside face
-        ex = []
-        for y in range(H):
-            x = 0
-            while x < W:
-                kd = kind(x, y); xe = x
-                # cut cells one by one (a small dark patch); a rim from a single texel too (a longer box would run its face across the sheet)
-                while kd != 'cut' and not (kd in ('rim', 'board') and c.get(kd + '_cells')) and xe + 1 < W and kind(xe + 1, y) == kd: xe += 1
-                w = xe - x + 1
-                front = {'cut': D - CUT, 'board': D, 'rim': D + RIM}[kd]
-                tu, tv = c[kd](x, y)
-                ex.append({'position': [(x + w / 2 - W / 2) * sign * K, (H / 2 - y - 0.5) * K, front / 2 * K], 'size': [w * K, K, front * K], 'attach': at,
-                           'uv': {f: [tu, tv] for f in ('front', 'top', 'bottom', 'left', 'right')}})
-                x = xe + 1
-        for cx in (0.6, W - 0.6):                      # a bolt in each top corner of the frame
-            ex.append({'position': [(cx - W / 2) * K, (H / 2 - 0.6) * K, (D + RIM + 0.25) * K], 'size': [1.2 * K, 1.2 * K, 0.5 * K], 'attach': at,
-                       'uv': c['bolt']})
-        return render(name, model, tex, cam, crop=box, same=same, no_model=True, **fw, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
+    pg = c['page']
+    # the arrow: ten cells by seven, pointing right (left when sign is -1), the same size on screen in every set
+    head = {10: (2, 8), 11: (3, 7), 12: (4, 6), 13: (5, 5)}
+    ARROW = {(x, y) for x in range(4, 14) for y in range(2, 9) if (4 <= x <= 10 and 4 <= y <= 6) or (x in head and head[x][0] <= y <= head[x][1])}
 
+    def arrow(name, door, sign, key, i, raw=False, same=None):
+        # the page arrow made on the inside of a door (swung open as in the art, so it takes the door's angle), rendered alone with the
+        # art's camera. 'carve': cut into the door, dark inside with a lit lower lip; 'inlay': set in the door's own trim material, raised
+        # a little like that trim
+        at = {'node': door, 'at': [per(c.get('plaque_dx', 0), i), plaque_y - per(c['door_mid'], i), -per(c['door_z'], i) / 2], 'flip': True}
+        cell = lambda x, y, tx, h=1.0, dz=0.08, top=0.0: {'position': [(x + 0.5 - 9) * sign * K, (5.5 - y - 0.5 + top) * K, dz / 2 * K],
+                                                          'size': [K, h * K, dz * K], 'attach': at, 'uv': {f: list(tx) for f in ('front', 'top', 'bottom', 'left', 'right')}}
+        ex = []
+        style = pg.get('arrow', pg['style'])
+        for x, y in sorted(ARROW):
+            if style == 'carve':
+                ex.append(cell(x, y, pg['cut']))
+                lh = pg.get('lip_h', 0.45)
+                if (x, y + 1) not in ARROW: ex.append(cell(x, y + 1, pg['lip'], h=lh, top=(1 - lh) / 2))   # the lit lower lip
+            elif style == 'embroider':                 # gold thread: slanted stitches in two golds, a thin dark stitch round it in the cloth
+                ex.append(cell(x, y, pg['thread'][1 if (x + y) % 3 == 0 else 0], dz=0.12))
+            else:
+                ex.append(cell(x, y, pg['inlay'], dz=pg.get('raise', 0.35)))
+        if style == 'embroider':                        # the outline: a thin stitch along each outer edge
+            t = 0.3
+            for x, y in ARROW:
+                for a, b_ in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    if (x + a, y + b_) in ARROW: continue
+                    px_, py_ = (x + 0.5 - 9 + a * (0.5 + t / 2)) * sign * K, (5.5 - y - 0.5 - b_ * (0.5 + t / 2)) * K
+                    sx_, sy_ = ((t if a else 1 + 2 * t) * K, (t if b_ else 1 + 2 * t) * K)
+                    ex.append({'position': [px_, py_, 0.04 * K], 'size': [sx_, sy_, 0.08 * K], 'attach': at,
+                               'uv': {f: list(pg['outline']) for f in ('front', 'top', 'bottom', 'left', 'right')}})
+        return render(name, model, tex, cam, crop=box, same=same, raw=raw, no_model=True, **fw, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
+
+    def control(side, door, sign, i):
+        # the page control on one door: the arrow alone, or the door's own hardware (lit on hover) with the arrow beside it
+        name = 'Page' + side + sfx; hov = 'Page' + side + 'Hover' + sfx
+        if pg['style'] != 'hardware':
+            plain = arrow(name, door, sign, 3.6, i)
+            arrow(hov, door, sign, 9 if pg['style'] == 'carve' else 6.5, i, same=plain)   # a cut needs more light to show it lit
+            hover_fx(hov)
+            return plain
+        from PIL import ImageDraw, ImageChops
+        x0_, y0_, x1_, y1_ = [v * 2 for v in pg['hw'][side]]
+        pieces = {}
+        for tag, key, base in (('plain', 3.6, art), ('hover', 6.5, bright)):
+            m_ = Image.new('L', base.size, 0); dr = ImageDraw.Draw(m_)
+            if pg.get('mask') == 'ellipse': dr.ellipse((x0_, y0_, x1_, y1_), fill=255)
+            else: dr.rectangle((x0_, y0_, x1_, y1_), fill=255)
+            if pg.get('keep'):                          # the hardware only, not the wood round it
+                px = art.load(); mp = m_.load()
+                for yy in range(y0_, y1_ + 1):
+                    for xx in range(x0_, x1_ + 1):
+                        if not pg['keep'](*px[xx, yy][:3]): mp[xx, yy] = 0
+            from PIL import ImageFilter
+            m_ = m_.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(5))   # no pinholes in the iron
+            hole = Image.eval(m_.crop((x0_ - 1, y0_ - 1, x1_ + 2, y1_ + 2)), lambda v: 0 if v else 255)   # nor holes: what the outside
+            ImageDraw.floodfill(hole, (0, 0), 128)                                                       # can't reach is iron too
+            m_.paste(255, (x0_ - 1, y0_ - 1), Image.eval(hole, lambda v: 255 if v == 255 else 0))
+            piece = Image.new('RGBA', base.size); piece.paste(base, (0, 0), ImageChops.multiply(m_, base.getchannel('A')))
+            if pg.get('arrow'): piece.alpha_composite(arrow(name, door, sign, key, i, raw=True))
+            pieces[tag] = piece
+        b = pad(pieces['plain'].getbbox(), pieces['plain'].size)
+        for tag, nm in (('plain', name), ('hover', hov)):
+            pieces[tag].crop(b).resize(((b[2] - b[0]) // 2, (b[3] - b[1]) // 2), Image.LANCZOS).save(os.path.join(OUT, nm + '@2x.png'), optimize=True)
+        hover_fx(hov)
+        return [b[0] // 2, b[1] // 2, (b[2] - b[0]) // 2, (b[3] - b[1]) // 2]
+
+    bright = None
+    if pg['style'] == 'hardware':                       # the whole wardrobe lit as for a hover, for the hardware's hover picture
+        bright = render('Bright' + sfx, model, tex, cam, crop=box, raw=True, **fw, lights={'key': 6.5, 'fill': 0.6, 'rim': 1.0}, marks={})
     plaques = {}
     for i, (side, door, sign) in enumerate((('Left', c['doors'][0], -1), ('Right', c['doors'][1], 1))):   # the model's Door-R swings open on the picture's left
-        plaques[side] = plaque('Page' + side + sfx, door, sign, 3.6, i=i)
-        plaque('Page' + side + 'Hover' + sfx, door, sign, 6.5, plaques[side], i=i)
+        plaques[side] = control(side, door, sign, i)
     iw = round(ix1 - ix0)
     lay = {'art': [art.width // 2, art.height // 2], 'interior': [round(ix0), round(iy0), iw, round(iy1 - iy0)],
            'rack_x': c.get('rack_x', round(ix0 + (iw - RACK_UI) / 2)), 'plaques': plaques}

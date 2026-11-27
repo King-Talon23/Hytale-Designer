@@ -118,10 +118,10 @@ $C.@PageOverlay {
         }
       }
 
-      // pages: carved wooden plaques nailed to the doors' insides, level with the bottom rack (rendered in the doors' angle; place
-      // and size as render-wardrobe.py prints them)
+      // pages: a control made on each door's inside (an arrow carved or inlaid, or the door's own hardware), rendered in the doors'
+      // angle; place and size as render-wardrobe.py prints them
       Button #PrevPage {
-        Anchor: (Left: 95, Top: 354, Width: 137, Height: 90);
+        Anchor: (Left: 103, Top: 352, Width: 120, Height: 100);
         Style: (
           Default: (Background: (TexturePath: "PageLeft_Human_Ruins.png")),
           Hovered: (Background: (TexturePath: "PageLeftHover_Human_Ruins.png")),
@@ -131,7 +131,7 @@ $C.@PageOverlay {
       }
 
       Button #NextPage {
-        Anchor: (Left: 987, Top: 354, Width: 138, Height: 91);
+        Anchor: (Left: 998, Top: 352, Width: 120, Height: 100);
         Style: (
           Default: (Background: (TexturePath: "PageRight_Human_Ruins.png")),
           Hovered: (Background: (TexturePath: "PageRightHover_Human_Ruins.png")),
