@@ -42,6 +42,12 @@ export async function saveCustom(name, skin, id) {
   if (!id && (await list()).custom.length >= CUSTOM_MAX) throw new Error(`My skins is full (${CUSTOM_MAX})`);
   return write(record(id || crypto.randomUUID(), 'custom', name, skin));
 }
+// a starred skin: the mod hangs starred skins first in the in-game wardrobe (written into its file as "favourite")
+export async function setFav(id, on) {
+  const r = await db.get('skins', id);
+  if (!r || r.kind !== 'custom') return null;
+  return write({ ...r, fav: !!on });
+}
 export const hasCustomItem = skin => Object.values(skin || {}).some(v => typeof v === 'string' && v.startsWith('Custom_'));
 export async function uniqueName(name, exceptId) {
   const used = new Set((await list()).custom.filter(r => r.id !== exceptId).map(r => r.name)),
@@ -96,7 +102,7 @@ export async function exportAll() {
     format: 'skin-editor-backup',
     version: 2,
     game: game.map(r => r && { name: r.name, skin: r.skin }),
-    custom: custom.map(r => ({ name: r.name, skin: r.skin, updated: r.updated })),
+    custom: custom.map(r => ({ name: r.name, skin: r.skin, updated: r.updated, fav: r.fav || undefined })),
     assets: mine,
   };
 }
@@ -207,6 +213,7 @@ export async function importAll(data) {
     while (names.has(nm)) nm = cleanName(base.slice(0, 36) + ' ' + q++);
     const rec = record(crypto.randomUUID(), 'custom', nm, s);
     rec.updated = Number.isFinite(r.updated) ? r.updated : now - i;
+    if (r.fav === true) rec.fav = true;
     await write(rec);
     names.add(nm);
     there.push([nm, k]);
@@ -555,7 +562,9 @@ async function attach() {
           const key = nm + '|' + JSON.stringify(sk);
           if (have.has(key) || room <= 0) continue;
           have.add(key);
-          await put(record(crypto.randomUUID(), 'custom', await uniqueName(nm), sk));
+          const rec = record(crypto.randomUUID(), 'custom', await uniqueName(nm), sk);
+          if (j.favourite === true) rec.fav = true;
+          await put(rec);
           room--;
           imported++;
         } else {
@@ -622,7 +631,16 @@ async function doMirror() {
       used = new Set();
     const file = r =>
       JSON.stringify(
-        { format: 'skin-editor-skin', version: 1, name: r.name, kind: r.kind, slot: r.slot, keepOwn: keepOwnOf(r.skin), skin: r.skin },
+        {
+          format: 'skin-editor-skin',
+          version: 1,
+          name: r.name,
+          kind: r.kind,
+          slot: r.slot,
+          favourite: r.fav || undefined,
+          keepOwn: keepOwnOf(r.skin),
+          skin: r.skin,
+        },
         null,
         1
       );

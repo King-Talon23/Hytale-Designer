@@ -290,6 +290,20 @@ export function createLocker(app) {
       el('b', { text: rec.name }),
       kind === 'game' ? el('small', { text: 'Slot ' + (rec.slot + 1) }) : null,
       worn ? el('span', { class: 'worn', text: 'Selected' }) : null,
+      kind === 'custom'
+        ? el('button', {
+            class: 'star' + (rec.fav ? ' on' : ''),
+            'aria-label': rec.fav ? 'Unfavourite' : 'Favourite',
+            'aria-pressed': String(!!rec.fav),
+            title: rec.fav ? 'Unfavourite' : 'Favourite',
+            text: rec.fav ? '★' : '☆',
+            onclick: guard(async e => {
+              e.stopPropagation();
+              await store.setFav(rec.id, !rec.fav);
+              await refreshWard();
+            }),
+          })
+        : null,
       menu || el('div', { class: 'acts' }, acts)
     );
   }
