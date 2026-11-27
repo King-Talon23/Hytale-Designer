@@ -1,34 +1,28 @@
-// One Locker skin on its hook, hanging from its own length of the wardrobe's rail (rows after the first; they scroll). The glow marks the skin worn;
-// the plugin lifts #Hang while the pointer is on it and brings the worn one forward. Art: dev/tools/render-wardrobe.py.
+// One Locker skin on its hook on the wardrobe's bottom rack. The glow marks the skin worn; the plugin lifts #Hang while the pointer
+// is on it and brings the worn one forward. Art: dev/tools/render-wardrobe.py.
 $C = "../../Common.ui";
 
 @NameStyle = LabelStyle(
-  FontSize: 13,
+  FontSize: 12,
+  Wrap: true,
   TextColor: #ecdcb8,
   FontName: "Secondary",
   RenderBold: true,
   HorizontalAlignment: Center,
-  VerticalAlignment: Center,
-  ShrinkTextToFit: true,
-  MinShrinkTextToFitFontSize: 9
+  VerticalAlignment: Center
 );
 
 Group {
-  Anchor: (Width: 120, Height: 200);
-
-  Group #Rail {
-    Anchor: (Left: 0, Top: 29, Width: 120, Height: 27);
-    Background: (TexturePath: "RailPiece.png");
-  }
+  Anchor: (Width: 98, Height: 200);
 
   Group #Worn {
-    Anchor: (Left: 0, Top: 56, Width: 120, Height: 150);
+    Anchor: (Left: 0, Top: 56, Width: 98, Height: 150);
     Background: (TexturePath: "WornGlow.png");
     Visible: false;
   }
 
   Button #Card {
-    Anchor: (Left: 0, Top: 0, Width: 120, Height: 200);
+    Anchor: (Left: 0, Top: 0, Width: 98, Height: 200);
     Style: (
       Default: (Background: #000000(0)),
       Hovered: (Background: (TexturePath: "HoverGlow.png")),
@@ -37,20 +31,20 @@ Group {
     );
 
     Group #Hang {
-      Anchor: (Left: 0, Top: 0, Width: 120, Height: 200);
+      Anchor: (Left: 0, Top: 0, Width: 98, Height: 200);
 
       Group {
-        Anchor: (Left: 50, Top: 23, Width: 19, Height: 54);
+        Anchor: (Left: 40, Top: 23, Width: 19, Height: 54);
         Background: (TexturePath: "Hook.png");
       }
 
       AssetImage #Pic {
-        Anchor: (Left: 6, Top: 68, Width: 108, Height: 108);
+        Anchor: (Left: 4, Top: 68, Width: 90, Height: 90);
         FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
       }
 
       Label #Name {
-        Anchor: (Left: 0, Top: 178, Width: 120, Height: 18);
+        Anchor: (Left: 2, Top: 162, Width: 94, Height: 34);
         Style: @NameStyle;
       }
     }

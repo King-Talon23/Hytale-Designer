@@ -1,5 +1,5 @@
 # Renders the in-game wardrobe screen's art (mod 1.4.0) from the game's own Lumberjack wardrobe model, doors swung open, in Blender
-# with soft light on a transparent background: the wardrobe, the rail for each further row of skins, and the hook a skin hangs on.
+# with soft light on a transparent background: the wardrobe with a second rack, the hook a skin hangs on, and the page arrows.
 # Writes name@2x.png into the mod's UI folder and prints the layout (UI units) that Wardrobe.ui / WardrobeCard.ui are built on.
 # python dev/tools/render-wardrobe.py [--blender <blender.exe>] [--assets <Assets.zip>]
 import json, os, subprocess, sys, tempfile, zipfile
@@ -15,7 +15,6 @@ SRC = 'Common/Blocks/Decorative_Sets/Lumberjack/'
 # the model's interior (the painted inside of its front face) and our pieces, in model units
 IN_X0, IN_X1, IN_TOP, IN_BOT, FACE_Z = -41, 8, 56.65, 18.65, 8
 RAIL_TOP, RAIL_BOT = 53.65, 51.65
-POST_X0, POST_X1 = -29.3, -27.9                     # the post between "your skin" and the Locker's skins
 IRON = [10, 5]                                      # rail texels on the model's sheet
 
 def glow(name, peak, w=127, h=150):
@@ -28,7 +27,7 @@ def glow(name, peak, w=127, h=150):
             px[x, y] = (255, 200, 110, int(max(0.0, 1 - d) ** 2 * peak * 255))
     im.save(os.path.join(OUT, name + '@2x.png'), optimize=True)
 
-glow('WornGlow', 0.75); glow('HoverGlow', 0.25, 127, 200)
+glow('WornGlow', 0.75, 104, 150); glow('HoverGlow', 0.25, 104, 200)
 if '--glow-only' in sys.argv: sys.exit()
 tmp = tempfile.mkdtemp()
 with zipfile.ZipFile(ASSETS) as z:
@@ -52,32 +51,35 @@ def render(name, **over):
     im.resize((im.width // 2, im.height // 2), Image.LANCZOS).save(os.path.join(OUT, name + '@2x.png'), optimize=True)
     return im, {k: [[(p[0] - box[0]) / 2, (p[1] - box[1]) / 2] for p in v] for k, v in marks.items()}
 
-post = {'position': [(POST_X0 + POST_X1) / 2, (RAIL_BOT + IN_BOT) / 2, FACE_Z + 0.8], 'size': [POST_X1 - POST_X0, RAIL_BOT - IN_BOT, 1.6],
-        'uv': {'front': [100, 2], 'right': [100, 2], 'left': [100, 2], 'top': [100, 2]}}
-art, m = render('Wardrobe', extra=[post])
+# the second rack, one row of skins (200 UI units) under the wardrobe's own rail, rendered into the picture so it always runs the
+# full width; and the page arrows, iron like the drawer's knobs (lighter while the pointer is on them)
+ROW = 200 / (402 / (IN_TOP - IN_BOT))                  # one row in model units
+HALF = (IN_X1 - IN_X0) / 2                              # two lengths, so each stays on the sheet's iron strip
+rail2 = [{'position': [IN_X0 + HALF * (i + 0.5), (RAIL_TOP + RAIL_BOT) / 2 - ROW, FACE_Z + 0.4], 'size': [HALF, RAIL_TOP - RAIL_BOT, 0.8],
+          'uv': {'front': IRON, 'top': IRON, 'bottom': IRON}} for i in (0, 1)]
+art, m = render('Wardrobe', extra=rail2, marks={'interior': [[IN_X0, IN_TOP, FACE_Z], [IN_X1, IN_BOT, FACE_Z]],
+                                                  'rail2': [[IN_X0, RAIL_TOP - ROW, FACE_Z]]})
 (ix0, iy0), (ix1, iy1) = m['interior']
-u = lambda x: ix0 + (x - IN_X0) * (ix1 - ix0) / (IN_X1 - IN_X0)       # model x -> UI x on the art
 v = lambda y: iy0 + (IN_TOP - y) * (iy1 - iy0) / (IN_TOP - IN_BOT)
 
-# a rail for each further row of skins, the length of the Locker side
-rail = {'position': [(POST_X1 + IN_X1) / 2, (RAIL_TOP + RAIL_BOT) / 2, FACE_Z + 0.05], 'size': [IN_X1 - POST_X1, RAIL_TOP - RAIL_BOT, 0.1],
-        'uv': {'front': IRON, 'top': IRON}}
-rim, rm = render('Rail', no_model=True, extra=[rail], marks={'r': [[POST_X1, RAIL_TOP, FACE_Z], [IN_X1, RAIL_BOT, FACE_Z]]})
 # the hook: a bar over the rail and a drop in front of it, iron like the rail
 hook = [{'position': [0, RAIL_TOP + 0.3, FACE_Z + 0.6], 'size': [1.2, 0.6, 1.6], 'uv': {f: IRON for f in ('front', 'top', 'left', 'right')}},
         {'position': [0, RAIL_BOT - 0.4, FACE_Z + 1.15], 'size': [0.6, 3.0, 0.6], 'uv': {f: IRON for f in ('front', 'top', 'left', 'right', 'bottom')}}]
 him, hm = render('Hook', no_model=True, extra=hook, marks={'c': [[0, RAIL_TOP + 0.6, FACE_Z]]})
 
+def arrow(name, sign, key):
+    # a stepped triangle pointing right (left when sign is -1), each step a block faced like the drawer's iron knobs
+    cubes = [(0, y) for y in range(-2, 3)] + [(1, y) for y in range(-1, 2)] + [(2, 0)]
+    faces = {'front': [57, 109], 'top': [51, 109], 'bottom': [51, 109], 'left': [51, 114], 'right': [51, 114]}
+    ex = [{'position': [sign * x * 2, 36 + y * 2, FACE_Z], 'size': [2, 2, 2], 'uv': faces} for x, y in cubes]
+    im, _ = render(name, no_model=True, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
+    return im
+for side, sign in (('Left', -1), ('Right', 1)):
+    a = arrow('Page' + side, sign, 3.6); arrow('Page' + side + 'Hover', sign, 7.0)
+
 lay = {'art': [art.width // 2, art.height // 2],
        'interior': [round(ix0), round(iy0), round(ix1 - ix0), round(iy1 - iy0)],
-       'own': [round(ix0), round(u(POST_X0) - ix0)], 'locker': [round(u(POST_X1)), round(ix1 - u(POST_X1))],
-       'rail_y': [round(v(RAIL_TOP) - iy0, 1), round(v(RAIL_BOT) - iy0, 1)],
-       'hook': {'size': [him.width // 2, him.height // 2], 'top_from_interior': round(v(RAIL_TOP + 0.6) - iy0 - hm['c'][0][1], 1),
-                'center_x_in_image': round(hm['c'][0][0], 1)},
-       'rail_png': {'size': [rim.width // 2, rim.height // 2], 'rail_top_in_image': round(rm['r'][0][1], 1)}}
-# one card's length of rail from the middle of the long one (no end caps), so each card carries its own and the rows scroll
-card = 120                                          # three to a row with room for the scrollbar
-mid = rim.width // 2; rim.crop((mid - card, 0, mid + card, rim.height)).resize((card, rim.height // 2), Image.LANCZOS).save(os.path.join(OUT, 'RailPiece@2x.png'), optimize=True)
-os.remove(os.path.join(OUT, 'Rail@2x.png'))
-lay['card_w'] = card
+       'rail_y': [round(v(RAIL_TOP) - iy0, 1), round(v(RAIL_BOT) - iy0, 1)], 'rail2_top': round(m['rail2'][0][1] - iy0, 1),
+       'hook': {'size': [him.width // 2, him.height // 2], 'top_from_interior': round(v(RAIL_TOP + 0.6) - iy0 - hm['c'][0][1], 1)},
+       'arrow': [a.width // 2, a.height // 2]}
 print(json.dumps(lay))

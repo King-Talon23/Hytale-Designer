@@ -20,8 +20,9 @@ import java.util.List;
 import javax.annotation.Nonnull;
 
 /**
- * The in-game wardrobe: the open Lumberjack wardrobe with the player's own skin on the left of the post and the skins saved in the
- * website's Locker ("My skins" in the skins folder) on the right, each on a hook with the picture the site saves beside it. A click
+ * The in-game wardrobe: the open Lumberjack wardrobe with two racks. The top one holds the player's own skin (the in-game preset
+ * slots join it once Hytale allows sign-in); the bottom one the skins saved in the website's Locker ("My skins" in the skins folder),
+ * five to a page turned with the arrows on the doors, each on a hook with the picture the site saves beside it. A click
  * wears that skin (the mod writes Wearing.json, so custom pieces and the keepOwn rule work as from the site); the own skin gives the
  * real one back. The skin under the pointer lifts off the rail; the worn one hangs forward in a warm light. Opened by using the
  * Designer Wardrobe block; no commands.
@@ -33,7 +34,10 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
 
     private final Wardrobe wardrobe;
     private final PlayerRef who;
-    private int hovered = -2;                                   // the hanger under the pointer: -1 = own skin, -2 = none
+    private int hovered = -2;                                   // the hanger under the pointer: -1 = own skin, 0..4 = bottom rack, -2 = none
+    private int page = 0;
+    static final int RACK = 5;                                  // hangers on a rack
+    static final String NO_PIC = "UI/Custom/Pages/Memories/MissingIcon.png";
     private List<Wardrobe.Look> looks = List.of();
     private String status = "";
 
@@ -46,21 +50,21 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
     public void build(@Nonnull Ref<EntityStore> ref, @Nonnull UICommandBuilder ui, @Nonnull UIEventBuilder ev, @Nonnull Store<EntityStore> store) {
         ui.append(LAYOUT);
         looks = wardrobe.looks();
-        for (int i = 0; i < looks.size(); i++) {
-            String card = "#Grid[" + i + "] ";
+        String worn = wardrobe.wornName();                      // open on the page holding the skin worn
+        for (int i = 0; i < looks.size(); i++) if (looks.get(i).name().equals(worn)) page = i / RACK;
+        for (int i = 0; i < RACK; i++) {
             ui.append("#Grid", CARD);
-            ui.set(card + "#Name.Text", looks.get(i).name());
-            String pic = looks.get(i).picture();
-            if (pic != null) ui.set(card + "#Pic.AssetPath", pic);
-            ui.set(card + "#Rail.Visible", i >= 3);                 // the first row hangs from the wardrobe's own rail
-            bind(ev, card + "#Card", Integer.toString(i));
+            bind(ev, "#Grid[" + i + "] #Card", Integer.toString(i));
         }
         String own = wardrobe.ownPicture(who.getUuid());
         if (own != null) ui.set("#OwnPic.AssetPath", own);
         ui.set("#OwnName.Text", who.getUsername());
         bind(ev, "#OwnCard", "own");
+        ev.addEventBinding(CustomUIEventBindingType.Activating, "#PrevPage", EventData.of("Type", "Page").append("Slot", "-1"), false);
+        ev.addEventBinding(CustomUIEventBindingType.Activating, "#NextPage", EventData.of("Type", "Page").append("Slot", "1"), false);
         ui.set("#Count.Text", looks.size() + " / 50");
         ui.set("#Empty.Visible", looks.isEmpty());
+        fill(ui);
         render(ui);
     }
 
@@ -70,37 +74,60 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
         ev.addEventBinding(CustomUIEventBindingType.MouseExited, sel, EventData.of("Type", "Leave").append("Slot", slot), false);
     }
 
+    private int pages() { return Math.max(1, (looks.size() + RACK - 1) / RACK); }
+
+    /** the bottom rack's five hangers show the page's skins */
+    private void fill(UICommandBuilder ui) {
+        for (int i = 0; i < RACK; i++) {
+            int k = page * RACK + i; String card = "#Grid[" + i + "] ";
+            ui.set(card + "#Card.Visible", k < looks.size());
+            if (k >= looks.size()) continue;
+            ui.set(card + "#Name.Text", looks.get(k).name());
+            String pic = looks.get(k).picture();
+            ui.set(card + "#Pic.AssetPath", pic != null ? pic : NO_PIC);
+        }
+        ui.set("#Page.Text", pages() > 1 ? (page + 1) + " / " + pages() : "");
+        ui.set("#PrevPage.Visible", page > 0);
+        ui.set("#NextPage.Visible", page < pages() - 1);
+    }
+
     @Override
     public void handleDataEvent(@Nonnull Ref<EntityStore> ref, @Nonnull Store<EntityStore> store, @Nonnull Event e) {
         if (e.type == null || e.slot == null) return;
         int i;
         try { i = "own".equals(e.slot) ? -1 : Integer.parseInt(e.slot); } catch (NumberFormatException x) { return; }
-        if (i < -1 || i >= looks.size()) return;
-        switch (e.type) {
-            case "Enter" -> hovered = i;
-            case "Leave" -> { if (hovered == i) hovered = -2; }
-            case "Wear" -> {
-                try { if (i == -1) wardrobe.wearOwn(); else wardrobe.wear(looks.get(i)); status = ""; }
-                catch (Exception ex) { status = "Could not change: " + ex.getMessage(); }
+        UICommandBuilder ui = new UICommandBuilder();
+        if ("Page".equals(e.type)) {
+            int to = Math.max(0, Math.min(pages() - 1, page + Integer.signum(i))); if (to == page) return;
+            page = to; hovered = -2; fill(ui);
+        } else {
+            if (i < -1 || i >= RACK || (i >= 0 && page * RACK + i >= looks.size())) return;
+            switch (e.type) {
+                case "Enter" -> hovered = i;
+                case "Leave" -> { if (hovered == i) hovered = -2; }
+                case "Wear" -> {
+                    try { if (i == -1) wardrobe.wearOwn(); else wardrobe.wear(looks.get(page * RACK + i)); status = ""; }
+                    catch (Exception ex) { status = "Could not change: " + ex.getMessage(); }
+                }
+                default -> { return; }
             }
-            default -> { return; }
         }
-        UICommandBuilder ui = new UICommandBuilder(); render(ui); sendUpdate(ui, null, false);
+        render(ui); sendUpdate(ui, null, false);
     }
 
     /** the worn skin glows and hangs forward (a little bigger); the one under the pointer lifts off the rail */
     private void render(UICommandBuilder ui) {
         String worn = wardrobe.wornName();
-        for (int i = 0; i < looks.size(); i++) {
-            boolean on = looks.get(i).name().equals(worn); String card = "#Grid[" + i + "] ";
+        for (int i = 0; i < RACK; i++) {
+            int k = page * RACK + i; boolean on = k < looks.size() && looks.get(k).name().equals(worn); String card = "#Grid[" + i + "] ";
             ui.set(card + "#Worn.Visible", on);
-            ui.setObject(card + "#Hang.Anchor", box(0, hovered == i ? -8 : 0, 120, 200));
-            ui.setObject(card + "#Pic.Anchor", on ? box(2, 64, 116, 116) : box(6, 68, 108, 108));
+            ui.setObject(card + "#Hang.Anchor", box(0, hovered == i ? -8 : 0, 98, 200));
+            ui.setObject(card + "#Pic.Anchor", on ? box(0, 64, 98, 98) : box(4, 68, 90, 90));
         }
         boolean own = wardrobe.wearingOwn();
         ui.set("#OwnWorn.Visible", own);
-        ui.setObject("#OwnHang.Anchor", box(0, hovered == -1 ? -8 : 0, 124, 200));
-        ui.setObject("#OwnPic.Anchor", own ? box(24, 64, 76, 122) : box(27, 68, 70, 112));
+        ui.setObject("#OwnHang.Anchor", box(0, hovered == -1 ? -8 : 0, 98, 200));
+        ui.setObject("#OwnPic.Anchor", own ? box(17, 64, 64, 104) : box(19, 68, 60, 98));
         ui.set("#Status.Text", status);
     }
 

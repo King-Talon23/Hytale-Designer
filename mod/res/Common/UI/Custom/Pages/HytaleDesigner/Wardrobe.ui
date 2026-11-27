@@ -1,7 +1,8 @@
-// Hytale Designer Sync: the in-game wardrobe. The picture is the game's Lumberjack wardrobe with its doors open, rendered by
-// dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 177,87 size 521 x 402; the player's own
-// skin hangs left of the post, x 177 width 124; the Locker's skins right of it, x 317 width 381, three to a row of 200).
-// The plugin appends one WardrobeCard.ui per saved skin into #Grid.
+// Hytale Designer Sync: the in-game wardrobe. The picture is the game's Lumberjack wardrobe with its doors open and a second rack,
+// rendered by dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 177,87 size 521 x 402, seen between the front posts from x 190 to 684; the
+// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 98 to a rack from x 192; page arrows on the doors).
+// Top rack: the player's own skin (the in-game preset slots join it once Hytale allows sign-in). Bottom rack: the Locker's skins,
+// five to a page; the plugin appends five WardrobeCard.ui into #Grid and fills them for the page shown.
 $C = "../../Common.ui";
 
 @HeadStyle = LabelStyle(
@@ -15,14 +16,13 @@ $C = "../../Common.ui";
 );
 
 @NameStyle = LabelStyle(
-  FontSize: 13,
+  FontSize: 12,
+  Wrap: true,
   TextColor: #ecdcb8,
   FontName: "Secondary",
   RenderBold: true,
   HorizontalAlignment: Center,
-  VerticalAlignment: Center,
-  ShrinkTextToFit: true,
-  MinShrinkTextToFitFontSize: 9
+  VerticalAlignment: Center
 );
 
 $C.@PageOverlay {
@@ -42,40 +42,23 @@ $C.@PageOverlay {
       Background: (TexturePath: "Wardrobe.png");
 
       Label {
-        Anchor: (Left: 177, Top: 93, Width: 124, Height: 22);
-        Text: "Your skin";
-        Style: (...@HeadStyle, HorizontalAlignment: Center);
-      }
-
-      Group {
-        LayoutMode: Left;
-        Anchor: (Left: 325, Top: 93, Width: 365, Height: 22);
-
-        Label {
-          Text: "My skins";
-          Style: @HeadStyle;
-        }
-
-        Group { FlexWeight: 1; }
-
-        Label #Count {
-          Text: "0";
-          Style: @HeadStyle;
-        }
+        Anchor: (Left: 198, Top: 89, Width: 300, Height: 18);
+        Text: "Your skins";
+        Style: @HeadStyle;
       }
 
       // the player's own skin, worn whenever no Locker skin is
       Group {
-        Anchor: (Left: 177, Top: 87, Width: 124, Height: 200);
+        Anchor: (Left: 192, Top: 87, Width: 98, Height: 200);
 
         Group #OwnWorn {
-          Anchor: (Left: 0, Top: 56, Width: 124, Height: 150);
+          Anchor: (Left: 0, Top: 56, Width: 98, Height: 150);
           Background: (TexturePath: "WornGlow.png");
           Visible: false;
         }
 
         Button #OwnCard {
-          Anchor: (Left: 0, Top: 0, Width: 124, Height: 200);
+          Anchor: (Left: 0, Top: 0, Width: 98, Height: 200);
           Style: (
             Default: (Background: #000000(0)),
             Hovered: (Background: (TexturePath: "HoverGlow.png")),
@@ -84,20 +67,20 @@ $C.@PageOverlay {
           );
 
           Group #OwnHang {
-            Anchor: (Left: 0, Top: 0, Width: 124, Height: 200);
+            Anchor: (Left: 0, Top: 0, Width: 98, Height: 200);
 
             Group {
-              Anchor: (Left: 52, Top: 23, Width: 19, Height: 54);
+              Anchor: (Left: 40, Top: 23, Width: 19, Height: 54);
               Background: (TexturePath: "Hook.png");
             }
 
             AssetImage #OwnPic {
-              Anchor: (Left: 27, Top: 68, Width: 70, Height: 112);
+              Anchor: (Left: 19, Top: 68, Width: 60, Height: 98);
               FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
             }
 
             Label #OwnName {
-              Anchor: (Left: 0, Top: 180, Width: 124, Height: 18);
+              Anchor: (Left: 2, Top: 166, Width: 94, Height: 32);
               Style: @NameStyle;
             }
           }
@@ -105,20 +88,57 @@ $C.@PageOverlay {
       }
 
       Group {
-        Anchor: (Left: 317, Top: 87, Width: 381, Height: 402);
-        LayoutMode: TopScrolling;
-        ScrollbarStyle: $C.@DefaultScrollbarStyle;
+        LayoutMode: Left;
+        Anchor: (Left: 198, Top: 290, Width: 482, Height: 18);
 
-        Group #Grid {
-          LayoutMode: LeftWrap;
+        Label {
+          Text: "Designer skins";
+          Style: @HeadStyle;
         }
 
-        Label #Empty {
-          Anchor: (Height: 200);
-          Text: "No saved skins";
-          Style: (...@HeadStyle, HorizontalAlignment: Center);
-          Visible: false;
+        Label #Count {
+          Padding: (Left: 10);
+          Text: "0";
+          Style: (...@HeadStyle, TextColor: #8f7c58);
         }
+
+        Group { FlexWeight: 1; }
+
+        Label #Page {
+          Style: @HeadStyle;
+        }
+      }
+
+      Group #Grid {
+        LayoutMode: Left;
+        Anchor: (Left: 192, Top: 288, Width: 490, Height: 200);
+      }
+
+      Label #Empty {
+        Anchor: (Left: 192, Top: 288, Width: 490, Height: 200);
+        Text: "No saved skins";
+        Style: (...@HeadStyle, HorizontalAlignment: Center);
+        Visible: false;
+      }
+
+      Button #PrevPage {
+        Anchor: (Left: 60, Top: 366, Width: 56, Height: 89);
+        Style: (
+          Default: (Background: (TexturePath: "PageLeft.png")),
+          Hovered: (Background: (TexturePath: "PageLeftHover.png")),
+          Pressed: (Background: (TexturePath: "PageLeftHover.png")),
+          Sounds: $C.@ButtonSounds
+        );
+      }
+
+      Button #NextPage {
+        Anchor: (Left: 772, Top: 366, Width: 56, Height: 89);
+        Style: (
+          Default: (Background: (TexturePath: "PageRight.png")),
+          Hovered: (Background: (TexturePath: "PageRightHover.png")),
+          Pressed: (Background: (TexturePath: "PageRightHover.png")),
+          Sounds: $C.@ButtonSounds
+        );
       }
     }
 
