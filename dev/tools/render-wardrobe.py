@@ -62,7 +62,7 @@ SETS = {
 grey = lambda d, lo: lambda r, g, b: max(r, g, b) - min(r, g, b) < d and (r + g + b) / 3 > lo
 PAGES = {
     'Lumberjack': {'style': 'carve', 'cut': [117, 118], 'lip': [4, 42]},
-    'Crude': {'style': 'carve', 'cut': [5, 32], 'lip': [10, 112]},
+    'Crude': {'style': 'carve', 'cut': [6, 71], 'lip': [10, 112]},                      # dark wood, not black (black read as paint)
     'Human_Ruins': {'style': 'carve', 'cut': [20, 20], 'lip': [4, 51], 'lip_h': 0.6},   # dark wood: a fuller lip so it reads
     'Jungle': {'style': 'carve', 'cut': [66, 9], 'lip': [40, 50]},
     'Desert': {'style': 'carve', 'cut': [10, 20], 'lip': [70, 17]},                     # in the outer square panel
@@ -75,11 +75,11 @@ PAGES = {
     'Temple_Wind': {'style': 'inlay', 'inlay': [93, 23]},                               # teal
     'Tavern': {'style': 'hardware', 'hw': {'Left': [156, 244, 284, 388], 'Right': [916, 244, 1044, 388]}, 'keep': grey(30, 50)},   # the strap that points out
     'Village': {'style': 'hardware', 'hw': {'Left': [30, 246, 106, 328], 'Right': [1132, 247, 1208, 326]}, 'keep': grey(32, 60),
-                'arrow': 'inlay', 'inlay': [127, 80]},                                   # the knob, an iron arrow beside it
+                'arrow': 'carve', 'cut': [5, 53], 'lip': [64, 0]},                      # the knob, an arrow cut beside it (an iron inlay read as pasted on)
     'Kweebec': {'style': 'hardware', 'hw': {'Left': [35, 351, 117, 437], 'Right': [1076, 351, 1158, 437]}, 'keep': grey(32, 60),
                 'arrow': 'carve', 'cut': [64, 57], 'lip': [50, 104]},                    # the stone knob, an arrow cut beside it
     'Ancient': {'style': 'hardware', 'hw': {'Left': [27, 297, 110, 429], 'Right': [1206, 311, 1289, 443]},
-                'keep': lambda r, g, b: (r + g + b) / 3 < 35 or (r + g + b) / 3 > 105 or r - b > 45, 'arrow': 'inlay', 'inlay': [30, 10]},   # the medallion
+                'keep': lambda r, g, b: (r + g + b) / 3 < 35 or (r + g + b) / 3 > 105 or r - b > 45, 'arrow': 'carve', 'cut': [0, 16], 'lip': [36, 81], 'lip_h': 0.6},   # the medallion, an arrow cut deep beside it (dark wood)
 }
 PLACE = {'Desert': {'plaque_dx': (4.7, -4.7)}, 'Temple_Emerald': {'plaque_y': 24.6}, 'Temple_Light': {'plaque_y': 39.5},
          'Village': {'plaque_y': 41}, 'Kweebec': {'plaque_y': 30.6}}
