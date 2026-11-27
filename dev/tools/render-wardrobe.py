@@ -1,6 +1,6 @@
 # Renders the in-game wardrobe screen's art (mod 1.4.0) from the game's own Lumberjack wardrobe model, doors swung open, in Blender
 # with soft light on a transparent background: the wardrobe with a second rack, the coat hanger a skin hangs on, and the page
-# plaques (an arrow carved into a board of the wardrobe's own planks, held by one iron nail; lighter while the pointer is on them).
+# plaques (an arrow carved into a board of the wardrobe's own planks, held by an iron bolt in each top corner; lighter while the pointer is on them).
 # Writes name@2x.png into the mod's UI folder and prints the layout (UI units) that Wardrobe.ui / WardrobeCard.ui are built on.
 # python dev/tools/render-wardrobe.py [--blender <blender.exe>] [--assets <Assets.zip>]
 import json, os, subprocess, sys, tempfile, zipfile
@@ -96,8 +96,8 @@ for sx in (-1, 1):
 him, hm = render('Hanger', no_model=True, extra=hook, marks={'c': [[0, RAIL_TOP + 0.6, FACE_Z]]})
 
 def plaque(name, door, sign, key, same=None):
-    # a plank board nailed to the inside of a door (swung open as in the art, so it takes the door's angle), with an arrow carved
-    # into it (pointing right, or left when sign is -1) and an iron nail at the arrow's tail; rendered alone with the art's camera
+    # a plank board bolted to the inside of a door (swung open as in the art, so it takes the door's angle), with an arrow carved
+    # into it (pointing right, or left when sign is -1) and an iron bolt in each top corner; rendered alone with the art's camera
     W, H, D, CUT, RIM = 18, 11, 1.2, 0.8, 0.4
     head = {10: (2, 8), 11: (3, 7), 12: (4, 6), 13: (5, 5)}
     kind = lambda x, y: ('rim' if x in (0, W - 1) or y in (0, H - 1) else
@@ -116,8 +116,9 @@ def plaque(name, door, sign, key, same=None):
             ex.append({'position': [(x + n / 2 - W / 2) * sign * K, (H / 2 - y - 0.5) * K, front / 2 * K], 'size': [n * K, K, front * K], 'attach': at,
                        'uv': {f: [u, v] for f in ('front', 'top', 'bottom', 'left', 'right')}})
             x = x1 + 1
-    ex.append({'position': [(2.5 - W / 2) * sign * K, 0, (D + 0.3) * K], 'size': [1.2 * K, 1.2 * K, 0.6 * K], 'attach': at,
-               'uv': {'front': [57, 109], 'top': [51, 109], 'bottom': [51, 109], 'left': [51, 114], 'right': [51, 114]}})
+    for cx in (0.6, W - 0.6):                                         # an iron bolt in each top corner of the frame
+        ex.append({'position': [(cx - W / 2) * K, (H / 2 - 0.6) * K, (D + RIM + 0.25) * K], 'size': [1.2 * K, 1.2 * K, 0.5 * K], 'attach': at,
+                   'uv': {'front': [57, 109], 'top': [51, 109], 'bottom': [51, 109], 'left': [51, 114], 'right': [51, 114]}})
     return render(name, crop=ART_BOX, same=same, no_model=True, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
 PLAQUE_Y = IN_TOP - 300 / (402 / (IN_TOP - IN_BOT))                  # level with the middle of the bottom rack
 plaques = {}
