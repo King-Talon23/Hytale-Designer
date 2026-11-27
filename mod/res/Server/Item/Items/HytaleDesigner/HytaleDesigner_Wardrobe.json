@@ -3,42 +3,92 @@
     "Name": "server.items.HytaleDesigner_Wardrobe.name",
     "Description": "server.items.HytaleDesigner_Wardrobe.description"
   },
-  "Icon": "Icons/ItemsGenerated/Furniture_Lumberjack_Wardrobe.png",
+  "PlayerAnimationsId": "Block",
   "Categories": [
-    "Items.Tools"
+    "Furniture.Furniture"
   ],
-  "PlayerAnimationsId": "Item",
-  "Model": "Items/Tools/Repair_Kit/Repair_Kit_Crude.blockymodel",
-  "Texture": "Items/Tools/Repair_Kit/Repair_Kit_Crude_Texture.png",
+  "Icon": "Icons/ItemsGenerated/Furniture_Lumberjack_Wardrobe.png",
   "IconProperties": {
-    "Rotation": [22.5, 45, 22.5],
+    "Rotation": [
+      22.5,
+      45,
+      22.5
+    ],
     "Scale": 0.36,
-    "Translation": [14.4, -23.4]
-  },
-  "Interactions": {
-    "Primary": {
-      "Interactions": [
-        { "Type": "OpenCustomUI", "Page": { "Id": "HytaleDesigner_Wardrobe" } }
-      ]
-    },
-    "Secondary": {
-      "Interactions": [
-        { "Type": "OpenCustomUI", "Page": { "Id": "HytaleDesigner_Wardrobe" } }
-      ]
-    }
-  },
-  "Utility": {
-    "Compatible": true
+    "Translation": [
+      14.4,
+      -23.4
+    ]
   },
   "Recipe": {
     "Input": [
-      { "ItemId": "Ingredient_Fibre", "Quantity": 4 }
+      {
+        "ResourceTypeId": "Wood_Redwood",
+        "Quantity": 4
+      }
+    ],
+    "BenchRequirement": [
+      {
+        "Id": "Builders",
+        "Type": "StructuralCrafting",
+        "Categories": [
+          "Wardrobe"
+        ]
+      }
     ]
   },
-  "Quality": "Common",
-  "MaxStack": 1,
-  "Tags": {
-    "Type": ["Tool"]
+  "BlockType": {
+    "BlockParticleSetId": "Wood",
+    "BlockSoundSetId": "Wood",
+    "PhysicalMaterialId": "Wood",
+    "CustomModel": "Blocks/Decorative_Sets/Lumberjack/Wardrobe.blockymodel",
+    "CustomModelTexture": [
+      {
+        "Texture": "Blocks/Decorative_Sets/Lumberjack/Wardrobe_Texture.png",
+        "Weight": 1
+      }
+    ],
+    "DrawType": "Model",
+    "Flags": {},
+    "Gathering": {
+      "Breaking": {
+        "GatherType": "Woods"
+      }
+    },
+    "HitboxType": "Wardrobe",
+    "Material": "Solid",
+    "ParticleColor": "#793e21",
+    "Support": {
+      "Down": [
+        {
+          "FaceType": "Full"
+        }
+      ]
+    },
+    "VariantRotation": "NESW",
+    "TextureComputedColor": "#4D2513",
+    "Interactions": {
+      "Use": {
+        "Interactions": [
+          {
+            "Type": "OpenCustomUI",
+            "Page": {
+              "Id": "HytaleDesigner_Wardrobe"
+            }
+          }
+        ]
+      }
+    }
   },
-  "ItemSoundSetId": "ISS_Weapons_Wood"
+  "Tags": {
+    "Type": [
+      "Furniture"
+    ],
+    "Family": [
+      "Lumberjack"
+    ]
+  },
+  "Scale": 0.8,
+  "ItemSoundSetId": "ISS_Blocks_Wood",
+  "MaxStack": 1
 }

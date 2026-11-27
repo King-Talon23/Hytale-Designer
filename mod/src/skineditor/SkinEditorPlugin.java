@@ -130,7 +130,7 @@ public final class SkinEditorPlugin extends JavaPlugin {
             else if (storage != null && storage.getInventory().canAddItemStack(item)) { storage.getInventory().addItemStack(item); storage.markDirty(); }
             else return;   // full: tried again next join
             Files.createDirectories(given.getParent()); Files.writeString(given, pr.getUuid() + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
-            pr.sendMessage(com.hypixel.hytale.server.core.Message.raw("Hytale Designer Sync: use the Designer Wardrobe to wear any skin from your Locker."));
+            pr.sendMessage(com.hypixel.hytale.server.core.Message.raw("Hytale Designer Sync: place the Designer Wardrobe and use it to wear any skin from your Locker."));
         } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not give the wardrobe: " + e); }
     }
     @Override
