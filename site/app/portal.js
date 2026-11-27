@@ -30,11 +30,17 @@ const FRAG = [
   '  float face = smoothstep(0.12, 0.5, vFacing);',
   // the game's portal ring, its band centred on the bubble's edge, turning slowly
   '  vec4 rc = texture2D(ring, 0.5 + turn(p, time * 0.35) / R * 0.3);', // the ring's band just inside to well outside the edge
-  '  vec3 ringC = rc.rgb * rc.a * face;',
+  // the seam, always drawn: a bright line on the edge in a soft blue glow, flickering a little along the rim as the game's portals do
+  '  float e = abs(r - R);',
+  '  float flick = 0.8 + 0.2 * sin(a * 13.0 - time * 5.0) * sin(a * 5.0 + time * 2.0);',
+  '  float line = exp(-e * 90.0) * flick, glow = exp(-e * 16.0) * 0.55 * flick;',
+  '  vec3 seamC = vec3(0.85, 0.97, 1.0) * line + vec3(0.35, 0.7, 1.0) * glow;',
+  '  float seamA = clamp(line + glow, 0.0, 1.0) * face * min(1.0, open * 3.0);',
+  '  vec3 ringC = rc.rgb * rc.a * face + seamC * face;',
   '  if (r > R) {',
-  '    float aOut = rc.a * face * min(1.0, open * 3.0);',
+  '    float aOut = max(rc.a * face * min(1.0, open * 3.0), seamA);',
   '    if (aOut < 0.02) discard;',
-  '    gl_FragColor = vec4(rc.rgb * 1.2, aOut);',
+  '    gl_FragColor = vec4(rc.rgb * rc.a * 1.2 + seamC, aOut);',
   '    #include <colorspace_fragment>',
   '    return;',
   '  }',
