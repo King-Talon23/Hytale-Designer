@@ -1,0 +1,151 @@
+// Made by dev/tools/render-wardrobe.py from Wardrobe.ui for the Frozen Castle wardrobe: edit Wardrobe.ui, then run the script.
+$C = "../../Common.ui";
+
+@HeadStyle = LabelStyle(
+  FontSize: 12,
+  VerticalAlignment: Center,
+  RenderUppercase: true,
+  TextColor: #c7ae7a,
+  FontName: "Secondary",
+  RenderBold: true,
+  LetterSpacing: 0.5
+);
+
+@NameStyle = LabelStyle(
+  FontSize: 12,
+  Wrap: true,
+  TextColor: #ecdcb8,
+  FontName: "Secondary",
+  RenderBold: true,
+  HorizontalAlignment: Center,
+  VerticalAlignment: Center
+);
+
+$C.@PageOverlay {
+  LayoutMode: Middle;
+
+  Group {
+    Anchor: (Width: 1081, Height: 870);
+
+    Label {
+      Anchor: (Left: 0, Top: 0, Width: 1081, Height: 40);
+      Text: "Wardrobe";
+      Style: (...$C.@TitleStyle, FontSize: 22, HorizontalAlignment: Center, LetterSpacing: 1);
+    }
+
+    Group {
+      Anchor: (Left: 0, Top: 40, Width: 1081, Height: 804);
+      Background: (TexturePath: "Wardrobe_Frozen_Castle.png");
+
+      Label {
+        Anchor: (Left: 316, Top: 162, Width: 300, Height: 18);
+        Text: "Your skins";
+        Style: @HeadStyle;
+      }
+
+      // the player's own skin, worn whenever no Locker skin is
+      Group {
+        Anchor: (Left: 308, Top: 160, Width: 94, Height: 200);
+
+        Group #OwnWorn {
+          Anchor: (Left: 0, Top: 56, Width: 94, Height: 150);
+          Background: (TexturePath: "WornGlow.png");
+          Visible: false;
+        }
+
+        Button #OwnCard {
+          Anchor: (Left: 0, Top: 0, Width: 94, Height: 200);
+          Style: (
+            Default: (Background: #000000(0)),
+            Hovered: (Background: (TexturePath: "HoverGlow.png")),
+            Pressed: (Background: (TexturePath: "HoverGlow.png")),
+            Sounds: $C.@ButtonSounds
+          );
+
+          Group #OwnHang {
+            Anchor: (Left: 0, Top: 0, Width: 94, Height: 200);
+
+            Group {
+              Anchor: (Left: 16, Top: 23, Width: 63, Height: 86);
+              Background: (TexturePath: "Hanger.png");
+            }
+
+            AssetImage #OwnPic {
+              Anchor: (Left: 18, Top: 63, Width: 57, Height: 92);
+              FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
+            }
+
+            Label #OwnName {
+              Anchor: (Left: 0, Top: 162, Width: 94, Height: 34);
+              Style: @NameStyle;
+            }
+          }
+        }
+      }
+
+      Group #Grid {
+        LayoutMode: Left;
+        Anchor: (Left: 308, Top: 361, Width: 470, Height: 200);
+      }
+
+      Label #Empty {
+        Anchor: (Left: 308, Top: 361, Width: 470, Height: 200);
+        Text: "No saved skins";
+        Style: (...@HeadStyle, HorizontalAlignment: Center);
+        Visible: false;
+      }
+
+      Group {
+        LayoutMode: Left;
+        Anchor: (Left: 316, Top: 355, Width: 458, Height: 28);
+
+        Label {
+          Text: "Designer skins";
+          Style: @HeadStyle;
+        }
+
+        Label #Count {
+          Padding: (Left: 10);
+          Text: "0";
+          Style: (...@HeadStyle, TextColor: #8f7c58);
+        }
+
+        Group { FlexWeight: 1; }
+
+        Label #Page {
+          Anchor: (Width: 52);
+          Style: (...@HeadStyle, HorizontalAlignment: Center);
+        }
+      }
+
+      // pages: carved wooden plaques nailed to the doors' insides, level with the bottom rack (rendered in the doors' angle; place
+      // and size as render-wardrobe.py prints them)
+      Button #PrevPage {
+        Anchor: (Left: 78, Top: 424, Width: 137, Height: 90);
+        Style: (
+          Default: (Background: (TexturePath: "PageLeft_Frozen_Castle.png")),
+          Hovered: (Background: (TexturePath: "PageLeftHover_Frozen_Castle.png")),
+          Pressed: (Background: (TexturePath: "PageLeftHover_Frozen_Castle.png")),
+          Sounds: $C.@ButtonSounds
+        );
+      }
+
+      Button #NextPage {
+        Anchor: (Left: 866, Top: 424, Width: 137, Height: 90);
+        Style: (
+          Default: (Background: (TexturePath: "PageRight_Frozen_Castle.png")),
+          Hovered: (Background: (TexturePath: "PageRightHover_Frozen_Castle.png")),
+          Pressed: (Background: (TexturePath: "PageRightHover_Frozen_Castle.png")),
+          Sounds: $C.@ButtonSounds
+        );
+      }
+    }
+
+    Label #Status {
+      Anchor: (Left: 0, Top: 846, Width: 1081, Height: 22);
+      Style: (FontSize: 14, HorizontalAlignment: Center, VerticalAlignment: Center, TextColor: #96a9be);
+    }
+  }
+}
+
+$C.@BackButton {}

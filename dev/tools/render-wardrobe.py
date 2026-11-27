@@ -20,6 +20,7 @@ IN_H_UI = 402                                       # the interior's height on s
 # Each set: its interior (the inside face the skins hang in front of: x0, x1, top, bottom, face z, in model units), the doors, and texels
 # picked from its own sheet: 'rail' [u, v, angle] for the rails (None: the model paints its own top rail), the plaque's 'board', 'rim'
 # and 'cut' (functions of the plaque cell x, y) and 'bolt' faces. Lumberjack's numbers are the original art's.
+BOLT = lambda u, v: {f: [u, v] for f in ('front', 'top', 'bottom', 'left', 'right')}   # a bolt all of one texel
 LJ_BOLT = {'front': [57, 109], 'top': [51, 109], 'bottom': [51, 109], 'left': [51, 114], 'right': [51, 114]}
 SETS = {
     'Lumberjack': {'interior': (-41, 8, 56.65, 18.65, 8), 'painted_rail': (53.65, 51.65), 'rail': [10, 5], 'doors': ('Door-R', 'Door-L'),
@@ -29,6 +30,32 @@ SETS = {
     'Temple_Dark': {'interior': (-39.25, 7.25, 58.5, 25.5, 11.85), 'rail': [2, 1, 90], 'doors': ('Door-R', 'Door-L'), 'door_mid': 42, 'door_z': 2,
                     'board': lambda x, y: (64 + x, 68 + y), 'rim': lambda x, y: (1, 4), 'rim_cells': True,
                     'cut': lambda x, y: (66 + x % 5, 78 + y % 2), 'bolt': {'front': [1, 1], 'top': [1, 4], 'bottom': [1, 4], 'left': [1, 4], 'right': [1, 4]}},
+    # sets whose sheet paints the top rail (Ancient, Human Ruins, Tavern, Village): the interior's top sits 3 Lumberjack units over it
+    'Ancient': {'frame_w': 3200, 'interior': (-37, 5, 56.11, 23.11, 11.85), 'painted_rail': (53.51, 51.51), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'),
+                'door_mid': (36.9, 43.5), 'door_z': 2, 'plaque_y': 36, 'plaque_dx': (-3, 3),
+                'board': lambda x, y: (14 + x, 63 + y), 'rim': lambda x, y: (30, 10), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(30, 10)},
+    'Crude': {'interior': (-37, 4, 49.5, 17.5, 12), 'rail': [0, 112], 'doors': ('Door-R', 'Door-L'), 'door_mid': (33, 32.7), 'door_z': (2, 1.7), 'plaque_dx': (0, -6),
+              'board': lambda x, y: (4 + x, 8 + y), 'rim': lambda x, y: (30, 27), 'rim_cells': True, 'cut': lambda x, y: (20, 50), 'bolt': BOLT(30, 27)},
+    'Desert': {'frame_w': 3200, 'interior': (-42.5, 9.5, 47.5, 18.5, 11), 'rail': [70, 17], 'doors': ('Door-R', 'Door-L'), 'door_mid': 32.5, 'door_z': 2,
+               'board': lambda x, y: (96 + x, 14 + y), 'rim': lambda x, y: (10, 75), 'rim_cells': True, 'cut': lambda x, y: (10, 20), 'bolt': BOLT(10, 75)},
+    'Feran': {'frame_w': 3200, 'interior': (-34, 2.5, 46, 17, 11), 'rail': [17, 82], 'doors': ('Door-R', 'Door-L'), 'door_mid': 32, 'door_z': 0,
+              'board': lambda x, y: (98 + x, 56 + y), 'rim': lambda x, y: (7, 20), 'rim_cells': True, 'cut': lambda x, y: (30, 60), 'bolt': BOLT(7, 20)},
+    'Frozen_Castle': {'interior': (-36.8, 5.3, 53, 20, 12), 'rail': [196, 1], 'doors': ('Door-R', 'Door-L'), 'door_mid': 31, 'door_z': 2,
+                      'board': lambda x, y: (150 + x, 6 + y), 'rim': lambda x, y: (51, 20), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(51, 20)},
+    'Human_Ruins': {'frame_w': 3200, 'interior': (-41, 8, 56.84, 20.84, 12.5), 'painted_rail': (54, 52), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 38, 'door_z': 2,
+                    'board': lambda x, y: (2 + x, 68 + y), 'rim': lambda x, y: (61, 80), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(61, 80)},
+    'Jungle': {'frame_w': 3200, 'interior': (-38.5, 6, 60, 25, -14.77), 'rail': [10, 20, 90], 'doors': ('Door-R', 'Door-L'), 'door_mid': 35.51, 'door_z': 2,
+               'board': lambda x, y: (89 + x, 30 + y), 'rim': lambda x, y: (10, 20), 'rim_cells': True, 'cut': lambda x, y: (58, 49), 'bolt': BOLT(10, 20)},
+    'Kweebec': {'interior': (-35.5, 3.5, 43.5, 17.5, 1), 'rail': [66, 130], 'doors': ('Door-R', 'Door-L'), 'door_mid': 32.5, 'door_z': 0,
+                'board': lambda x, y: (2 + x, 112 + y), 'rim': lambda x, y: (50, 104), 'rim_cells': True, 'cut': lambda x, y: (80, 80), 'bolt': BOLT(50, 104)},
+    'Tavern': {'frame_w': 3200, 'interior': (-41, 8, 56.51, 18.51, 11.85), 'painted_rail': (53.51, 51.51), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 33.51, 'door_z': 2,
+               'board': lambda x, y: (2 + x, 64 + y), 'rim': lambda x, y: (118, 72), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(118, 72)},
+    'Temple_Emerald': {'frame_w': 3200, 'interior': (-39.25, 7.25, 55, 22, 13), 'rail': [1, 65], 'doors': ('Door-R', 'Door-L'), 'door_mid': 38.5, 'door_z': 2,
+                       'board': lambda x, y: (100 + x, 20 + y), 'rim': lambda x, y: (10, 70), 'rim_cells': True, 'cut': lambda x, y: (10, 20), 'bolt': BOLT(10, 70)},
+    'Temple_Light': {'frame_w': 3200, 'interior': (-38.9, 6.6, 60, 31, 10.14), 'rail': [14, 38], 'doors': ('Door-R', 'Door-L'), 'door_mid': 46.5, 'door_z': 2,
+                     'board': lambda x, y: (10 + x, 40 + y), 'rim': lambda x, y: (40, 78), 'rim_cells': True, 'cut': lambda x, y: (20, 15), 'bolt': BOLT(40, 78)},
+    'Village': {'frame_w': 3200, 'interior': (-41, 8, 56.18, 22.18, 12), 'painted_rail': (53.5, 51.5), 'rail': [22, 10], 'doors': ('Door-R', 'Door-L'), 'door_mid': 40.5, 'door_z': 2,
+                'board': lambda x, y: (2 + x, 64 + y), 'rim': lambda x, y: (127, 80), 'rim_cells': True, 'cut': lambda x, y: (20, 20), 'bolt': BOLT(127, 80)},
 }
 LJ = SETS['Lumberjack']['interior']
 LJ_SCALE = IN_H_UI / (LJ[2] - LJ[3])                 # UI units per model unit in the Lumberjack art (the hanger and plaque sizes are set there)
@@ -96,7 +123,8 @@ def make(set_name, c):
     u = lambda ui: ui / k                              # UI units -> model units
     sfx = '' if set_name == 'Lumberjack' else '_' + set_name
     cam = {'target': c.get('cam_target', [(x0 + x1) / 2, (top + bot) / 2, face]), 'distance': 420, 'yaw': 0, 'pitch': 5,
-           'lens': c.get('cam_lens', 133.8 * k / LJ_SCALE)}
+           'lens': c.get('cam_lens', 133.8 * k / LJ_SCALE) * 2400 / c.get('frame_w', 2400)}   # a wider frame (open doors that reach past it) keeps the scale
+    fw = {'width': c.get('frame_w', 2400)}
     # the racks: rails 3 Lumberjack units (31.7 UI) under the interior's top and one row lower, two units thick. Lumberjack paints the
     # top one, so only the second is added there; elsewhere each rail is laid in short lengths so it stays on its strip of the sheet.
     rt, rb = c.get('painted_rail', (top - u(3 * LJ_SCALE), top - u(5 * LJ_SCALE)))
@@ -106,20 +134,21 @@ def make(set_name, c):
     uv = c['rail']
     ex = [{'position': [x0 + seg * (i + 0.5), (rt + rb) / 2 - dy, face + 0.4], 'size': [seg, rt - rb, 0.8], 'uv': {'front': uv, 'top': uv, 'bottom': uv}}
           for dy in drops for i in range(n)]
-    art, m = render('Wardrobe' + sfx, model, tex, cam, extra=ex, marks={'interior': [[x0, top, face], [x1, bot, face]]})
+    art, m = render('Wardrobe' + sfx, model, tex, cam, **fw, extra=ex, marks={'interior': [[x0, top, face], [x1, bot, face]]})
     box = render.box
     (ix0, iy0), (ix1, iy1) = m['interior']
-    plaque_y = top - u(300)                            # level with the middle of the bottom rack
+    plaque_y = c.get('plaque_y', top - u(300))         # level with the middle of the bottom rack (or a set's own height on uneven doors)
+    per = lambda v, i: v[i] if isinstance(v, (tuple, list)) else v   # door_mid / door_z: one for both doors, or (left, right) on the picture
     K = 0.7 * LJ_SCALE / k                             # model units per plaque cell: the same size on screen in every set
 
-    def plaque(name, door, sign, key, same=None):
+    def plaque(name, door, sign, key, same=None, i=0):
         # a board bolted to the inside of a door (swung open as in the art, so it takes the door's angle), with an arrow carved into it
         # (pointing right, or left when sign is -1) and a bolt in each top corner; rendered alone with the art's camera
         W, H, D, CUT, RIM = 18, 11, 1.2, 0.8, 0.4
         head = {10: (2, 8), 11: (3, 7), 12: (4, 6), 13: (5, 5)}
         kind = lambda x, y: ('rim' if x in (0, W - 1) or y in (0, H - 1) else
                              'cut' if (4 <= x <= 10 and 4 <= y <= 6) or (x in head and head[x][0] <= y <= head[x][1]) else 'board')
-        at = {'node': door, 'at': [0, plaque_y - c['door_mid'], -c['door_z'] / 2], 'flip': True}   # from the door box's centre; its inside face
+        at = {'node': door, 'at': [per(c.get('plaque_dx', 0), i), plaque_y - per(c['door_mid'], i), -per(c['door_z'], i) / 2], 'flip': True}   # from the door box's centre; its inside face
         ex = []
         for y in range(H):
             x = 0
@@ -136,12 +165,12 @@ def make(set_name, c):
         for cx in (0.6, W - 0.6):                      # a bolt in each top corner of the frame
             ex.append({'position': [(cx - W / 2) * K, (H / 2 - 0.6) * K, (D + RIM + 0.25) * K], 'size': [1.2 * K, 1.2 * K, 0.5 * K], 'attach': at,
                        'uv': c['bolt']})
-        return render(name, model, tex, cam, crop=box, same=same, no_model=True, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
+        return render(name, model, tex, cam, crop=box, same=same, no_model=True, **fw, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
 
     plaques = {}
-    for side, door, sign in (('Left', c['doors'][0], -1), ('Right', c['doors'][1], 1)):   # the model's Door-R swings open on the picture's left
-        plaques[side] = plaque('Page' + side + sfx, door, sign, 3.6)
-        plaque('Page' + side + 'Hover' + sfx, door, sign, 6.5, plaques[side])
+    for i, (side, door, sign) in enumerate((('Left', c['doors'][0], -1), ('Right', c['doors'][1], 1))):   # the model's Door-R swings open on the picture's left
+        plaques[side] = plaque('Page' + side + sfx, door, sign, 3.6, i=i)
+        plaque('Page' + side + 'Hover' + sfx, door, sign, 6.5, plaques[side], i=i)
     iw = round(ix1 - ix0)
     lay = {'art': [art.width // 2, art.height // 2], 'interior': [round(ix0), round(iy0), iw, round(iy1 - iy0)],
            'rack_x': c.get('rack_x', round(ix0 + (iw - RACK_UI) / 2)), 'plaques': plaques}
