@@ -73,6 +73,7 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
     want = false, // the pair is wanted open
     o = 0, // how far through opening it is (0 shut, 1 open)
     behind = 0, // -1 / 1: the camera went past that edge without going through, and is behind its portal
+    through = 0, // -1 / 1: the character has gone through that edge's portal (the camera, following, will too)
     camGap = Infinity,
     shownR = 0, // the bubble's opening now (in its quad's units), for telling whether the camera passes through it
     lastCx = 0, // where across the lane the camera was last frame ...
@@ -80,6 +81,7 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
     lastZ = 0; // ... and where along the lane, relative to the character
   const size = new THREE.Vector2(),
     plane = new THREE.Plane(),
+    plane2 = new THREE.Plane(),
     V = new THREE.Vector3(),
     N = new THREE.Vector3(),
     tex = (bytes, w = 1) => {
@@ -127,7 +129,28 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
     mesh.frustumCulled = false;
     mesh.renderOrder = 5;
     scene.add(mesh);
-    return { s, rt, mat, mesh };
+    // the doorway seen again through itself: a bubble a lane further on showing the view two lanes over (rt2), and inside that one a
+    // last bubble a lane further still, which shows only its seam over the deeper picture (the repeat stops there)
+    const rt2 = new THREE.WebGLRenderTarget(4, 4, { samples: 4 }),
+      nest = [rt2, rt].map(r => {
+        const m = new THREE.Mesh(
+          mesh.geometry,
+          new THREE.ShaderMaterial({
+            uniforms: { ...mat.uniforms, map: { value: r.texture } },
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            vertexShader: VERT,
+            fragmentShader: FRAG,
+          })
+        );
+        m.rotation.y = Math.PI / 2;
+        m.visible = false;
+        m.frustumCulled = false;
+        scene.add(m);
+        return m;
+      });
+    return { s, rt, rt2, mat, mesh, nest };
   });
   // the part of the screen a bubble covers, in pixels of the drawing buffer (null when off screen), so its view is drawn only there
   const box = mesh => {
@@ -174,6 +197,7 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
       px = pz = 0;
       lastCx = cam.position.x;
       behind = 0;
+      through = 0;
       want = false;
       o = 0;
       if (world) world.position.set(0, 0, 0);
@@ -189,8 +213,15 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
       for (const s of [-1, 1]) {
         const past = s * cx > half,
           wasPast = s * was > half;
+        const charPast = s * px > half;
+        if (charPast && !through && behind !== s)
+          through = s; // the character has stepped through
+        else if (!charPast && through === s) through = 0; // ... and back
         if (behind === s) {
           if (!past) behind = 0; // back in front of it
+        } else if (behind === 0 && past && through === s) {
+          px -= s * span; // following the character through: everything goes across
+          through = 0;
         } else if (behind === 0 && past) {
           // where on its way the camera met the edge's line: through the bubble, or beside it
           const f = wasPast ? 1 : (s * half - was) / (cx - was || 1),
@@ -220,6 +251,7 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
         p.mat.uniforms.time.value = t;
         p.mesh.visible = o > 0;
         p.mesh.position.set(p.s * half - px, MID, 0);
+        for (const m of p.nest) for (const k of ['open', 'swirlA', 'time']) m.material.uniforms[k].value = p.mat.uniforms[k].value;
       }
       camGap = o > 0 ? half - Math.abs(cx) : Infinity;
     },
@@ -238,41 +270,74 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
       const boxes = portals.map(p => box(p.mesh));
       portals.forEach(p => (p.mesh.visible = false));
       renderer.autoClear = false;
-      portals.forEach((p, i) => {
-        const b = boxes[i];
-        if (!b) return;
-        if (p.rt.width !== size.x || p.rt.height !== size.y) p.rt.setSize(size.x, size.y);
-        const X0 = p.mesh.position.x,
-          camSide = Math.sign(cam.position.x - X0) || 1,
-          front = camSide === -p.s; // the camera is on the lane's side of this portal
-        plane.set(N.set(-camSide, 0, 0), camSide * X0);
-        renderer.setRenderTarget(p.rt);
-        renderer.setScissorTest(true);
+      // the view k lanes over through the portal at X (scene x), into rt within the box b: the sky whole, then the land and the
+      // characters (from in front: the one crossing over and its repeats a lane apart) cut at the portal
+      const view = (p, k, X, rt, b, front) => {
+        const camSide = Math.sign(cam.position.x - X) || 1;
+        plane.set(N.set(-camSide, 0, 0), camSide * X);
+        renderer.setRenderTarget(rt);
         renderer.setScissor(b[0], b[1], b[2], b[3]);
         renderer.clear();
-        world.position.x += p.s * span;
+        world.position.x += k * p.s * span;
         if (s) {
           const back = only([s]);
           renderer.clippingPlanes = [];
           renderer.render(scene, cam);
           back();
         }
-        // the land (and from in front the character crossing over), cut at the portal
-        const showMe = front ? null : only(scene.children.filter(c => !me.includes(c)));
-        if (s) s.visible = false;
+        const hide = only(scene.children.filter(c => c !== s && !me.includes(c)));
         renderer.clippingPlanes = [plane];
         renderer.render(scene, cam);
-        if (s) s.visible = true;
-        showMe?.();
-        // from in front: the character again, a lane's width over, where the lane puts it on that side
+        hide();
         if (front && me.length) {
+          // each repeat of the character shows only between this portal and the next one on (beyond that it is the next view's)
+          const Xn = X + p.s * span;
+          plane2.set(N.set(camSide, 0, 0), -camSide * Xn);
+          renderer.clippingPlanes = [plane, plane2];
           const back = only(me);
-          me.forEach(c => (c.position.x += p.s * span));
-          renderer.render(scene, cam);
-          me.forEach(c => (c.position.x -= p.s * span));
+          for (let j = 0; j <= k; j++) {
+            me.forEach(c => (c.position.x += j * p.s * span));
+            renderer.render(scene, cam);
+            me.forEach(c => (c.position.x -= j * p.s * span));
+          }
           back();
         }
-        world.position.x -= p.s * span;
+        world.position.x -= k * p.s * span;
+      };
+      // a nested bubble drawn into rt over what is there, hidden behind whatever stands in front of it
+      const overlay = (m, rt) => {
+        renderer.setRenderTarget(rt);
+        renderer.clippingPlanes = [];
+        m.visible = true;
+        const back = only([m]);
+        renderer.render(scene, cam);
+        back();
+        m.visible = false;
+      };
+      renderer.setScissorTest(true);
+      portals.forEach((p, i) => {
+        const b = boxes[i];
+        if (!b) return;
+        for (const r of [p.rt, p.rt2]) if (r.width !== size.x || r.height !== size.y) r.setSize(size.x, size.y);
+        const X0 = p.mesh.position.x,
+          front = (Math.sign(cam.position.x - X0) || 1) === -p.s; // the camera is on the lane's side of this portal
+        view(p, 1, X0, p.rt, b, front);
+        if (!front) return;
+        // the doorway again, a lane further on, with the view two lanes over in it; and a lane further still, its seam only
+        const [n2, n3] = p.nest;
+        for (const [m, d] of [
+          [n2, 1],
+          [n3, 2],
+        ]) {
+          m.position.set(X0 + d * p.s * span, p.mesh.position.y, p.mesh.position.z);
+          m.updateMatrixWorld();
+        }
+        const b2 = box(n2);
+        if (!b2) return;
+        view(p, 2, n2.position.x, p.rt2, b2, true);
+        overlay(n3, p.rt2);
+        renderer.setScissor(b2[0], b2[1], b2[2], b2[3]);
+        overlay(n2, p.rt);
       });
       renderer.setScissorTest(false);
       renderer.clippingPlanes = clip;
