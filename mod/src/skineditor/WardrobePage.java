@@ -35,6 +35,7 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
     private final Wardrobe wardrobe;
     private final PlayerRef who;
     private final String layout;                                // the wardrobe set's own art and layout (WardrobeSets)
+    private final String spot;                                  // this player at this wardrobe block: reopening it shows the page they left it on
     private int hovered = -2;                                   // the hanger under the pointer: -1 = own skin, 0..4 = bottom rack, -2 = none
     private int page = 0;
     static final int RACK = 5;                                  // hangers on a rack
@@ -42,9 +43,9 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
     private List<Wardrobe.Look> looks = List.of();
     private String status = "";
 
-    WardrobePage(PlayerRef who, Wardrobe wardrobe, String layout) {
+    WardrobePage(PlayerRef who, Wardrobe wardrobe, String layout, String spot) {
         super(who, CustomPageLifetime.CanDismissOrCloseThroughInteraction, Event.CODEC);
-        this.wardrobe = wardrobe; this.who = who; this.layout = layout;
+        this.wardrobe = wardrobe; this.who = who; this.layout = layout; this.spot = spot;
     }
 
     @Override
@@ -53,6 +54,8 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
         looks = wardrobe.looks();
         String worn = wardrobe.wornName();                      // open on the page holding the skin worn
         for (int i = 0; i < looks.size(); i++) if (looks.get(i).name().equals(worn)) page = i / RACK;
+        Integer left = spot == null ? null : wardrobe.pageAt(spot);   // the page this wardrobe was left on wins
+        if (left != null) page = Math.min(left, pages() - 1);
         for (int i = 0; i < RACK; i++) {
             ui.append("#Grid", CARD);
             bind(ev, "#Grid[" + i + "] #Card", Integer.toString(i));
@@ -100,6 +103,7 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
         if ("Page".equals(e.type)) {
             int to = Math.floorMod(page + Integer.signum(i), pages()); if (to == page) return;   // both plaques always shown: paging wraps round
             page = to; hovered = -2; fill(ui);
+            if (spot != null) wardrobe.leavePage(spot, page);
         } else {
             if (i < -1 || i >= RACK || (i >= 0 && page * RACK + i >= looks.size())) return;
             switch (e.type) {

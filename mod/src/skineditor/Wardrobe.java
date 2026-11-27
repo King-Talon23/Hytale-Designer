@@ -27,6 +27,10 @@ final class Wardrobe {
     record Look(String name, JsonObject skin, Set<String> keepOwn, String picture, boolean fav) {}
 
     private final Supplier<Path> skinsDir, liveCommon, userData;
+    private final java.util.Map<String, Integer> pages = new java.util.concurrent.ConcurrentHashMap<>();   // the rack page each player left each wardrobe on (WardrobePage spot)
+
+    Integer pageAt(String spot) { return pages.get(spot); }
+    void leavePage(String spot, int page) { if (pages.size() > 5000) pages.clear(); pages.put(spot, page); }
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     Wardrobe(Supplier<Path> skinsDir, Supplier<Path> liveCommon, Supplier<Path> userData) { this.skinsDir = skinsDir; this.liveCommon = liveCommon; this.userData = userData; }

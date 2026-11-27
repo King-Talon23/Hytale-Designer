@@ -101,7 +101,8 @@ public final class SkinEditorPlugin extends JavaPlugin {
         try { locate(); ensureLivePack(); syncAssets(false); syncAnims(false); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not prepare: " + e); }
         // the in-game wardrobe: the Designer Wardrobe item opens it (no commands); every player gets one the first time they join
         for (String set : WardrobeSets.SETS)   // one page per wardrobe set, in that set's look
-            com.hypixel.hytale.server.core.modules.interaction.interaction.config.server.OpenCustomUIInteraction.registerSimple(this, WardrobePage.class, WardrobeSets.pageId(set), pr -> new WardrobePage(pr, wardrobe, WardrobeSets.layout(set)));
+            com.hypixel.hytale.server.core.modules.interaction.interaction.config.server.OpenCustomUIInteraction.registerCustomPageSupplier(this, WardrobePage.class, WardrobeSets.pageId(set),
+                (ref, acc, pr, ctx) -> new WardrobePage(pr, wardrobe, WardrobeSets.layout(set), spot(ref, pr, ctx)));
         getEventRegistry().registerGlobal(com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent.class, e -> {
             Ref<EntityStore> r = e.getPlayerRef(); if (r == null || !r.isValid()) return;
             r.getStore().getExternalData().getWorld().execute(() -> giveWardrobe(r));
@@ -112,6 +113,13 @@ public final class SkinEditorPlugin extends JavaPlugin {
         try { boolean dev = Files.exists(getDataDirectory().resolve("dev-origins"));
             bridge = new SkinBridge(() -> skinsDir, VERSION, dev, msg -> getLogger().atInfo().log("[Hytale Designer Sync] " + msg)); bridge.start();
         } catch (Throwable e) { getLogger().atWarning().log("[Hytale Designer Sync] website bridge off: " + e); }
+    }
+
+    /** which wardrobe was opened, for each player: their world and the block's place (null when not opened from a block) */
+    private static String spot(Ref<EntityStore> ref, PlayerRef pr, com.hypixel.hytale.server.core.entity.InteractionContext ctx) {
+        try { var b = ctx == null ? null : ctx.getTargetBlock(); if (b == null) return null;
+            return pr.getUuid() + "|" + ref.getStore().getExternalData().getWorld().getName() + "|" + b.x + "," + b.y + "," + b.z;
+        } catch (Exception e) { return null; }
     }
 
     private SkinBridge bridge;
