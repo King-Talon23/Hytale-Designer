@@ -6,6 +6,9 @@ import { FIELDS } from './game.js';
 import { BLOCKS, SET_PIECES, SCENES } from './scene-data.js';
 import { loose, refsOf } from './worldgen.js';
 import { plan as planLand, land as landMeshes, treeModel, picture, billboards, LIFT } from './terrain.js';
+import { createStrip } from './portal.js';
+// the strip and its portals: a prototype, on local test pages with ?strip only
+const STRIP = typeof location !== 'undefined' && location.hostname.endsWith('localhost') && /[?&]strip\b/.test(location.search);
 
 const cache = new Map(),
   once = (k, f) => (cache.has(k) ? cache.get(k) : (cache.set(k, f()), cache.get(k)));
@@ -1056,7 +1059,7 @@ async function buildWorld(sc, tint, renderer) {
     };
   // the plain's ground block: the one the land round its spot has on top (worked out with the scene data)
   const ground = !sc.bank && sc.site?.rim && BLOCKS[sc.site.rim]?.cube ? sc.site.rim : sc.ground,
-    patch = ownPlain(sc) ? await plainPatch(sc) : null;
+    patch = ownPlain(sc) && !STRIP ? await plainPatch(sc) : null;
   // plant sizes (third value): 1 low, 2 knee-high, none tall
   const pickFrom = r => size => {
     const from = sc.plants.filter(p => (size === 1 ? p[2] === 1 : size === 2 ? p[2] : true));
@@ -1114,6 +1117,16 @@ async function buildWorld(sc, tint, renderer) {
       opt: {
         FIX,
         coverR: R,
+        strip: STRIP,
+        ...(STRIP
+          ? {
+              levels: [
+                [1, 160],
+                [2, 320],
+                [4, 768],
+              ],
+            }
+          : {}),
         BL: 30,
         levels: LAND,
         treeR: LAND_EDGE * 0.8,
@@ -1204,8 +1217,8 @@ async function buildWorld(sc, tint, renderer) {
     for (const [n, w] of from) if ((r -= w) <= 0) return n;
     return null;
   };
-  // the plain: one ground block per cell and its plants, repeating every P blocks, sliding with the move
-  for (let x = 0; x < P; x++)
+  // the plain: one ground block per cell and its plants, repeating every P blocks, sliding with the move (none on the strip)
+  for (let x = 0; x < (STRIP && !SEA ? 0 : P); x++)
     for (let z = 0; z < P; z++) {
       if (wet(x, z)) {
         put(sc.water.bed + '|0', x, -1 - DEEP, z, null, false, true);
@@ -1471,6 +1484,7 @@ export function stage(canvas, Controls) {
     flowing = [],
     mist = null,
     clearAt = 1.7;
+  const strip = STRIP ? createStrip({ scene, cam, renderer, BLOCK, sky: () => sky }) : null;
   // the climbing wall: the same grid stood up in front of the figure, sliding the other way as it climbs
   const wallG = new THREE.GridHelper(CELL * 16, 16, 0x4a76ad, 0x33557f);
   wallG.rotation.x = Math.PI / 2;
@@ -1601,6 +1615,10 @@ export function stage(canvas, Controls) {
       world.userData.clear = clearAt;
       let mx = anim.move ? -vel.x * dt : 0,
         mz = anim.move ? -vel.y * dt : 0;
+      if (strip) {
+        strip.step(dt, -mx / (dt || 1), -mz / (dt || 1));
+        mx = mz = 0;
+      }
       world.userData.move(mx, mz);
       wave?.old?.userData.move?.(mx, mz);
     }
@@ -1694,7 +1712,7 @@ export function stage(canvas, Controls) {
     waveStep(now);
     {
       const d = cam.position.distanceTo(ctl.target),
-        n = Math.min(40, Math.max(1, d / 30));
+        n = Math.min(40, Math.max(1, d / 30), strip ? strip.nearCap() : Infinity);
       if (Math.abs(n - cam.near) > 0.05) {
         cam.near = n;
         cam.updateProjectionMatrix();
@@ -1712,6 +1730,7 @@ export function stage(canvas, Controls) {
     dropHeld();
     facing();
     last = now;
+    strip?.before();
     renderer.render(scene, cam);
   })(last);
   const ray = new THREE.Raycaster(),
@@ -2854,6 +2873,7 @@ export function stage(canvas, Controls) {
     }
   };
   api.world = () => world;
+  api.strip = strip; // local tests
   api.camera = cam;
   api.orbitTo = (az, el, dist) => {
     const t = ctl.target;
@@ -3065,6 +3085,7 @@ export function stage(canvas, Controls) {
     scene.add(sky);
     if (built) {
       world = built;
+      strip?.attach(world);
       scene.add(world);
       world.userData.avoid = pendingRects;
       world.userData.clear = clearAt;

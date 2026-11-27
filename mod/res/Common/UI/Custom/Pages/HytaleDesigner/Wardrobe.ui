@@ -1,6 +1,6 @@
 // Hytale Designer Sync: the in-game wardrobe. The picture is the game's Lumberjack wardrobe with its doors open and a second rack,
-// rendered by dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 177,87 size 521 x 402, the inside seen between the front posts' shaded sides from x 204 to 678; the
-// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 94 to a rack from x 206; page plaques on the doors).
+// doors swung wide (160 degrees), rendered by dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 245,87 size 521 x 402, the inside seen between the front posts' shaded sides from x 272 to 746; the
+// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 94 to a rack from x 274; page plaques on the doors).
 // Top rack: the player's own skin (the in-game preset slots join it once Hytale allows sign-in). Bottom rack: the Locker's skins,
 // five to a page; the plugin appends five WardrobeCard.ui into #Grid and fills them for the page shown.
 $C = "../../Common.ui";
@@ -29,27 +29,27 @@ $C.@PageOverlay {
   LayoutMode: Middle;
 
   Group {
-    Anchor: (Width: 888, Height: 760);
+    Anchor: (Width: 1023, Height: 760);
 
     Label {
-      Anchor: (Left: 0, Top: 0, Width: 888, Height: 40);
+      Anchor: (Left: 0, Top: 0, Width: 1023, Height: 40);
       Text: "Wardrobe";
       Style: (...$C.@TitleStyle, FontSize: 22, HorizontalAlignment: Center, LetterSpacing: 1);
     }
 
     Group {
-      Anchor: (Left: 0, Top: 40, Width: 888, Height: 694);
+      Anchor: (Left: 0, Top: 40, Width: 1023, Height: 694);
       Background: (TexturePath: "Wardrobe.png");
 
       Label {
-        Anchor: (Left: 214, Top: 89, Width: 300, Height: 18);
+        Anchor: (Left: 282, Top: 89, Width: 300, Height: 18);
         Text: "Your skins";
         Style: @HeadStyle;
       }
 
       // the player's own skin, worn whenever no Locker skin is
       Group {
-        Anchor: (Left: 206, Top: 87, Width: 94, Height: 200);
+        Anchor: (Left: 274, Top: 87, Width: 94, Height: 200);
 
         Group #OwnWorn {
           Anchor: (Left: 0, Top: 56, Width: 94, Height: 150);
@@ -89,11 +89,11 @@ $C.@PageOverlay {
 
       Group #Grid {
         LayoutMode: Left;
-        Anchor: (Left: 206, Top: 288, Width: 470, Height: 200);
+        Anchor: (Left: 274, Top: 288, Width: 470, Height: 200);
       }
 
       Label #Empty {
-        Anchor: (Left: 206, Top: 288, Width: 470, Height: 200);
+        Anchor: (Left: 274, Top: 288, Width: 470, Height: 200);
         Text: "No saved skins";
         Style: (...@HeadStyle, HorizontalAlignment: Center);
         Visible: false;
@@ -101,7 +101,7 @@ $C.@PageOverlay {
 
       Group {
         LayoutMode: Left;
-        Anchor: (Left: 214, Top: 282, Width: 458, Height: 28);
+        Anchor: (Left: 282, Top: 282, Width: 458, Height: 28);
 
         Label {
           Text: "Designer skins";
@@ -125,7 +125,7 @@ $C.@PageOverlay {
       // pages: carved wooden plaques nailed to the doors' insides, level with the bottom rack (rendered in the doors' angle; place
       // and size as render-wardrobe.py prints them)
       Button #PrevPage {
-        Anchor: (Left: 71, Top: 350, Width: 104, Height: 98);
+        Anchor: (Left: 80, Top: 348, Width: 137, Height: 91);
         Style: (
           Default: (Background: (TexturePath: "PageLeft.png")),
           Hovered: (Background: (TexturePath: "PageLeftHover.png")),
@@ -135,7 +135,7 @@ $C.@PageOverlay {
       }
 
       Button #NextPage {
-        Anchor: (Left: 713, Top: 351, Width: 104, Height: 96);
+        Anchor: (Left: 807, Top: 349, Width: 136, Height: 89);
         Style: (
           Default: (Background: (TexturePath: "PageRight.png")),
           Hovered: (Background: (TexturePath: "PageRightHover.png")),
@@ -146,7 +146,7 @@ $C.@PageOverlay {
     }
 
     Label #Status {
-      Anchor: (Left: 0, Top: 736, Width: 888, Height: 22);
+      Anchor: (Left: 0, Top: 736, Width: 1023, Height: 22);
       Style: (FontSize: 14, HorizontalAlignment: Center, VerticalAlignment: Center, TextColor: #96a9be);
     }
   }

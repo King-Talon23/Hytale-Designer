@@ -105,7 +105,9 @@ function plainPatch({ tile, files: texts, opt, warm }) {
 function build({ tile, files: texts, patterns, opt }) {
   const t0 = performance.now();
   const { files, T, covers } = terrainOf(tile, texts);
-  const { FIX, BL, levels, treeR, ground, under, fallback } = opt;
+  const { FIX, BL, levels, treeR, ground, under, fallback, strip } = opt;
+  // how far a column is from the level ground: from the clearing's middle, or (the strip) from the lane's middle line
+  const away = (lx, lz) => (strip ? Math.abs(lx) : Math.hypot(lx, lz));
   const fluidAt = (x, z, top) => {
     let lvl = NONE,
       kind = 0,
@@ -135,7 +137,7 @@ function build({ tile, files: texts, patterns, opt }) {
     const x = ox + lx,
       z = oz + lz,
       top = T.top(x, z),
-      d = Math.hypot(lx, lz),
+      d = away(lx, lz),
       k = smooth((d - FIX) / BL);
     let [wl, wk, wb] = fluidAt(x, z, top);
     let h = top + 1 - S0,
@@ -148,6 +150,7 @@ function build({ tile, files: texts, patterns, opt }) {
       wk = 0;
     }
     h = Math.round(h * k);
+    if (strip && d < FIX) wl = NONE; // the lane stays dry
     const first = L.find(l => l[0] !== 'Empty' && tops(l[0])),
       topB = first ? first[0] : names[0],
       rest = L.filter(l => l !== first && l[0] !== 'Empty' && tops(l[0])),
@@ -178,7 +181,7 @@ function build({ tile, files: texts, patterns, opt }) {
         if (prevE && x0 >= -prevE && x0 + s - 1 <= prevE - 1 && z0 >= -prevE && z0 + s - 1 <= prevE - 1) continue; // the finer ring has it
         const cx = x0 + (s - 1) / 2,
           cz = z0 + (s - 1) / 2;
-        if (!prevE && Math.hypot(cx, cz) < FIX - 0.5) continue; // the clearing
+        if (!prevE && !strip && Math.hypot(cx, cz) < FIX - 0.5) continue; // the clearing (the strip's lane is land of its own)
         if (last && Math.hypot(cx, cz) > E + s) continue; // the outermost ring is round: past it is the haze
         const c = column(Math.round(cx), Math.round(cz), s >= 4),
           k = j * n + i;
@@ -300,7 +303,7 @@ function build({ tile, files: texts, patterns, opt }) {
           break;
         }
       const d = Math.hypot(lx, lz);
-      if (d > treeR || d < FIX + pick.reach + 2) continue;
+      if (d > treeR || away(lx, lz) < FIX + pick.reach + 2) continue;
       const c = column(lx, lz, d > 192);
       if (c[4] !== NONE) continue; // no trees standing in water
       trees.push(lx, lz, c[0], pick.i, Math.floor(((r * 7919) % 1) * 4));
@@ -317,7 +320,7 @@ function build({ tile, files: texts, patterns, opt }) {
           lz = Math.round(gz + (((r * 97) % 1) - 0.5) * cell * 0.8),
           pick = fallback.prefabs[Math.floor(((r * 31) % 1) * fallback.prefabs.length)],
           d = Math.hypot(lx, lz);
-        if (d > treeR || d < FIX + pick.reach + 2) continue;
+        if (d > treeR || away(lx, lz) < FIX + pick.reach + 2) continue;
         const c = column(lx, lz, d > 192);
         if (c[4] !== NONE) continue;
         trees.push(lx, lz, c[0], pick.i, Math.floor(((r * 7919) % 1) * 4));
@@ -332,7 +335,7 @@ function build({ tile, files: texts, patterns, opt }) {
         x = -L0.E + i,
         z = -L0.E + j,
         d = Math.hypot(x, z);
-      if (L0.H[k] === NONE || L0.WL[k] !== NONE || d < FIX || d > opt.coverR) continue;
+      if (L0.H[k] === NONE || L0.WL[k] !== NONE || (strip ? Math.abs(x) > opt.coverR : d < FIX || d > opt.coverR)) continue;
       const c = covers(ox + x, oz + z, L0.H[k] + S0, names[L0.TOP[k]]);
       if (c) land.push(x, z, L0.H[k], nameId(c));
     }

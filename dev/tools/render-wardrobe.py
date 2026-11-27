@@ -16,6 +16,7 @@ SRC = 'Common/Blocks/Decorative_Sets/Lumberjack/'
 # the model's interior (the painted inside of its front face) and our pieces, in model units
 IN_X0, IN_X1, IN_TOP, IN_BOT, FACE_Z = -41, 8, 56.65, 18.65, 8
 RAIL_TOP, RAIL_BOT = 53.65, 51.65
+DOOR = 160                                           # how far the doors swing open: wide, so their insides (and the page plaques) face the player
 IRON = [10, 5]                                      # rail texels on the model's sheet
 
 def glow(name, peak, w=127, h=150):
@@ -50,7 +51,7 @@ CAM = {'target': [-16, 36, 8], 'distance': 420, 'yaw': 0, 'pitch': 5, 'lens': 13
 
 def render(name, crop=None, same=None, **over):
     cfg = {'model': model, 'texture': tex, 'out': os.path.join(tmp, name + '.png'), 'width': 2400, 'height': 2000, 'samples': 128,
-           'pose': {'Door-L': {'yaw': 128}, 'Door-R': {'yaw': -128}}, 'lights': {'key': 3.6, 'fill': 0.6, 'rim': 1.0}, 'camera': CAM,
+           'pose': {'Door-L': {'yaw': DOOR}, 'Door-R': {'yaw': -DOOR}}, 'lights': {'key': 3.6, 'fill': 0.6, 'rim': 1.0}, 'camera': CAM,
            'marks': {'interior': [[IN_X0, IN_TOP, FACE_Z], [IN_X1, IN_BOT, FACE_Z]]}}
     cfg.update(over); cj = os.path.join(tmp, name + '.json'); json.dump(cfg, open(cj, 'w'))
     subprocess.run([BLENDER, '-b', '-P', os.path.join(HERE, 'blockyblend.py'), '--', cj], check=True, capture_output=True)

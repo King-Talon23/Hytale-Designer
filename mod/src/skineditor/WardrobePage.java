@@ -88,8 +88,6 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
             ui.set(card + "#Pic.AssetPath", pic != null ? pic : NO_PIC);
         }
         ui.set("#Page.Text", pages() > 1 ? (page + 1) + " / " + pages() : "");
-        ui.set("#PrevPage.Visible", page > 0);
-        ui.set("#NextPage.Visible", page < pages() - 1);
     }
 
     @Override
@@ -99,7 +97,7 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
         try { i = "own".equals(e.slot) ? -1 : Integer.parseInt(e.slot); } catch (NumberFormatException x) { return; }
         UICommandBuilder ui = new UICommandBuilder();
         if ("Page".equals(e.type)) {
-            int to = Math.max(0, Math.min(pages() - 1, page + Integer.signum(i))); if (to == page) return;
+            int to = Math.floorMod(page + Integer.signum(i), pages()); if (to == page) return;   // both plaques always shown: paging wraps round
             page = to; hovered = -2; fill(ui);
         } else {
             if (i < -1 || i >= RACK || (i >= 0 && page * RACK + i >= looks.size())) return;
