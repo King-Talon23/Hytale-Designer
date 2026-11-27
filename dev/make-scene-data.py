@@ -166,7 +166,7 @@ BIOMES = [
     ['plains_frozen', 3, 2, 'Zone3_Tier2/Tile.Plains_Frozen', 'Frozen Plains', 'Soil_Snow', 'Soil_Dirt_Cold', 2, 0.2, 12, {}],
     ['plains_tundra', 3, 2, 'Zone3_Tier2/Tile.Plains_Tundra', 'Tundra', 'Soil_Grass_Cold', 'Soil_Dirt_Cold', 2, 0.4, 10, {}],
     ['glacier', 3, 2, 'Zone3_Tier2/Custom.Valley_Glacier', 'Glacier', 'Rock_Ice', 'Rock_Ice_Permafrost', 6, 0.04, 0,
-     {'plants': [['Plant_Bush_Winter_Snow', 3], ['Plant_Bush_Winter_Sharp', 2, 2]], 'trees': []}],
+     {'plants': [['Plant_Bush_Winter_Snow', 3], ['Plant_Bush_Winter_Sharp', 2, 2]], 'trees': [], 'prefer': 'Rock_Ice_Permafrost'}],
     ['tundra', 3, 3, 'Zone3_Tier3/Tile.Forest_Frozen', 'Frozen Forest', 'Soil_Snow', 'Soil_Dirt_Cold', 3, 0.2, 34, {}],
     ['forest_frozen_light', 3, 3, 'Zone3_Tier3/Tile.Forest_Frozen_Light', 'Light Frozen Forest', 'Soil_Grass_Cold', 'Soil_Dirt_Cold', 3, 0.35, 30, {}],
     ['plains_frozen_frost', 3, 3, 'Zone3_Tier3/Tile.Plains_Frozen_Frost', 'Frost Plains', 'Soil_Snow', 'Rock_Ice_Permafrost', 2, 0.15, 10, {}],
@@ -182,13 +182,62 @@ BIOMES = [
     ['wastes_ash', 4, 5, 'Zone4_Tier5/Tile.Wastes_Ash', 'Ash Wastes', 'Soil_Sand_Ashen', 'Rock_Slate', 3, 0.3, 18, {}],
     ['wastes_lava', 4, 5, 'Zone4_Tier5/Tile.Wastes_Lava', 'Lava Wastes', 'Rock_Volcanic', 'Rock_Volcanic', 6, 0.2, 12, {'lava': True}],
 ]
+NAMES = set(names)
+def ref(f): return 'Server/World/Default/' + f.replace('.', '/') + '.json'
+def refs(node, out):   # every world generator file a part of a tile refers to, and the files those refer to
+    if isinstance(node, list):
+        for n in node: refs(n, out)
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            if k == 'File' and isinstance(v, str):
+                p = ref(v)
+                if p in NAMES and p not in out:
+                    out.add(p); refs(loose(z.read(p)), out)
+            else: refs(v, out)
+    return out
+def prefabs(name, keep=3):   # 'Trees.Birch.Stage_2.*' -> up to `keep` of the prefabs in that folder, spread over the game's numbering
+    parts = name.rstrip('.*').split('.')
+    for root in ('Server/Prefabs/Orbis/', 'Server/Prefabs/'):
+        for p in ['/'.join(parts) + '/', '/'.join(parts) + '_']:
+            found = sorted(f for f in names if f.startswith(root + p) and f.endswith('.prefab.json'))
+            if found: return list(dict.fromkeys(found[round(i * (len(found) - 1) / max(1, keep - 1))] for i in range(min(keep, len(found)))))
+    return []
+GROWN = ('Trees.', 'Plants.Cacti', 'Plants.Mushroom_Large')
+def forest(d):   # the tile's tree patterns: where its trees stand (a jittered grid, masks) and which prefabs, by weight
+    out = []
+    for e in d.get('Prefabs', {}).get('Entries', []):
+        pat = e.get('Pattern'); ps = e['Prefab']; ws = e.get('Weight') or [1] * len(ps)
+        if not isinstance(pat, dict): continue
+        if 'File' in pat:   # a pattern file, or the pattern written into the tile itself
+            if ref(pat['File']) not in NAMES or 'GridGenerator' not in loose(z.read(ref(pat['File']))): continue
+            pat = ref(pat['File'])
+        elif 'GridGenerator' not in pat: continue
+        got = []
+        for p, w in zip(ps, ws):
+            if not p.startswith(GROWN) or re.search(r'Logs|Stumps', p): continue
+            fs = prefabs(p)
+            got += [[f, w / len(fs)] for f in fs]
+        if got: out.append({'pattern': pat, 'prefabs': got})
+    return out
+def layerBlocks(d):   # the blocks a tile's surface layers, filling rock and solid water use
+    L = d.get('Layers') or {}; got = {L.get('Default') or 'Rock_Stone'}
+    def blk(b): return (b if isinstance(b, str) else b.get('Type') or '').split(':')[0]
+    for g in L.get('Dynamic', []):
+        g = loose(z.read(ref(g['File']))) if 'File' in g else g
+        for e in g.get('Entries') or [g]:
+            bs = e.get('Blocks', [])
+            for b in ([bs] if isinstance(bs, str) else bs): got.add(blk(b))
+    for e in (d.get('Water') or {}).get('Entries', []):
+        if e.get('Block'): got.add(e['Block'])
+    return {b for b in got if b and b in ITEMS}
 SCENES = {}
 for key, zone, tier, tile, name, ground, under, hills, density, count, more in BIOMES:
     d = loose(z.read(Z + tile + '.json'))
     env = (d.get('Environment', {}).get('Default') or d.get('Environment', {})).get('Names', ['Env_Zone%d' % zone])[0]
     s = {'zone': zone, 'tier': tier, 'name': name, 'weather': weather(env), 'tint': tint(d), 'ground': ground, 'under': under, 'hills': hills,
          'plants': plants(d), 'density': density,
-         'trees': [prefab(t) for t in more.pop('trees')] if 'trees' in more else trees(d), 'treeCount': count}
+         'trees': [prefab(t) for t in more.pop('trees')] if 'trees' in more else trees(d), 'treeCount': count,
+         'tile': Z + tile + '.json', 'forest': forest(d), 'layers': sorted(layerBlocks(d))}
     s.update(more)
     if not s['trees']: s['treeCount'] = 0
     SCENES[key] = s
@@ -237,8 +286,8 @@ SET_PIECES = {'chair': 'Furniture_Village_Chair', 'bed': 'Furniture_Village_Bed'
 
 blocks = {}
 for s in SCENES.values():
-    for b in [s['ground'], s['under']] + [p[0] for p in s['plants']] + ([s['water']['bed']] + [p[0] for p in s['water']['plants']] if s.get('water') else []): blocks[b] = block(b)
-    for t in s['trees']:
+    for b in [s['ground'], s['under']] + s.get('layers', []) + [p[0] for p in s['plants']] + ([s['water']['bed']] + [p[0] for p in s['water']['plants']] if s.get('water') else []): blocks[b] = block(b)
+    for t in s['trees'] + [p[0] for f in s.get('forest', []) for p in f['prefabs']]:
         for b in {x['name'] for x in json.loads(z.read(t))['blocks']}:
             try: blocks[b] = block(b)
             except KeyError: print('no definition for', b)
@@ -269,11 +318,39 @@ for s in SCENES.values():   # the menu's chip: the place's noon sky over its gro
 
 files = set()
 for s in SCENES.values(): files |= {s['weather'], *s['trees']} | ({s['tintFrom']} if s.get('tintFrom') else set())
+# the far land: each tile and the noise files its ground, water, surface layers and tree patterns are made from
+for s in SCENES.values():
+    if not s.get('tile'): continue
+    d = loose(z.read(s['tile'])); files.add(s['tile'])
+    refs([d.get('HeightmapNoise'), d.get('TerrainHeightThreshold'), d.get('Water'), (d.get('Layers') or {}).get('Dynamic')], files)
+    for f in s.get('forest', []):
+        files |= {*(p[0] for p in f['prefabs'])}
+        pat = f['pattern']
+        if isinstance(pat, str): files.add(pat); pat = loose(z.read(pat))
+        refs(pat.get('NoiseMask'), files)
 for b in blocks.values():
     if 'model' in b: files |= {'Common/' + b['model'], *('Common/' + t for t in b['tex'])}
     for k, v in b.get('cube', {}).items(): files |= {'Common/' + x for x in (v if isinstance(v, list) else [v])}
 missing = sorted(f for f in files if f not in set(names))
 if missing: print('MISSING', missing)
+
+# where each place's level clearing goes in its tile and the block its ground takes, worked out by the site's own terrain code
+# (dev/land-sites.mjs), so the page can lay the clearing at once while the land around it is still being worked out
+import subprocess, tempfile
+here = os.path.dirname(os.path.abspath(__file__))
+work = {}
+for k, s in SCENES.items():
+    if not s.get('tile') or (s.get('water') or {}).get('kind') == 'sea': continue
+    d = loose(z.read(s['tile']))
+    need = refs([d.get('HeightmapNoise'), d.get('TerrainHeightThreshold'), d.get('Water'), (d.get('Layers') or {}).get('Dynamic')], set())
+    work[k] = {'tile': z.read(s['tile']).decode('utf-8'), 'files': {p: z.read(p).decode('utf-8') for p in need}, 'ground': s['ground'], 'prefer': s.pop('prefer', None)}
+with tempfile.TemporaryDirectory() as tmp:
+    src, dst = os.path.join(tmp, 'in.json'), os.path.join(tmp, 'out.json')
+    json.dump(work, open(src, 'w', encoding='utf-8'))
+    subprocess.run(['node', os.path.join(here, 'land-sites.mjs'), src, dst], check=True)
+    for k, site in json.load(open(dst, encoding='utf-8')).items():
+        if site['rim'] not in blocks: blocks[site['rim']] = block(site['rim'])
+        SCENES[k]['site'] = site
 
 out = os.path.join(os.path.dirname(__file__), '..', 'site', 'app', 'scene-data.js')
 with open(out, 'w', encoding='utf-8', newline='\n') as f:

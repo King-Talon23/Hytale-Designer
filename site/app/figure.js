@@ -4,6 +4,8 @@ import { TransformControls } from '../vendor/TransformControls.js';
 import * as game from './game.js';
 import { FIELDS } from './game.js';
 import { BLOCKS, SET_PIECES } from './scene-data.js';
+import { loose, refsOf } from './worldgen.js';
+import { plan as planLand, land as landMeshes, treeModel, picture, billboards, LIFT } from './terrain.js';
 
 const cache = new Map(),
   once = (k, f) => (cache.has(k) ? cache.get(k) : (cache.set(k, f()), cache.get(k)));
@@ -722,9 +724,11 @@ export async function loadAnim(group, name) {
 }
 
 // ---- the game's blocks as meshes, drawn many at a time: a cube block's six faces, or a block model baked into one geometry
-const REV_EDGE = 92 * 64, // how far a background change runs: past the mountain ring (scene units)
+const REV_EDGE = 92 * 64, // how far a background change runs out from the character before the rest of the land follows (scene units)
   WAVE_SPREAD = 1.25, // seconds from the character's feet to the mountains
-  WAVE_POP = 0.42; // seconds one block takes to shrink away or pop up
+  WAVE_POP = 0.42, // seconds one block takes to shrink away or pop up
+  LAND_REV = 260 * 64, // past the plain the wave runs on over the land to here (scene units) ...
+  LAND_EXTRA = 0.55; // ... taking this many seconds more; further out, the land changes at that moment, deep in the haze
 const BLOCK = 64; // one block in the figure's units (block models are made at 32 to a block, so they are doubled)
 const SHADE = 0.72; // the scene's lights are set for the figure; scenery takes this much of them so a sunlit top shows the block's own colour
 const canvasOf = path =>
@@ -878,6 +882,7 @@ const disposeTree = root =>
       o.geometry.dispose();
       o.material.dispose();
     }
+    if (o.userData.ownGeo) o.geometry.dispose(); // the land: its own geometry on the shared block materials
   });
 // the fall's shaft: four walls of a 5x5 block (or grid cell) square round the character, each a plane facing in, so a view from
 // outside looks straight through the near wall into the shaft. Below SHAFT_CAP the walls rise with the fall; past it they stay
@@ -961,14 +966,50 @@ function onScreen(eye, x0, y0, z0, x1, y1, z1) {
       }
   return r;
 }
-async function buildWorld(sc, tint) {
-  // An open plain that slides under moving animations in any direction for ever (ground and plants, repeating every P blocks), with the
-  // place's hills and trees as a fixed ring of distant scenery standing on it, from RIN blocks out into the haze. Nothing that slides is
-  // solid and nothing solid moves, so nothing can ever reach the character or the camera, and no move ever needs a correction.
+// the game files a biome tile's land is worked out from: the tile, the noise files its ground, water and layers name, and its tree patterns
+const landFiles = sc => once('land:' + sc.tile + '|' + (sc.forest || []).length, () => readLandFiles(sc));
+async function readLandFiles(sc) {
+  const text = async p => {
+      const b = await game.bytes(p);
+      if (!b) throw new Error('missing ' + p);
+      return new TextDecoder().decode(b);
+    },
+    tile = await text(sc.tile),
+    t = loose(tile),
+    files = {},
+    want = refsOf([t.HeightmapNoise, t.TerrainHeightThreshold, t.Water, t.Layers?.Dynamic]);
+  for (const f of sc.forest || [])
+    refsOf((typeof f.pattern === 'string' ? loose((files[f.pattern] = await text(f.pattern))) : f.pattern).NoiseMask, want);
+  const seen = new Set();
+  for (let more = [...want]; more.length; ) {
+    const p = more.pop();
+    if (seen.has(p) || files[p]) continue;
+    seen.add(p);
+    files[p] = await text(p);
+    for (const q of refsOf(loose(files[p]))) if (!seen.has(q)) more.push(q);
+  }
+  return { tile, files };
+}
+const NEAR_TREES = 96, // trees nearer than this (blocks) are block models; further out, pictures of them
+  LAND = [
+    [1, 96],
+    [2, 192],
+    [4, 384],
+    [8, 768],
+  ], // the land's rings: [cell size, reach] in blocks
+  LAND_EDGE = 768;
+export const landEdge = () => LAND_EDGE;
+// trees' block models and their pictures, kept from place to place (most places share their trees with others)
+const treeModels = new Map(),
+  treePictures = new Map();
+async function buildWorld(sc, tint, renderer) {
+  // An open plain that slides under moving animations in any direction for ever (ground and plants, repeating every P blocks), set
+  // in the biome's own land: the game's terrain for that tile, worked out round a level spot and eased into the plain, out to the haze.
+  // The land, its trees and its plants stand still; what slides is never solid, so nothing can ever reach the character or the camera.
+  // The plain is ready at once; the land is worked out alongside (root.userData.landReady) and joins it when it is ready.
   let seed = 11;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const P = 128,
-    RIN = 44,
     R = 80,
     FIX = 45,
     TAU = Math.PI * 2,
@@ -976,112 +1017,149 @@ async function buildWorld(sc, tint) {
       const w = ((v % P) + P) % P;
       return w >= P / 2 ? w - P : w;
     };
-  const raw = (x, z) => {
-    const n =
-      Math.sin((TAU * 2 * x) / P + 1.3) * Math.cos((TAU * 3 * z) / P - 0.7) +
-      0.7 * Math.sin((TAU * (x + z)) / P + 2.1) +
-      0.4 * Math.cos((TAU * 4 * (x - z)) / P);
-    return Math.max(0, (n + 0.5) * sc.hills * 0.55);
-  };
-  // everything nearer than RIN slides with the move; from RIN out stands a ring of hills rising into mountains, far enough that standing still is what
-  // far land looks like while you move (no near border between moving and fixed ground). Every cell of the ring is at least a block high, so its foot hides the plain's edge.
   const SEA = sc.water?.kind === 'sea'; /* open sea: water all the way to the haze, no land at all */
-  const h = (x, z) => {
-    if (SEA) return 0;
-    const d = Math.hypot(x, z);
-    if (d < RIN) return 0;
-    const a = Math.atan2(z, x),
-      t = Math.min(1, (d - RIN) / (R - RIN));
-    const peaks = 0.55 + 0.25 * Math.sin(a * 3 + 1.1) + 0.2 * Math.cos(a * 7 - 0.4) + 0.12 * Math.sin(a * 13 + x * 0.21 - z * 0.17);
-    return Math.max(1, Math.round(1 + raw(x, z) * 0.6 + Math.pow(t, 1.3) * (4 + 12 * peaks)));
-  };
   const items = new Map(),
     put = (key, x, y, z, q, plant, slide) => {
       const k = key + (slide ? '|s' : '|f');
       (items.get(k) || items.set(k, { plant, slide, name: key, list: [] }).get(k)).list.push([x, y, z, q]);
     };
-  const nTops = (await blockParts(sc.ground, tint)).length;
+  // the plain's ground block: the one the land round its spot has on top (worked out with the scene data)
+  const ground = sc.site?.rim && BLOCKS[sc.site.rim]?.cube ? sc.site.rim : sc.ground;
   // plant sizes (third value): 1 low, 2 knee-high, none tall
-  const pick = size => {
+  const pickFrom = r => size => {
     const from = sc.plants.filter(p => (size === 1 ? p[2] === 1 : size === 2 ? p[2] : true));
     if (!from.length) return null;
-    let r = rnd() * from.reduce((t, p) => t + p[1], 0);
-    for (const [n, w] of from) if ((r -= w) <= 0) return n;
+    let v = r() * from.reduce((t, p) => t + p[1], 0);
+    for (const [n, w] of from) if ((v -= w) <= 0) return n;
     return from[0][0];
   };
-  // trees in the ring, each wholly inside it, never touching another
-  const taken = new Set(),
-    trees = await Promise.all(sc.trees.map(p => game.json(p))),
-    placed = [];
-  for (let i = 0, tries = 0; trees.length && placed.length < (sc.treeCount ?? 30) && tries < 2400; tries++) {
-    const tb = trees[i % trees.length].blocks,
-      reach = Math.max(0, ...tb.map(b => Math.hypot(b.x, b.z)));
-    const a = rnd() * TAU,
-      d = RIN + reach + 2 + rnd() * Math.max(0, Math.min(R - 2, RIN + 26) - (RIN + reach + 2)),
-      cx = Math.round(Math.cos(a) * d),
-      cz = Math.round(Math.sin(a) * d);
-    if (placed.some(t => Math.hypot(t[0] - cx, t[1] - cz) < t[2] + reach + 2)) {
-      if (tries % 40 === 39) i++;
-      continue;
-    }
-    placed.push([cx, cz, reach]);
-    i++;
-    const trunks = tb.filter(b => /Trunk/.test(b.name)),
-      lift = trunks.length ? -Math.min(...trunks.map(b => b.y)) : 0,
-      base = h(cx, cz); // the trunk's foot on the ground
-    for (const b0 of tb) {
-      if (!BLOCKS[b0.name]) continue;
-      const x = cx + b0.x,
-        z = cz + b0.z,
-        y = base + b0.y + lift;
-      put(b0.name + '|0', x, y, z, b0.rotation ? turnOf(b0.rotation) : null, false, false);
-      if (b0.y + lift === 0) taken.add(x + ',' + z);
-    }
-  }
-  // lava (sc.lava): glowing streams running down the hills from their tops, and pools on the highest ground
-  const lavaAt = (x, z, top) => {
-    if (!sc.lava || top < 3) return false;
-    const a = Math.atan2(z, x),
-      d = Math.hypot(x, z);
-    return Math.sin(a * 13 + Math.sin(d * 0.21) * 1.4) > 0.9 || (top >= 10 && Math.sin(x * 0.37) * Math.cos(z * 0.41) > 0.55);
-  };
-  // the ring's hills: columns standing on the plain (the plain's own ground is under them), plants on their tops
-  for (let x = -R; x <= R; x++)
-    for (let z = -R; z <= R; z++) {
-      const top = h(x, z),
-        dc = Math.hypot(x, z);
-      if (SEA) {
+  const pick = pickFrom(rnd);
+  if (SEA)
+    for (let x = -R; x <= R; x++)
+      for (let z = -R; z <= R; z++) {
+        const dc = Math.hypot(x, z);
         if (dc >= FIX - 0.5 && dc <= R + 1) {
           put(sc.water.bed + '|0', x, -1 - (sc.water.depth || 2), z, null, false, false);
           put(WATER_KEY, x, -0.15, z, null, false, false);
         }
-        continue;
       }
-      if (dc >= FIX - 0.5 && dc <= R + 1) put(sc.ground + '|' + Math.floor(rnd() * nTops), x, -0.996, z, null, false, false); // from FIX blocks out the land is fixed, ground and all (a hair above the sliding ground it covers)
-      if (!top) {
-        if (dc >= FIX && dc <= R && !taken.has(x + ',' + z) && rnd() < sc.density) {
-          const r = rnd(),
-            name = pick(r < 0.45 ? 1 : r < 0.8 ? 2 : 0);
-          if (name) put(name + '|0', x + (rnd() - 0.5) * 0.5, 0, z + (rnd() - 0.5) * 0.5, rnd() * TAU, true, false);
-        }
-        continue;
-      }
-      const low = Math.min(top, h(x + 1, z), h(x - 1, z), h(x, z + 1), h(x, z - 1));
-      for (let y = Math.max(1, low); y <= top; y++)
-        put(
-          y === top ? (lavaAt(x, z, top) ? LAVA_KEY : sc.ground + '|' + Math.floor(rnd() * nTops)) : sc.under + '|0',
-          x,
-          y - 1,
-          z,
-          null,
-          false,
-          false
-        );
-      if (!taken.has(x + ',' + z) && rnd() < sc.density) {
-        const name = pick(0);
-        if (name) put(name + '|0', x + (rnd() - 0.5) * 0.5, top, z + (rnd() - 0.5) * 0.5, rnd() * TAU, true, false);
-      }
+  // the land: its ground, water, trees (block models near, pictures of them further out, turned a quarter at a time as the game
+  // turns prefabs) and the plants on it near the plain
+  const makeLand = async () => {
+    const t0 = performance.now(),
+      took = {},
+      mark = k => (took[k] = Math.round(performance.now() - t0)),
+      parts = n => blockParts(n, tint),
+      known = n => !!BLOCKS[n],
+      paths = [...new Set([...(sc.forest || []).flatMap(f => f.prefabs.map(q => q[0])), ...(sc.trees || [])])],
+      modelOf = p => {
+        const k = p + '|' + tint;
+        if (!treeModels.has(k))
+          treeModels.set(
+            k,
+            game
+              .json(p)
+              .then(j => treeModel(j, { parts, turnOf, known }))
+              .catch(() => null)
+          );
+        return treeModels.get(k);
+      },
+      [models, { tile, files }] = await Promise.all([
+        Promise.all(paths.map(modelOf)).then(ms => new Map(paths.map((p, i) => [p, ms[i]]))),
+        landFiles(sc),
+      ]),
+      index = paths.filter(p => models.get(p)?.geo.attributes.position.count),
+      at = p => index.indexOf(p);
+    mark('files');
+    const data = await planLand({
+      key: sc.tile + '|' + sc.name + '|' + tint,
+      tile,
+      files,
+      patterns: (sc.forest || []).map(f => ({
+        json: typeof f.pattern === 'string' ? files[f.pattern] : f.pattern,
+        prefabs: f.prefabs.filter(q => at(q[0]) >= 0).map(q => ({ i: at(q[0]), w: q[1], reach: models.get(q[0]).reach })),
+      })),
+      opt: {
+        FIX,
+        BL: 30,
+        levels: LAND,
+        treeR: LAND_EDGE * 0.8,
+        ground,
+        under: sc.under,
+        site: sc.site,
+        fallback: {
+          count: sc.treeCount || 0,
+          prefabs: (sc.trees || []).filter(p => at(p) >= 0).map(p => ({ i: at(p), reach: models.get(p).reach })),
+        },
+      },
+    });
+    mark('worker');
+    const g = await landMeshes(data, { parts, water: waterParts, lava: lavaParts });
+    mark('mesh');
+    const near = index.map(() => []),
+      far = index.map(() => []),
+      T = data.trees;
+    for (let i = 0; i < T.length; i += 5) {
+      const m = new THREE.Matrix4().compose(
+        new THREE.Vector3(T[i] * BLOCK, (T[i + 2] + LIFT) * BLOCK, T[i + 1] * BLOCK),
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (T[i + 4] * Math.PI) / 2),
+        new THREE.Vector3(1, 1, 1)
+      );
+      (Math.hypot(T[i], T[i + 1]) <= NEAR_TREES ? near : far)[T[i + 3]].push(m);
     }
+    index.forEach((p, k) => {
+      const md = models.get(p),
+        pk = p + '|' + tint;
+      if (near[k].length) {
+        const im = new THREE.InstancedMesh(md.geo, md.mats, near[k].length);
+        near[k].forEach((m, i) => im.setMatrixAt(i, m));
+        im.frustumCulled = false;
+        g.add(im);
+      }
+      if (far[k].length && renderer) {
+        if (!treePictures.has(pk)) treePictures.set(pk, picture(renderer, md));
+        g.add(billboards(treePictures.get(pk), far[k]));
+      }
+    });
+    mark('trees');
+    // plants on the land near the plain, as thick as on the plain, where the ground is grass and dry
+    let s2 = 23;
+    const r2 = () => (s2 = (s2 * 16807) % 2147483647) / 2147483647,
+      pick2 = pickFrom(r2),
+      L0 = data.near,
+      grassy = new Set(data.names.filter(n => /^Soil_(Grass|Leaves|Needles|Mud|Snow|Sand)/.test(n) || n === sc.ground || n === ground)),
+      plants = new Map();
+    for (let j = 0; j < L0.n; j++)
+      for (let i = 0; i < L0.n; i++) {
+        const k = j * L0.n + i,
+          h = L0.H[k],
+          x = -L0.E + i,
+          z = -L0.E + j,
+          dc = Math.hypot(x, z);
+        if (h === -32768 || dc < FIX || dc > R || L0.WL[k] !== -32768 || !grassy.has(data.names[L0.TOP[k]]) || r2() >= sc.density) continue;
+        const r = r2(),
+          name = pick2(r < 0.45 ? 1 : r < 0.8 ? 2 : 0);
+        if (!name) continue;
+        const m = new THREE.Matrix4().compose(
+          new THREE.Vector3((x + (r2() - 0.5) * 0.5) * BLOCK, (h + LIFT) * BLOCK, (z + (r2() - 0.5) * 0.5) * BLOCK),
+          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r2() * TAU),
+          new THREE.Vector3(1, 1, 1)
+        );
+        (plants.get(name) || plants.set(name, []).get(name)).push(m);
+      }
+    for (const [name, ms] of plants) {
+      const p = (await parts(name).catch(() => null))?.[0];
+      if (!p) continue;
+      const im = new THREE.InstancedMesh(p.geo, p.mat, ms.length);
+      ms.forEach((m, i) => im.setMatrixAt(i, m));
+      im.frustumCulled = false;
+      g.add(im);
+    }
+    mark('plants');
+    g.userData.took = took; // for local tests: where the land's time went
+    return g;
+  };
+  const landReady = sc.tile && !SEA ? makeLand().catch(e => (console.warn('land', e), null)) : Promise.resolve(null);
   // water on the plain: a river winding across behind the character, a shore with the water beyond it, or open sea. Its cells are dug two blocks down to the bed and the banks walled with the under-ground block, so the water
   // has depth (sc.water.depth blocks, 2 if not given); the pattern repeats every P blocks like the rest of the plain (the seam is far out, under the fixed land)
   const wet = (() => {
@@ -1095,7 +1173,8 @@ async function buildWorld(sc, tint) {
     if (k === 'sea') return () => true;
     return () => false;
   })();
-  const DEEP = sc.water?.depth || 2;
+  const DEEP = sc.water?.depth || 2,
+    nTops = (await blockParts(ground, tint)).length;
   const pickWet = () => {
     const from = sc.water?.plants || [];
     let r = rnd() * from.reduce((t, p) => t + p[1], 0);
@@ -1114,7 +1193,7 @@ async function buildWorld(sc, tint) {
         }
         continue;
       }
-      put(sc.ground + '|' + Math.floor(rnd() * nTops), x, -1, z, null, false, true);
+      put(ground + '|' + Math.floor(rnd() * nTops), x, -1, z, null, false, true);
       if (wet(x + 1, z) || wet(x - 1, z) || wet(x, z + 1) || wet(x, z - 1))
         for (let y = -2; y >= -DEEP; y--) put(sc.under + '|0', x, y, z, null, false, true); // the bank
       if (rnd() >= sc.density) continue;
@@ -1153,11 +1232,12 @@ async function buildWorld(sc, tint) {
       wide: bb ? Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) / BLOCK : 0,
     });
   }
+  root.userData.landReady = landReady;
   // the fall: the land goes and only a shaft is left, walled with the zone's own blocks: a row of its ground block at the top
   // (the rim the character drops in from) and its under-ground block all the way down, dark at the very bottom
   const shaft = new THREE.Group(),
     wall = blockWall((await blockParts(sc.under, tint))[0], 5, 40, SHAFT_CAP + 700),
-    rimW = blockWall((await blockParts(sc.ground, tint))[0], 5, 1),
+    rimW = blockWall((await blockParts(ground, tint))[0], 5, 1),
     walls = shaftWalls(2.5 * BLOCK, wall.mat, wall.geo.translate(0, -BLOCK, 0)),
     rim = shaftWalls(2.5 * BLOCK, rimW.mat, rimW.geo);
   walls.children[0].userData.own = rim.children[0].userData.own = true;
@@ -1177,6 +1257,7 @@ async function buildWorld(sc, tint) {
   let falling = false;
   // r: how far the character has fallen (scene units), or null when not falling. Past SHAFT_CAP the walls step back down a whole
   // shade pattern at a time, which looks the same, so they can rush past for ever
+  root.userData.isFalling = () => falling;
   root.userData.fall = r => {
     if ((r != null) !== falling) {
       falling = r != null;
@@ -1291,7 +1372,7 @@ export function stage(canvas, Controls) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const scene = new THREE.Scene();
   lights(scene);
-  const cam = new THREE.PerspectiveCamera(32, 1, 1, 16000);
+  const cam = new THREE.PerspectiveCamera(32, 1, 1, LAND_EDGE * BLOCK * 1.3); // far enough for the whole land and the sky round it
   cam.position.set(-75, 95, 255);
   const ctl = new Controls(cam, canvas);
   ctl.target.set(0, 62, 0);
@@ -1305,7 +1386,16 @@ export function stage(canvas, Controls) {
   ctl.update();
   // a change of background spreads out from the character: block by block, nearest first, the old place's blocks and plants shrink
   // away and the new one's pop up in their place, while the sky fades from one to the other
-  const REV = { r: { value: 0 }, t: { value: 0 }, spread: { value: WAVE_SPREAD }, edge: { value: REV_EDGE }, dur: { value: WAVE_POP } };
+  const REV = {
+    r: { value: 0 },
+    t: { value: 0 },
+    spread: { value: WAVE_SPREAD },
+    edge: { value: REV_EDGE },
+    dur: { value: WAVE_POP },
+    landEdge: { value: LAND_REV },
+    lt: { value: 0 },
+    landExtra: { value: LAND_EXTRA },
+  };
   let wave = null; // a background change on its way out (see setBackdrop)
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(58, 48),
@@ -2744,13 +2834,25 @@ export function stage(canvas, Controls) {
   // the wave: every block of a side is drawn with a copy of its material that scales each block (instance) by the wave's clock at its
   // distance; block materials are shared between places, so the copies are what differ. When it has passed, the old place goes
   const WAVE_LAG = 0.12; // the new block starts this much after the old one, so the two never sit the same size in the same place
-  const waveMat = (m, inside) => {
-    const c = m.clone();
-    c.defines = { ...(c.defines || {}), [inside ? 'WAVE_IN' : 'WAVE_OUT']: '' };
-    c.onBeforeCompile = sh => {
-      Object.assign(sh.uniforms, { uWaveT: REV.t, uWaveSpread: REV.spread, uWaveEdge: REV.edge, uWaveDur: REV.dur });
+  // lc: the land's own clock (REV.lt), which starts when the new land is ready, so a land still being worked out never holds up the plain
+  const waveMat = (m, inside, lc) => {
+    const c = m.clone(),
+      own = m.userData.billboard ? m.onBeforeCompile : null;
+    c.defines = { ...(c.defines || {}), [inside ? 'WAVE_IN' : 'WAVE_OUT']: '', ...(lc ? { WAVE_LC: '' } : {}) };
+    c.onBeforeCompile = (sh, r) => {
+      own?.call(m, sh, r);
+      Object.assign(sh.uniforms, {
+        uWaveT: REV.t,
+        uWaveSpread: REV.spread,
+        uWaveEdge: REV.edge,
+        uWaveDur: REV.dur,
+        uLandEdge: REV.landEdge,
+        uLandExtra: REV.landExtra,
+        uLandT: REV.lt,
+      });
       sh.vertexShader =
-        'uniform float uWaveT; uniform float uWaveSpread; uniform float uWaveEdge; uniform float uWaveDur;\n' +
+        'uniform float uWaveT; uniform float uLandT; uniform float uWaveSpread; uniform float uWaveEdge; uniform float uWaveDur; uniform float uLandEdge; uniform float uLandExtra;\n' +
+        '#ifndef USE_INSTANCING\nattribute vec2 landC;\n#endif\n' +
         sh.vertexShader.replace(
           '#include <begin_vertex>',
           [
@@ -2759,31 +2861,51 @@ export function stage(canvas, Controls) {
             'vec3 waveC = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;',
             '#else',
             'vec3 waveC = (modelMatrix * vec4(position, 1.0)).xyz;',
+            'bool waveLand = landC != vec2(0.0);', // the land: each column moves whole, timed by its middle
+            'if (waveLand) waveC = vec3(landC.x, 0.0, landC.y);',
             '#endif',
             'float waveJ = fract(sin(dot(floor(waveC.xz / 64.0), vec2(12.9898, 78.233))) * 43758.5453);',
-            'float waveS = uWaveSpread * pow(clamp(length(waveC.xz) / uWaveEdge, 0.0, 1.0), 0.6) + waveJ * ' + WAVE_LAG + ';',
+            'float waveD = length(waveC.xz);',
+            // past the plain the wave carries on over the land, out to uLandEdge, taking uLandExtra seconds more
+            'float waveS = uWaveSpread * pow(clamp(waveD / uWaveEdge, 0.0, 1.0), 0.6) + uLandExtra * clamp((waveD - uWaveEdge) / (uLandEdge - uWaveEdge), 0.0, 1.0) + (waveD < uLandEdge ? waveJ * ' +
+              WAVE_LAG +
+              ' : 0.0);',
+            '#ifdef WAVE_LC',
+            'float waveT = uLandT;',
+            '#else',
+            'float waveT = uWaveT;',
+            '#endif',
             '#ifdef WAVE_IN',
-            'float waveK = clamp((uWaveT - waveS - ' + WAVE_LAG + ') / uWaveDur, 0.0, 1.0);',
+            'float waveK = clamp((waveT - waveS - ' + WAVE_LAG + ') / uWaveDur, 0.0, 1.0);',
             'float waveE = waveK <= 0.0 ? 0.0 : 1.0 + 2.70158 * pow(waveK - 1.0, 3.0) + 1.70158 * pow(waveK - 1.0, 2.0);',
             '#else',
-            'float waveK = clamp((uWaveT - waveS) / uWaveDur, 0.0, 1.0);',
+            'float waveK = clamp((waveT - waveS) / uWaveDur, 0.0, 1.0);',
             'float waveE = 1.0 - waveK * waveK * (3.0 - 2.0 * waveK);',
             '#endif',
+            '#ifdef USE_INSTANCING',
             'transformed *= waveE;',
+            '#else',
+            'transformed.y = waveE <= 0.0 ? -1e6 : waveLand ? transformed.y - (1.0 - waveE) * 256.0 : transformed.y * waveE;',
+            '#endif',
           ].join('\n')
         );
     };
-    c.customProgramCacheKey = () => 'wave' + (inside ? 'in' : 'out');
+    c.customProgramCacheKey = () => 'wave' + (inside ? 'in' : 'out') + (own ? 'bb' : '') + (lc ? 'lc' : '');
     return c;
   }; /* a new block grows from its foot with a little overshoot; an old one shrinks smoothly away */
-  const dress = (root, inside) => {
+  // skip: a part left out (a world's land, which runs on the land's clock)
+  const dress = (root, inside, lc = false, skip = null) => {
     const copies = new Map(),
-      copy = m => (copies.has(m) ? copies.get(m) : copies.set(m, waveMat(m, inside)).get(m));
-    root?.traverse(o => {
-      if (!o.isMesh || !o.material) return;
-      o.userData.waveOwn = o.material;
-      o.material = Array.isArray(o.material) ? o.material.map(copy) : copy(o.material);
-    });
+      copy = m => (copies.has(m) ? copies.get(m) : copies.set(m, waveMat(m, inside, lc)).get(m)),
+      walk = o => {
+        if (!o || o === skip) return;
+        if (o.isMesh && o.material) {
+          o.userData.waveOwn = o.material;
+          o.material = Array.isArray(o.material) ? o.material.map(copy) : copy(o.material);
+        }
+        o.children.forEach(walk);
+      };
+    walk(root);
     return copies;
   };
   const undress = (root, copies) => {
@@ -2819,7 +2941,7 @@ export function stage(canvas, Controls) {
     }
     grid.material.uniforms.revMode.value = 0;
   }
-  const WAVE_ALL = WAVE_SPREAD + 2 * WAVE_LAG + WAVE_POP;
+  const WAVE_ALL = WAVE_SPREAD + LAND_EXTRA + 2 * WAVE_LAG + WAVE_POP;
   function waveStep(now) {
     if (!wave) return;
     if (wave.at == null) wave.at = now;
@@ -2827,6 +2949,7 @@ export function stage(canvas, Controls) {
       k = Math.min(1, s / WAVE_ALL) /* the sky blends over exactly the wave's time */,
       f = k * k * k * (k * (k * 6 - 15) + 10);
     REV.t.value = s;
+    REV.lt.value = wave.landAt == null ? 0 : Math.max(0, (now - wave.landAt) / 1000);
     REV.r.value =
       REV_EDGE * Math.pow(Math.min(1, Math.max(0, s - WAVE_POP * 0.4) / WAVE_SPREAD), 1 / 0.6); /* where the blocks are half way */
     skyFade(sky, f);
@@ -2834,7 +2957,8 @@ export function stage(canvas, Controls) {
       wave.oldSky,
       sky ? 1 : 1 - f
     ); /* the new sky is drawn over the old one and fades in; going to the Studio, the old one fades out */
-    if (s >= WAVE_ALL) waveEnd();
+    // over when the plain's wave and the land's have both run (a land that never comes is given up on after a while)
+    if (s >= WAVE_ALL && (REV.lt.value >= WAVE_ALL || s > WAVE_ALL + 8)) waveEnd();
   }
   const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   // animate: spread the change out from the character (a pick from the menu), rather than swap at once (opening the page)
@@ -2843,7 +2967,7 @@ export function stage(canvas, Controls) {
     let built = null;
     if (bd)
       try {
-        built = await buildWorld(sc, tint);
+        built = await buildWorld(sc, tint, renderer);
       } catch (e) {
         console.warn('scene', e);
         if (my === api.setBackdrop.n) throw new Error('scene files missing');
@@ -2876,19 +3000,26 @@ export function stage(canvas, Controls) {
     ctl.update(); // on real land the camera stays above the ground
     const startWave = () => {
       if (!goWave) return;
-      wave = { old: oldWorld, oldSky, grid: !oldSky, dressed: [], at: null };
-      wave.dressed.push([oldWorld, dress(oldWorld, false)], [world, dress(world, true)]);
+      const oldLand = oldWorld?.userData.landGroup;
+      wave = { old: oldWorld, oldSky, grid: !oldSky, dressed: [], at: null, landAt: null, newWorld: world };
+      wave.dressed.push(
+        [oldWorld, dress(oldWorld, false, false, oldLand)],
+        [oldLand, dress(oldLand, false, true)],
+        [world, dress(world, true)]
+      );
+      if (!world?.userData.landReady) wave.landAt = performance.now(); // nothing to wait for: the old land goes with the plain
       if (sky) sky.renderOrder = -1;
       skyFade(sky, 0);
       grid.material.uniforms.revMode.value = oldSky ? 1 : -1; /* the Studio floor is the new side (inside the ring) or the old (outside) */
       REV.t.value = 0;
+      REV.lt.value = 0;
       REV.r.value = 0;
       renderer.compile(scene, cam); /* the copies' shaders are built now, so the wave doesn't stutter as it starts */
     };
     if (!bd) return startWave();
     const top = new THREE.Color(bd.top),
       hor = new THREE.Color(bd.fog),
-      R = 11000,
+      R = LAND_EDGE * BLOCK * 1.2,
       g = new THREE.SphereGeometry(R, 48, 24),
       p = g.attributes.position,
       cols = [];
@@ -2909,9 +3040,26 @@ export function stage(canvas, Controls) {
       world.userData.avoid = pendingRects;
       world.userData.clear = clearAt;
       groundRects();
+      // the land joins when it is ready: during a change of place it rises on its own clock from then, after the plain
+      built.userData.landReady?.then(g => {
+        const now = wave?.newWorld === built;
+        if (g && world === built) {
+          g.visible = !built.userData.isFalling?.();
+          built.add(g);
+          built.userData.landGroup = g;
+          if (now) {
+            wave.dressed.push([g, dress(g, true, true)]);
+            renderer.compile(scene, cam);
+          }
+        } else if (g) disposeTree(g);
+        // a land ready before the wave reaches it (about 0.7 s out) rides the same wave; a later one starts its own from now
+        if (now && wave.landAt == null) wave.landAt = Math.max(wave.at ?? performance.now(), performance.now() - 700);
+      });
     }
-    scene.fog = null;
-    mist = null; // clear air all the way out: the mountain ring closes the horizon
+    // the haze: clear round the character, thickening into the sky's own horizon colour by the land's edge, so the land never ends
+    // in a line and the far hills fade the way they do in game
+    scene.fog = new THREE.Fog(hor, LAND_EDGE * BLOCK * 0.22, LAND_EDGE * BLOCK * 0.96);
+    mist = null;
     startWave();
   };
   return api;

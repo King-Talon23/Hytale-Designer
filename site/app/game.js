@@ -31,7 +31,7 @@ export const SCENERY_TEX = {
 // backgrounds behind the character and the set pieces of the moves: built from the game's own files (see scene-data.js)
 export { SCENES, SCENE_ALIASES, SET_PIECES, ZONES } from './scene-data.js';
 // which set of files a connect reads; raised when the site starts needing more, so a remembered Assets.zip is read again
-export const FILES_V = 10;
+export const FILES_V = 11;
 const PROP_FILES = new Set(
   [...Object.values(PROPS).flat(), ...Object.values(SCENERY_TEX)]
     .filter(p => typeof p === 'string')
