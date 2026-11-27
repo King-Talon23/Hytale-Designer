@@ -3078,6 +3078,9 @@ export function stage(canvas, Controls) {
         if (my === api.setBackdrop.n) throw new Error('scene files missing');
         return;
       } // the caller says what is missing
+    // opening the strip, whose lane is land (no plain): wait for the land (a few seconds at most), so the first look is never the
+    // sky over nothing; it then comes out of the haze like any place's far land
+    if (built && STRIP && !animate) await Promise.race([built.userData.landReady, new Promise(r => setTimeout(r, 4000))]);
     if (my !== api.setBackdrop.n) {
       if (built) disposeTree(built);
       return;
