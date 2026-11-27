@@ -83,6 +83,7 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
             ui.set(card + "#Card.Visible", k < looks.size());
             if (k >= looks.size()) continue;
             ui.set(card + "#Name.Text", looks.get(k).name());
+            ui.set(card + "#Fav.Visible", looks.get(k).fav());
             String pic = looks.get(k).picture();
             ui.set(card + "#Pic.AssetPath", pic != null ? pic : NO_PIC);
         }

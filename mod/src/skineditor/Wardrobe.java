@@ -24,14 +24,14 @@ import java.util.stream.Stream;
  */
 final class Wardrobe {
     static final String PICS = "UI/Custom/Pages/HytaleDesigner/Pics/";
-    record Look(String name, JsonObject skin, Set<String> keepOwn, String picture) {}
+    record Look(String name, JsonObject skin, Set<String> keepOwn, String picture, boolean fav) {}
 
     private final Supplier<Path> skinsDir, liveCommon, userData;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     Wardrobe(Supplier<Path> skinsDir, Supplier<Path> liveCommon, Supplier<Path> userData) { this.skinsDir = skinsDir; this.liveCommon = liveCommon; this.userData = userData; }
 
-    /** the saved skins, by name; each picture copied into the live pack */
+    /** the saved skins, starred ones ("favourite" in the file, set on the site) first, then by name; each picture copied into the live pack */
     synchronized List<Look> looks() {
         List<Look> out = new ArrayList<>(); Path dir = skinsDir.get() == null ? null : skinsDir.get().resolve("My skins");
         if (dir == null || !Files.isDirectory(dir)) return out;
@@ -48,10 +48,12 @@ final class Wardrobe {
                 if (name.length() > 40) name = name.substring(0, 40);
                 Set<String> keep = new HashSet<>();
                 if (j.has("keepOwn") && j.get("keepOwn").isJsonArray()) for (JsonElement k : j.getAsJsonArray("keepOwn")) if (k.isJsonPrimitive() && SkinEditorPlugin.SLOTS.contains(k.getAsString())) keep.add(k.getAsString());
-                out.add(new Look(name, j.getAsJsonObject("skin"), keep, picture(dir.resolve(stem + ".png"))));
+                boolean fav = j.has("favourite") && j.get("favourite").isJsonPrimitive() && j.get("favourite").getAsBoolean();
+                out.add(new Look(name, j.getAsJsonObject("skin"), keep, picture(dir.resolve(stem + ".png")), fav));
                 if (out.size() >= 60) break;
             } catch (Exception e) { /* a broken file is skipped */ }
         }
+        out.sort(Comparator.comparing(l -> !l.fav()));     // stable: name order kept within each group
         return out;
     }
 

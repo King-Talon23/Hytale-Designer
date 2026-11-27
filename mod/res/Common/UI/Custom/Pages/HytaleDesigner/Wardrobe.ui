@@ -1,6 +1,6 @@
 // Hytale Designer Sync: the in-game wardrobe. The picture is the game's Lumberjack wardrobe with its doors open and a second rack,
 // rendered by dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 177,87 size 521 x 402, the inside seen between the front posts' shaded sides from x 204 to 678; the
-// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 94 to a rack from x 206; page arrows on the doors).
+// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 94 to a rack from x 206; page plaques on the doors).
 // Top rack: the player's own skin (the in-game preset slots join it once Hytale allows sign-in). Bottom rack: the Locker's skins,
 // five to a page; the plugin appends five WardrobeCard.ui into #Grid and fills them for the page shown.
 $C = "../../Common.ui";
@@ -87,9 +87,21 @@ $C.@PageOverlay {
         }
       }
 
+      Group #Grid {
+        LayoutMode: Left;
+        Anchor: (Left: 206, Top: 288, Width: 470, Height: 200);
+      }
+
+      Label #Empty {
+        Anchor: (Left: 206, Top: 288, Width: 470, Height: 200);
+        Text: "No saved skins";
+        Style: (...@HeadStyle, HorizontalAlignment: Center);
+        Visible: false;
+      }
+
       Group {
         LayoutMode: Left;
-        Anchor: (Left: 214, Top: 290, Width: 456, Height: 18);
+        Anchor: (Left: 214, Top: 282, Width: 458, Height: 28);
 
         Label {
           Text: "Designer skins";
@@ -105,24 +117,14 @@ $C.@PageOverlay {
         Group { FlexWeight: 1; }
 
         Label #Page {
-          Style: @HeadStyle;
+          Anchor: (Width: 52);
+          Style: (...@HeadStyle, HorizontalAlignment: Center);
         }
       }
 
-      Group #Grid {
-        LayoutMode: Left;
-        Anchor: (Left: 206, Top: 288, Width: 470, Height: 200);
-      }
-
-      Label #Empty {
-        Anchor: (Left: 206, Top: 288, Width: 470, Height: 200);
-        Text: "No saved skins";
-        Style: (...@HeadStyle, HorizontalAlignment: Center);
-        Visible: false;
-      }
-
+      // pages: carved wooden plaques nailed to the doors' insides, level with the bottom rack
       Button #PrevPage {
-        Anchor: (Left: 60, Top: 366, Width: 56, Height: 89);
+        Anchor: (Left: 39, Top: 356, Width: 113, Height: 64);
         Style: (
           Default: (Background: (TexturePath: "PageLeft.png")),
           Hovered: (Background: (TexturePath: "PageLeftHover.png")),
@@ -132,7 +134,7 @@ $C.@PageOverlay {
       }
 
       Button #NextPage {
-        Anchor: (Left: 772, Top: 366, Width: 56, Height: 89);
+        Anchor: (Left: 741, Top: 356, Width: 113, Height: 64);
         Style: (
           Default: (Background: (TexturePath: "PageRight.png")),
           Hovered: (Background: (TexturePath: "PageRightHover.png")),

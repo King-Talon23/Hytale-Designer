@@ -43,6 +43,12 @@ Group {
         FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
       }
 
+      Group #Fav {
+        Anchor: (Left: 72, Top: 60, Width: 16, Height: 16);
+        Background: (TexturePath: "Star.png");
+        Visible: false;
+      }
+
       Label #Name {
         Anchor: (Left: 0, Top: 162, Width: 94, Height: 34);
         Style: @NameStyle;
