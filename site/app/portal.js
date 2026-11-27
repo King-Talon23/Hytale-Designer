@@ -1,7 +1,7 @@
 // The strip (a prototype, on local test pages with ?strip): the character walks a straight flat lane through the biome's land, the land
 // moving with the walk. At the lane's left and right edges a pair of portals opens when the character comes near either edge.
 // Along the lane there is no portal to see: its land repeats every lane length, so walking on past its end simply carries on at its
-// start, and the character shows again a lane ahead and a lane behind, as it would down a lane that goes round.
+// start. Nothing of the loop shows: no frame, and the character is never seen again down the lane (only the side portals show it).
 // The pair is one doorway: through the near one is the far edge of the lane. They are drawn with the game's own portal art (its blue portal ring, a swirl and a ripple map, read
 // from the player's game files), open with a flicker and a swirl, and close again when the character walks away.
 // Going through: only the camera passing through a bubble carries the view across. A camera swung past an edge anywhere else is
@@ -366,24 +366,6 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, length = 
       renderer.autoClear = auto;
       renderer.setRenderTarget(before);
       shown.forEach(p => (p.mesh.visible = true));
-    },
-    // after the frame: the character again a lane ahead and a lane behind (and two), standing in the frame's own depth
-    after() {
-      const me = world ? who().filter(Boolean) : [];
-      if (!me.length) return;
-      const auto = renderer.autoClear,
-        shadows = renderer.shadowMap.autoUpdate,
-        back = only(me);
-      renderer.autoClear = false;
-      renderer.shadowMap.autoUpdate = false;
-      for (const k of [-2, -1, 1, 2]) {
-        me.forEach(c => (c.position.z += k * LEN));
-        renderer.render(scene, cam);
-        me.forEach(c => (c.position.z -= k * LEN));
-      }
-      back();
-      renderer.autoClear = auto;
-      renderer.shadowMap.autoUpdate = shadows;
     },
     // the camera's near cut must stay closer than the portal, or the bubble is cut away just as the camera reaches it
     nearCap: () => Math.max(0.5, camGap * 0.5),

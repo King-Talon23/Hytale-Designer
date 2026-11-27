@@ -1774,7 +1774,6 @@ export function stage(canvas, Controls) {
     last = now;
     strip?.before();
     renderer.render(scene, cam);
-    strip?.after();
   })(last);
   const ray = new THREE.Raycaster(),
     ndc = new THREE.Vector2();
