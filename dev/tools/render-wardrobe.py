@@ -54,35 +54,43 @@ SETS = {
     'Temple_Wind': {'frame_w': 3200, 'interior': (-40, 8, 25.3, 25.3 - 402 / 13.6, 13), 'own': (-35, 3, 55.3, 10), 'cam_target': [-16, 32, 12], 'rail': [92, 22],
                     'doors': ('Door-R#2', 'Door-L#2'), 'door_mid': 14, 'door_z': 2},
 }
-# the page controls, made as a builder would make them on each door (the old bolted-on plaques looked added). 'hardware': the door's
-# own iron is the button ('hw': its box in the art, UI units, per picture side; 'mask': which of its pixels light up), with an arrow
-# beside it when it has no direction of its own; 'carve': the arrow cut into the door ('cut' dark inside, 'lip' the lit lower edge);
-# 'inlay': the arrow set in the door's trim material ('inlay'), raised a little. Texels from each set's own sheet; where it sits on
-# the door: plaque_dx / plaque_y (as for the plaques before)
+# the page controls, chosen per wardrobe by what suits its look (user 11-27: the plaques were better on most, but not on all; a
+# single style everywhere came out bland). 'plaque': a board fixed to the door with an arrow cut in it, in the set's own wood and trim
+# ('board', 'rim', 'cut' as functions of the cell x, y; 'bolt' faces; '*_cells': one texel per cell, so a face never runs across the
+# sheet). 'cartouche' (Royal Magic): the door's own make in small, a teal panel in a plum frame with gold corner brackets and a raised
+# gold arrow. 'glyph' (Feran): a triangle painted on the hide like its other glyphs, pointing the way. 'hardware' (Tavern): the door's
+# own iron strap is the button ('hw': its box in the art, UI units, per picture side; 'keep': which of its pixels light up).
+# Where it sits on the door: plaque_dx / plaque_y.
+BOLT = lambda u, v: {f: [u, v] for f in ('front', 'top', 'bottom', 'left', 'right')}   # a bolt all of one texel
+LJ_BOLT = {'front': [57, 109], 'top': [51, 109], 'bottom': [51, 109], 'left': [51, 114], 'right': [51, 114]}
 grey = lambda d, lo: lambda r, g, b: max(r, g, b) - min(r, g, b) < d and (r + g + b) / 3 > lo
+PL = lambda board, rim, cut, bolt, **k: dict({'style': 'plaque', 'board': board, 'rim': rim, 'cut': cut, 'bolt': bolt}, **k)
+one = lambda u, v: lambda x, y: (u, v)
+ROYAL_TEAL = lambda x, y: (37 + x % 9, 26 + y)          # the door's silk, its stripes running down
+ROYAL_PLUM, ROYAL_GOLD, ROYAL_ARROW = (lambda x, y: (35, 37)), (lambda x, y: (37, 13)), (lambda x, y: (37, 14))
+FERAN_PAINT = (89, 20)                                   # the cream paint of its glyphs
 PAGES = {
-    'Lumberjack': {'style': 'carve', 'cut': [117, 118], 'lip': [4, 42]},
-    'Crude': {'style': 'carve', 'cut': [6, 71], 'lip': [10, 112]},                      # dark wood, not black (black read as paint)
-    'Human_Ruins': {'style': 'carve', 'cut': [20, 20], 'lip': [4, 51], 'lip_h': 0.6},   # dark wood: a fuller lip so it reads
-    'Jungle': {'style': 'carve', 'cut': [66, 9], 'lip': [40, 50]},
-    'Desert': {'style': 'carve', 'cut': [10, 20], 'lip': [70, 17]},                     # in the outer square panel
-    'Temple_Dark': {'style': 'inlay', 'inlay': [1, 4]},                                 # steel
-    'Royal_Magic': {'style': 'inlay', 'arrow': 'embroider', 'thread': [[50, 70], [89, 120]], 'outline': [20, 72]},   # gold thread in the cloth
-    'Temple_Emerald': {'style': 'inlay', 'inlay': [10, 70]},                            # the pale gold stone of its frame, on the frame's foot
-    'Feran': {'style': 'inlay', 'inlay': [122, 22]},                                    # bone
-    'Frozen_Castle': {'style': 'inlay', 'inlay': [160, 10]},                            # the deep ice of its snowflake (pale frost vanished)
-    'Temple_Light': {'style': 'inlay', 'inlay': [40, 78]},                              # slate
-    'Temple_Wind': {'style': 'inlay', 'inlay': [93, 23]},                               # teal
+    'Lumberjack': PL(lambda x, y: (2 + x, 76 + y), lambda x, y: (66 + x, 96 + y), lambda x, y: (117 + x % 5, 118 + y % 4), LJ_BOLT),
+    'Temple_Dark': PL(lambda x, y: (64 + x, 68 + y), one(1, 4), lambda x, y: (66 + x % 5, 78 + y % 2),
+                      {'front': [1, 1], 'top': [1, 4], 'bottom': [1, 4], 'left': [1, 4], 'right': [1, 4]}, rim_cells=True),
+    'Ancient': PL(lambda x, y: (14 + x, 63 + y), one(30, 10), one(20, 20), BOLT(30, 10), rim_cells=True),
+    'Crude': PL(lambda x, y: (4 + x, 102 + y), one(10, 112), one(5, 32), BOLT(55, 88), rim_cells=True),          # a dark plank nailed on
+    'Desert': PL(lambda x, y: (96 + x, 14 + y), one(10, 75), one(10, 20), BOLT(10, 75), rim_cells=True),
+    'Frozen_Castle': PL(lambda x, y: (150 + x, 6 + y), one(51, 20), one(20, 20), BOLT(51, 20), rim_cells=True),
+    'Human_Ruins': PL(lambda x, y: (2 + x, 68 + y), one(61, 80), one(20, 20), BOLT(61, 80), rim_cells=True),
+    'Jungle': PL(lambda x, y: (89 + x, 30 + y), one(10, 20), one(58, 49), BOLT(10, 20), rim_cells=True),
+    'Kweebec': PL(lambda x, y: (45 + x, 116 + y), one(9, 10), one(64, 57), BOLT(9, 10), rim_cells=True),          # moss frame
+    'Temple_Emerald': PL(lambda x, y: (100 + x, 20 + y), one(10, 70), one(10, 20), BOLT(10, 70), rim_cells=True),
+    'Temple_Light': PL(lambda x, y: (10 + x, 40 + y), one(40, 78), one(20, 15), BOLT(40, 78), rim_cells=True),
+    'Temple_Wind': PL(lambda x, y: (100 + x, 79 + y), one(93, 23), one(20, 50), BOLT(93, 23), rim_cells=True),
+    'Village': PL(lambda x, y: (2 + x, 64 + y), one(127, 80), one(20, 20), BOLT(127, 80), rim_cells=True),
+    'Royal_Magic': {'style': 'cartouche', 'board': ROYAL_TEAL, 'rim': ROYAL_PLUM, 'corner': ROYAL_GOLD, 'cut': ROYAL_ARROW},
+    'Feran': {'style': 'glyph', 'paint': FERAN_PAINT},
     'Tavern': {'style': 'hardware', 'hw': {'Left': [156, 244, 284, 388], 'Right': [916, 244, 1044, 388]}, 'keep': grey(30, 50)},   # the strap that points out
-    'Village': {'style': 'hardware', 'hw': {'Left': [30, 246, 106, 328], 'Right': [1132, 247, 1208, 326]}, 'keep': grey(32, 60),
-                'arrow': 'carve', 'cut': [5, 53], 'lip': [64, 0]},                      # the knob, an arrow cut beside it (an iron inlay read as pasted on)
-    'Kweebec': {'style': 'hardware', 'hw': {'Left': [35, 351, 117, 437], 'Right': [1076, 351, 1158, 437]}, 'keep': grey(32, 60),
-                'arrow': 'carve', 'cut': [64, 57], 'lip': [50, 104]},                    # the stone knob, an arrow cut beside it
-    'Ancient': {'style': 'hardware', 'hw': {'Left': [27, 297, 110, 429], 'Right': [1206, 311, 1289, 443]},
-                'keep': lambda r, g, b: (r + g + b) / 3 < 35 or (r + g + b) / 3 > 105 or r - b > 45, 'arrow': 'carve', 'cut': [0, 16], 'lip': [36, 81], 'lip_h': 0.6},   # the medallion, an arrow cut deep beside it (dark wood)
 }
-PLACE = {'Desert': {'plaque_dx': (4.7, -4.7)}, 'Temple_Emerald': {'plaque_y': 24.6}, 'Temple_Light': {'plaque_y': 39.5},
-         'Village': {'plaque_y': 41}, 'Kweebec': {'plaque_y': 30.6}}
+PLACE = {'Ancient': {'plaque_dx': (-3, 3)},             # beside the medallion, as before
+         'Temple_Wind': {'plaque_y': 14},              # in the middle of the lower doors' panel (at their top it crowded the frame)
+         'Feran': {'plaque_y': 44.5}}                  # on the clear hide over the upper emblem, clear of the rod
 for _n, _p in PAGES.items(): SETS[_n]['page'] = _p; SETS[_n].update(PLACE.get(_n, {}))
 LJ = SETS['Lumberjack']['interior']
 LJ_SCALE = IN_H_UI / (LJ[2] - LJ[3])                 # UI units per model unit in the Lumberjack art (the hanger and plaque sizes are set there)
@@ -291,7 +299,52 @@ def make(set_name, c):
     pg = c['page']
     # the arrow: ten cells by seven, pointing right (left when sign is -1), the same size on screen in every set
     head = {10: (2, 8), 11: (3, 7), 12: (4, 6), 13: (5, 5)}
+    PL_ARROW = {(x, y) for x in range(4, 14) for y in range(2, 9) if (4 <= x <= 10 and 4 <= y <= 6) or (x in head and head[x][0] <= y <= head[x][1])}
     ARROW = {(x, y) for x in range(4, 14) for y in range(2, 9) if (4 <= x <= 10 and 4 <= y <= 6) or (x in head and head[x][0] <= y <= head[x][1])}
+
+    def plaque(name, door, sign, key, same=None, i=0):
+        # a board fixed to the inside of a door (swung open as in the art, so it takes the door's angle), with an arrow cut into it
+        # (pointing right, or left when sign is -1) and a bolt in each top corner; rendered alone with the art's camera. A cartouche
+        # has gold brackets at its corners instead of bolts and its arrow raised in gold.
+        W, H, D, CUT, RIM = 18, 11, 1.2, 0.8, 0.4
+        cart = pg['style'] == 'cartouche'
+        kind = lambda x, y: ('rim' if x in (0, W - 1) or y in (0, H - 1) else
+                             'cut' if (x, y + 0) in PL_ARROW else 'board')
+        corner = lambda x, y: min(x, W - 1 - x) + min(y, H - 1 - y) <= 2 and min(x, W - 1 - x, y, H - 1 - y) == 0
+        at = {'node': door, 'at': [per(c.get('plaque_dx', 0), i), plaque_y - per(c['door_mid'], i), -per(c['door_z'], i) / 2], 'flip': True}
+        ex = []
+        for y in range(H):
+            x = 0
+            while x < W:
+                kd = kind(x, y); xe = x
+                if cart and kd == 'rim' and corner(x, y): kd = 'corner'
+                while kd == 'board' and not pg.get('board_cells') and not cart and xe + 1 < W and kind(xe + 1, y) == kd: xe += 1
+                w = xe - x + 1
+                front = {'cut': D + RIM if cart else D - CUT, 'board': D, 'rim': D + RIM, 'corner': D + RIM + 0.2}[kd]
+                tu, tv = pg[kd](x, y)
+                ex.append({'position': [(x + w / 2 - W / 2) * sign * K, (H / 2 - y - 0.5) * K, front / 2 * K], 'size': [w * K, K, front * K], 'attach': at,
+                           'uv': {f: [tu, tv] for f in ('front', 'top', 'bottom', 'left', 'right')}})
+                x = xe + 1
+        if not cart:
+            for cx in (0.6, W - 0.6):                  # a bolt in each top corner of the frame
+                ex.append({'position': [(cx - W / 2) * K, (H / 2 - 0.6) * K, (D + RIM + 0.25) * K], 'size': [1.2 * K, 1.2 * K, 0.5 * K], 'attach': at,
+                           'uv': pg['bolt']})
+        return render(name, model, tex, cam, crop=box, same=same, no_model=True, **fw, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
+
+    def glyph(name, door, sign, key, same=None, i=0):
+        # Feran: a triangle painted on the hide like its other glyphs (they are triangles and spirals in cream paint), pointing the
+        # way, with a dot inside; a little bigger than the plaques' arrows, as the glyphs are
+        W, H = 10, 13
+        cells = set()
+        for x in range(W):
+            t = round(x * (H // 2) / (W - 1)); cells |= {(x, t), (x, H - 1 - t)}
+            if x: pt = round((x - 1) * (H // 2) / (W - 1)); cells |= {(x, yy) for yy in range(pt, t + 1)} | {(x, H - 1 - yy) for yy in range(pt, t + 1)}
+        cells |= {(0, y) for y in range(H)} | {(3, 6), (4, 6), (3, 5), (3, 7)}
+        at = {'node': door, 'at': [per(c.get('plaque_dx', 0), i), plaque_y - per(c['door_mid'], i), -per(c['door_z'], i) / 2], 'flip': True}
+        Kg = K * 1.15
+        ex = [{'position': [(x + 0.5 - W / 2) * sign * Kg, (H / 2 - y - 0.5) * Kg, 0.02 * Kg], 'size': [Kg, Kg, 0.04 * Kg], 'attach': at,
+               'uv': {f: list(pg['paint']) for f in ('front', 'top', 'bottom', 'left', 'right')}} for x, y in cells]
+        return render(name, model, tex, cam, crop=box, same=same, no_model=True, **fw, extra=ex, lights={'key': key, 'fill': 0.6, 'rim': 1.0}, marks={})
 
     def arrow(name, door, sign, key, i, raw=False, same=None):
         # the page arrow made on the inside of a door (swung open as in the art, so it takes the door's angle), rendered alone with the
@@ -326,8 +379,9 @@ def make(set_name, c):
         # the page control on one door: the arrow alone, or the door's own hardware (lit on hover) with the arrow beside it
         name = 'Page' + side + sfx; hov = 'Page' + side + 'Hover' + sfx
         if pg['style'] != 'hardware':
-            plain = arrow(name, door, sign, 3.6, i)
-            arrow(hov, door, sign, 9 if pg['style'] == 'carve' else 6.5, i, same=plain)   # a cut needs more light to show it lit
+            make_ = glyph if pg['style'] == 'glyph' else plaque
+            plain = make_(name, door, sign, 3.6, i=i)
+            make_(hov, door, sign, 6.5, same=plain, i=i)
             hover_fx(hov)
             return plain
         from PIL import ImageDraw, ImageChops

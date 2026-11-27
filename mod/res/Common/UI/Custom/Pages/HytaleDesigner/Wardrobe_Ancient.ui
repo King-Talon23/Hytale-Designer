@@ -121,7 +121,7 @@ $C.@PageOverlay {
       // pages: a control made on each door's inside (an arrow carved or inlaid, or the door's own hardware), rendered in the doors'
       // angle; place and size as render-wardrobe.py prints them
       Button #PrevPage {
-        Anchor: (Left: 27, Top: 297, Width: 174, Height: 133);
+        Anchor: (Left: 146, Top: 315, Width: 139, Height: 100);
         Style: (
           Default: (Background: (TexturePath: "PageLeft_Ancient.png")),
           Hovered: (Background: (TexturePath: "PageLeftHover_Ancient.png")),
@@ -131,7 +131,7 @@ $C.@PageOverlay {
       }
 
       Button #NextPage {
-        Anchor: (Left: 1112, Top: 313, Width: 171, Height: 131);
+        Anchor: (Left: 1027, Top: 317, Width: 141, Height: 100);
         Style: (
           Default: (Background: (TexturePath: "PageRight_Ancient.png")),
           Hovered: (Background: (TexturePath: "PageRightHover_Ancient.png")),
