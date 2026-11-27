@@ -8,7 +8,8 @@ import { loose, refsOf } from './worldgen.js';
 import { plan as planLand, land as landMeshes, treeModel, picture, billboards, LIFT } from './terrain.js';
 import { createStrip } from './portal.js';
 // the strip and its portals: a prototype, on local test pages with ?strip only
-const STRIP = typeof location !== 'undefined' && location.hostname.endsWith('localhost') && /[?&]strip\b/.test(location.search);
+const STRIP = typeof location !== 'undefined' && location.hostname.endsWith('localhost') && /[?&]strip\b/.test(location.search),
+  STRIP_LEN = 120; // the lane's length in blocks: its end portals loop it, and the land repeats along it every this many blocks
 
 const cache = new Map(),
   once = (k, f) => (cache.has(k) ? cache.get(k) : (cache.set(k, f()), cache.get(k)));
@@ -1123,17 +1124,15 @@ async function buildWorld(sc, tint, renderer) {
         FIX,
         coverR: R,
         strip: STRIP,
-        ...(STRIP
-          ? {
-              levels: [
-                [1, 160],
-                [2, 320],
-                [4, 768],
-              ],
-            }
-          : {}),
+        period: STRIP ? STRIP_LEN : 0,
         BL: 30,
-        levels: LAND,
+        levels: STRIP
+          ? [
+              [1, 160],
+              [2, 320],
+              [4, 768],
+            ]
+          : LAND,
         treeR: LAND_EDGE * 0.8,
         ground,
         under: sc.under,
@@ -1520,6 +1519,7 @@ export function stage(canvas, Controls) {
         cam,
         renderer,
         BLOCK,
+        length: STRIP_LEN,
         sky: () => sky,
         who: () => [figure, mountRoot, disc],
         art: p => canvasOf(p).then(c => new THREE.CanvasTexture(c)),

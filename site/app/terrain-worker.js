@@ -105,7 +105,12 @@ function plainPatch({ tile, files: texts, opt, warm }) {
 function build({ tile, files: texts, patterns, opt }) {
   const t0 = performance.now();
   const { files, T, covers } = terrainOf(tile, texts);
-  const { FIX, BL, levels, treeR, ground, under, fallback, strip } = opt;
+  const { FIX, BL, levels, treeR, ground, under, fallback, strip, period } = opt;
+  // the strip's land repeats along the lane every period blocks (its end portals loop it): z folded into one period, and the
+  // last stretch before its end eased into the land at its start, so the two meet without a seam
+  const PER = period || 0,
+    fold = z => (PER ? ((((z + PER / 2) % PER) + PER) % PER) - PER / 2 : z),
+    SEAM = 24;
   // how far a column is from the level ground: from the clearing's middle, or (the strip) from the lane's middle line
   const away = (lx, lz) => (strip ? Math.abs(lx) : Math.hypot(lx, lz));
   const fluidAt = (x, z, top) => {
@@ -134,6 +139,18 @@ function build({ tile, files: texts, patterns, opt }) {
   // one column of land, in the clearing's terms (heights from its surface), eased into the clearing's level near it.
   // far: deep in the haze, where each layer's plain block stands in for the patches its masks would make
   const column = (lx, lz, far) => {
+    if (!PER) return column0(lx, lz, far);
+    const u = fold(lz),
+      w = smooth((u - (PER / 2 - SEAM)) / SEAM);
+    if (w <= 0) return column0(lx, u, far);
+    const a = column0(lx, u, far),
+      b = column0(lx, u - PER, far),
+      c = (w < 0.5 ? a : b).slice();
+    c[0] = Math.round(a[0] * (1 - w) + b[0] * w);
+    if (c[4] !== NONE) c[4] = Math.max(c[0], c[4]);
+    return c;
+  };
+  const column0 = (lx, lz, far) => {
     const x = ox + lx,
       z = oz + lz,
       top = T.top(x, z),
@@ -288,13 +305,27 @@ function build({ tile, files: texts, patterns, opt }) {
     }
   }
   // trees: every pattern's points round the clearing, each a prefab picked by the point's own number, standing on the land
-  const trees = [];
+  const trees = [],
+    plant = (lx, lz, pick, r) => {
+      // on the strip a tree in the first period stands again a period on and back, all along the lane
+      const M = PER ? Math.ceil(treeR / PER) : 0;
+      for (let m = -M; m <= M; m++) {
+        const z = lz + m * PER,
+          d = Math.hypot(lx, z);
+        if (d > treeR || away(lx, z) < FIX + pick.reach + 2) continue;
+        const c = column(lx, z, d > 192);
+        if (c[4] !== NONE) continue; // no trees standing in water
+        trees.push(lx, z, c[0], pick.i, Math.floor(((r * 7919) % 1) * 4));
+      }
+    };
   patterns.forEach(p => {
     const pat = makePattern(typeof p.json === 'string' ? loose(p.json) : p.json, files, T),
       tot = p.prefabs.reduce((t, q) => t + q.w, 0);
-    for (const [x, z, r] of pat.points(ox - treeR, oz - treeR, ox + treeR, oz + treeR)) {
+    const zr = PER ? PER / 2 : treeR;
+    for (const [x, z, r] of pat.points(ox - treeR, oz - zr, ox + treeR, oz + zr)) {
       const lx = x - ox,
         lz = z - oz;
+      if (PER && (lz < -PER / 2 || lz >= PER / 2)) continue;
       let u = r * tot,
         pick = p.prefabs[p.prefabs.length - 1];
       for (const q of p.prefabs)
@@ -302,28 +333,20 @@ function build({ tile, files: texts, patterns, opt }) {
           pick = q;
           break;
         }
-      const d = Math.hypot(lx, lz);
-      if (d > treeR || away(lx, lz) < FIX + pick.reach + 2) continue;
-      const c = column(lx, lz, d > 192);
-      if (c[4] !== NONE) continue; // no trees standing in water
-      trees.push(lx, lz, c[0], pick.i, Math.floor(((r * 7919) % 1) * 4));
+      plant(lx, lz, pick, r);
     }
   });
   // a place whose tile grows no trees on its surface keeps the hand-picked ones, spread as thickly as the old ring had them
   if (!trees.length && fallback?.prefabs.length && fallback.count) {
     const cell = 1 / Math.sqrt(fallback.count / 9300);
-    for (let gz = -treeR; gz <= treeR; gz += cell)
+    for (let gz = PER ? -PER / 2 : -treeR; gz < (PER ? PER / 2 : treeR + 1e-9); gz += cell)
       for (let gx = -treeR; gx <= treeR; gx += cell) {
         const hh = Math.sin(gx * 12.9898 + gz * 78.233) * 43758.5453,
           r = hh - Math.floor(hh),
           lx = Math.round(gx + (r - 0.5) * cell * 0.8),
           lz = Math.round(gz + (((r * 97) % 1) - 0.5) * cell * 0.8),
-          pick = fallback.prefabs[Math.floor(((r * 31) % 1) * fallback.prefabs.length)],
-          d = Math.hypot(lx, lz);
-        if (d > treeR || away(lx, lz) < FIX + pick.reach + 2) continue;
-        const c = column(lx, lz, d > 192);
-        if (c[4] !== NONE) continue;
-        trees.push(lx, lz, c[0], pick.i, Math.floor(((r * 7919) % 1) * 4));
+          pick = fallback.prefabs[Math.floor(((r * 31) % 1) * fallback.prefabs.length)];
+        plant(lx, lz, pick, r);
       }
   }
   // the plants on the land near the plain, the game's way (see makeCovers)
@@ -336,7 +359,7 @@ function build({ tile, files: texts, patterns, opt }) {
         z = -L0.E + j,
         d = Math.hypot(x, z);
       if (L0.H[k] === NONE || L0.WL[k] !== NONE || (strip ? Math.abs(x) > opt.coverR : d < FIX || d > opt.coverR)) continue;
-      const c = covers(ox + x, oz + z, L0.H[k] + S0, names[L0.TOP[k]]);
+      const c = covers(ox + x, oz + fold(z), L0.H[k] + S0, names[L0.TOP[k]]); // (the strip's plants repeat with its land)
       if (c) land.push(x, z, L0.H[k], nameId(c));
     }
   return {
