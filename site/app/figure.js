@@ -3,7 +3,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { TransformControls } from '../vendor/TransformControls.js';
 import * as game from './game.js';
 import { FIELDS } from './game.js';
-import { BLOCKS, SET_PIECES } from './scene-data.js';
+import { BLOCKS, SET_PIECES, SCENES } from './scene-data.js';
 import { loose, refsOf } from './worldgen.js';
 import { plan as planLand, land as landMeshes, treeModel, picture, billboards, LIFT } from './terrain.js';
 
@@ -977,7 +977,7 @@ async function readLandFiles(sc) {
     tile = await text(sc.tile),
     t = loose(tile),
     files = {},
-    want = refsOf([t.HeightmapNoise, t.TerrainHeightThreshold, t.Water, t.Layers?.Dynamic]);
+    want = refsOf([t.HeightmapNoise, t.TerrainHeightThreshold, t.Water, t.Layers?.Dynamic, t.Covers]);
   for (const f of sc.forest || [])
     refsOf((typeof f.pattern === 'string' ? loose((files[f.pattern] = await text(f.pattern))) : f.pattern).NoiseMask, want);
   const seen = new Set();
@@ -999,6 +999,37 @@ const NEAR_TREES = 96, // trees nearer than this (blocks) are block models; furt
   ], // the land's rings: [cell size, reach] in blocks
   LAND_EDGE = 768;
 export const landEdge = () => LAND_EDGE;
+// a place's plain as the game makes it there: each column's top block and the plant on it (terrain-worker.js plainPatch); kept
+const plainPatch = (sc, warm = false) =>
+  once('plain:' + sc.tile + '|' + sc.site.ox + ',' + sc.site.oz, () =>
+    (warm ? readLandFiles(sc) : landFiles(sc))
+      .then(({ tile, files }) =>
+        planLand({
+          type: 'plain',
+          key: 'plain|' + sc.tile + '|' + sc.site.ox + ',' + sc.site.oz,
+          tile,
+          files,
+          warm,
+          opt: { site: sc.site, ground: sc.ground },
+        })
+      )
+      .catch(e => (console.warn('plain', e), null))
+  );
+const ownPlain = sc => !!(sc.tile && sc.site && !sc.bank && sc.water?.kind !== 'sea');
+let warmed = false;
+// once a place is up, the other places' plains are worked out one at a time while the page is idle, so a later pick is instant
+function warmPlains() {
+  if (warmed) return;
+  warmed = true;
+  const todo = Object.values(SCENES).filter(ownPlain);
+  const next = () => {
+    const sc = todo.shift();
+    if (!sc) return;
+    const go = () => plainPatch(sc, true).then(() => setTimeout(next, 50));
+    typeof requestIdleCallback === 'function' ? requestIdleCallback(go, { timeout: 2000 }) : setTimeout(go, 200);
+  };
+  setTimeout(next, 1500);
+}
 // trees' block models and their pictures, kept from place to place (most places share their trees with others)
 const treeModels = new Map(),
   treePictures = new Map();
@@ -1024,7 +1055,8 @@ async function buildWorld(sc, tint, renderer) {
       (items.get(k) || items.set(k, { plant, slide, name: key, list: [] }).get(k)).list.push([x, y, z, q]);
     };
   // the plain's ground block: the one the land round its spot has on top (worked out with the scene data)
-  const ground = sc.site?.rim && BLOCKS[sc.site.rim]?.cube ? sc.site.rim : sc.ground;
+  const ground = !sc.bank && sc.site?.rim && BLOCKS[sc.site.rim]?.cube ? sc.site.rim : sc.ground,
+    patch = ownPlain(sc) ? await plainPatch(sc) : null;
   // plant sizes (third value): 1 low, 2 knee-high, none tall
   const pickFrom = r => size => {
     const from = sc.plants.filter(p => (size === 1 ? p[2] === 1 : size === 2 ? p[2] : true));
@@ -1081,6 +1113,7 @@ async function buildWorld(sc, tint, renderer) {
       })),
       opt: {
         FIX,
+        coverR: R,
         BL: 30,
         levels: LAND,
         treeR: LAND_EDGE * 0.8,
@@ -1122,31 +1155,20 @@ async function buildWorld(sc, tint, renderer) {
       }
     });
     mark('trees');
-    // plants on the land near the plain, as thick as on the plain, where the ground is grass and dry
+    // plants on the land near the plain: the game's covers (see makeCovers in worldgen.js)
     let s2 = 23;
     const r2 = () => (s2 = (s2 * 16807) % 2147483647) / 2147483647,
-      pick2 = pickFrom(r2),
-      L0 = data.near,
-      grassy = new Set(data.names.filter(n => /^Soil_(Grass|Leaves|Needles|Mud|Snow|Sand)/.test(n) || n === sc.ground || n === ground)),
+      C = data.covers,
       plants = new Map();
-    for (let j = 0; j < L0.n; j++)
-      for (let i = 0; i < L0.n; i++) {
-        const k = j * L0.n + i,
-          h = L0.H[k],
-          x = -L0.E + i,
-          z = -L0.E + j,
-          dc = Math.hypot(x, z);
-        if (h === -32768 || dc < FIX || dc > R || L0.WL[k] !== -32768 || !grassy.has(data.names[L0.TOP[k]]) || r2() >= sc.density) continue;
-        const r = r2(),
-          name = pick2(r < 0.45 ? 1 : r < 0.8 ? 2 : 0);
-        if (!name) continue;
-        const m = new THREE.Matrix4().compose(
-          new THREE.Vector3((x + (r2() - 0.5) * 0.5) * BLOCK, (h + LIFT) * BLOCK, (z + (r2() - 0.5) * 0.5) * BLOCK),
+    for (let i = 0; i < C.length; i += 4) {
+      const name = data.names[C[i + 3]],
+        m = new THREE.Matrix4().compose(
+          new THREE.Vector3((C[i] + (r2() - 0.5) * 0.5) * BLOCK, (C[i + 2] + LIFT) * BLOCK, (C[i + 1] + (r2() - 0.5) * 0.5) * BLOCK),
           new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r2() * TAU),
           new THREE.Vector3(1, 1, 1)
         );
-        (plants.get(name) || plants.set(name, []).get(name)).push(m);
-      }
+      (plants.get(name) || plants.set(name, []).get(name)).push(m);
+    }
     for (const [name, ms] of plants) {
       const p = (await parts(name).catch(() => null))?.[0];
       if (!p) continue;
@@ -1174,7 +1196,8 @@ async function buildWorld(sc, tint, renderer) {
     return () => false;
   })();
   const DEEP = sc.water?.depth || 2,
-    nTops = (await blockParts(ground, tint)).length;
+    tops = new Map();
+  for (const g of patch ? new Set([...patch.ground].map(i => patch.names[i])) : [ground]) tops.set(g, (await blockParts(g, tint)).length);
   const pickWet = () => {
     const from = sc.water?.plants || [];
     let r = rnd() * from.reduce((t, p) => t + p[1], 0);
@@ -1193,9 +1216,15 @@ async function buildWorld(sc, tint, renderer) {
         }
         continue;
       }
-      put(ground + '|' + Math.floor(rnd() * nTops), x, -1, z, null, false, true);
+      const g = patch ? patch.names[patch.ground[z * P + x]] : ground;
+      put(g + '|' + Math.floor(rnd() * (tops.get(g) || 1)), x, -1, z, null, false, true);
       if (wet(x + 1, z) || wet(x - 1, z) || wet(x, z + 1) || wet(x, z - 1))
         for (let y = -2; y >= -DEEP; y--) put(sc.under + '|0', x, y, z, null, false, true); // the bank
+      if (patch) {
+        const c = patch.covers[z * P + x];
+        if (c) put(patch.names[c - 1] + '|0', x + (rnd() - 0.5) * 0.5, 0, z + (rnd() - 0.5) * 0.5, rnd() * TAU, true, true);
+        continue;
+      }
       if (rnd() >= sc.density) continue;
       const r = rnd(),
         name = pick(r < 0.45 ? 1 : r < 0.8 ? 2 : 0);
@@ -3061,6 +3090,7 @@ export function stage(canvas, Controls) {
     scene.fog = new THREE.Fog(hor, LAND_EDGE * BLOCK * 0.22, LAND_EDGE * BLOCK * 0.96);
     mist = null;
     startWave();
+    warmPlains();
   };
   return api;
 }

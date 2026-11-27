@@ -219,6 +219,13 @@ def forest(d):   # the tile's tree patterns: where its trees stand (a jittered g
             got += [[f, w / len(fs)] for f in fs]
         if got: out.append({'pattern': pat, 'prefabs': got})
     return out
+def coverBlocks(d):   # the blocks a tile's covers place on the ground (plants, pebbles, sticks, rubble), the ones the game defines
+    got = set()
+    for c in d.get('Covers', []):
+        if c.get('OnWater'): continue
+        for t in c.get('Type') or []:
+            if isinstance(t, str) and not t.startswith('*') and t in ITEMS: got.add(t)
+    return got
 def layerBlocks(d):   # the blocks a tile's surface layers, filling rock and solid water use
     L = d.get('Layers') or {}; got = {L.get('Default') or 'Rock_Stone'}
     def blk(b): return (b if isinstance(b, str) else b.get('Type') or '').split(':')[0]
@@ -237,7 +244,7 @@ for key, zone, tier, tile, name, ground, under, hills, density, count, more in B
     s = {'zone': zone, 'tier': tier, 'name': name, 'weather': weather(env), 'tint': tint(d), 'ground': ground, 'under': under, 'hills': hills,
          'plants': plants(d), 'density': density,
          'trees': [prefab(t) for t in more.pop('trees')] if 'trees' in more else trees(d), 'treeCount': count,
-         'tile': Z + tile + '.json', 'forest': forest(d), 'layers': sorted(layerBlocks(d))}
+         'tile': Z + tile + '.json', 'forest': forest(d), 'layers': sorted(layerBlocks(d) | coverBlocks(d))}
     s.update(more)
     if not s['trees']: s['treeCount'] = 0
     SCENES[key] = s
@@ -245,7 +252,8 @@ for key, zone, tier, tile, name, ground, under, hills, density, count, more in B
 # Rivers and shores, and the open sea the swim moves switch to (zone 5). Their names and keys are the ones saved choices use.
 def wet(key, zone, tier, name, like, kind, bed, wplants, wdens, ground, under, plants_, density, trees_, count, weather_=None):
     s = dict(SCENES[like]); s.update({'zone': zone, 'tier': tier, 'name': name, 'ground': ground, 'under': under, 'hills': 1, 'density': density,
-                                       'water': {'kind': kind, 'bed': bed, 'plants': wplants, 'density': wdens}, 'treeCount': count})
+                                       'water': {'kind': kind, 'bed': bed, 'plants': wplants, 'density': wdens}, 'treeCount': count,
+                                       'bank': True})   # a made bank: its plain keeps the hand-picked ground and plants
     if plants_ is not None: s['plants'] = plants_
     if trees_ is not None: s['trees'] = [prefab(t) for t in trees_]
     if weather_: s['weather'] = W + weather_
@@ -322,7 +330,7 @@ for s in SCENES.values(): files |= {s['weather'], *s['trees']} | ({s['tintFrom']
 for s in SCENES.values():
     if not s.get('tile'): continue
     d = loose(z.read(s['tile'])); files.add(s['tile'])
-    refs([d.get('HeightmapNoise'), d.get('TerrainHeightThreshold'), d.get('Water'), (d.get('Layers') or {}).get('Dynamic')], files)
+    refs([d.get('HeightmapNoise'), d.get('TerrainHeightThreshold'), d.get('Water'), (d.get('Layers') or {}).get('Dynamic'), d.get('Covers')], files)
     for f in s.get('forest', []):
         files |= {*(p[0] for p in f['prefabs'])}
         pat = f['pattern']

@@ -748,3 +748,60 @@ export function findSite(T, { FIX = 45, ground, prefer } = {}) {
   const rim = [...count].sort((a, b) => b[1] - a[1])[0]?.[0] || ground;
   return { ox: best.ox, oz: best.oz, S0: best.H + 1, rim, cost: best.cost };
 }
+
+// ---- covers: the plants (and pebbles, sticks, rubble) on top of the ground, the game's way. For each column every cover of the tile
+// is tried in turn: its own chance (Density), its noise mask, its height range (a chance by height) and the ground blocks it may
+// stand on (Parent); a later one that matches takes the spot from an earlier one. A cover with Offset -1 changes the ground block
+// itself (pebbles), which the covers after it see. Returns cover(x, z, y, ground) -> the block standing there, or null.
+export function makeCovers(tile, files, { known = () => true } = {}) {
+  const noise = makeNoise(files, true),
+    list = (tile.Covers || [])
+      .filter(c => !c.OnWater)
+      .map((c, i) => {
+        const types = [].concat(c.Type || []),
+          ws = Array.isArray(c.Weight) ? c.Weight : types.map(() => 1),
+          keep = types.map((t, k) => [t, ws[k] ?? 1]).filter(([t]) => typeof t === 'string' && !t.startsWith('*')),
+          m = c.NoiseMask ? mask(noise, c.NoiseMask, 'cover' + i) : null,
+          ht = c.HeightThreshold?.Positions ? c.HeightThreshold : null;
+        return {
+          types: keep,
+          total: ws.reduce((t, w) => t + w, 0),
+          density: c.Density ?? 1,
+          mask: c.NoiseMask ? m : () => true,
+          ht,
+          parents: Array.isArray(c.Parent) ? new Set(c.Parent.map(b => String(b).split(':')[0])) : null,
+          ground: (c.Offset ?? 0) < 0,
+        };
+      })
+      .filter(c => c.mask);
+  const chance = (ht, y) => {
+    if (!ht) return 1;
+    const P = ht.Positions,
+      V = ht.Values;
+    for (let i = 0; i < P.length; i++)
+      if (y < P[i]) return i === 0 ? V[0] : V[i - 1] + (V[i] - V[i - 1]) * ((y - P[i - 1]) / (P[i] - P[i - 1]));
+    return V[V.length - 1];
+  };
+  return (x, z, y, ground) => {
+    let got = null;
+    const h = cellHash(0x2c1b3c6d, x | 0, z | 0);
+    list.forEach((c, i) => {
+      if (c.parents && !c.parents.has(ground)) return;
+      if (rand(h, i * 3 + 11) >= c.density) return;
+      if (!c.mask(x, z)) return;
+      if (rand(h, i * 3 + 12) >= chance(c.ht, y)) return;
+      // the type picked by weight; types that are not plain blocks (crop states) leave the spot as it was
+      let u = rand(h, i * 3 + 13) * c.total,
+        t = null;
+      for (const [n, w] of c.types)
+        if ((u -= w) <= 0) {
+          t = n;
+          break;
+        }
+      if (!t || !known(t)) return;
+      if (c.ground) ground = t;
+      else got = t;
+    });
+    return got;
+  };
+}

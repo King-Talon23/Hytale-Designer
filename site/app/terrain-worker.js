@@ -2,7 +2,7 @@
 // surface blocks and water of the land round the character's level clearing in rings that get coarser further out, the land's faces
 // ready to draw (one set of arrays per block face), and where the tile's trees stand. The last few places are kept, so going back
 // to one is instant.
-import { loose, makeTerrain, makePattern, findSite } from './worldgen.js';
+import { loose, makeTerrain, makePattern, findSite, makeCovers } from './worldgen.js';
 import { BLOCKS } from './scene-data.js';
 
 const NONE = -32768,
@@ -16,13 +16,15 @@ const kept = new Map();
 self.onmessage = e => {
   const { id, key } = e.data;
   try {
-    let out = key && kept.get(key);
+    // plain patches are kept by the page, so only the land is kept here
+    const keep = key && e.data.type !== 'plain';
+    let out = keep && kept.get(key);
     if (out) {
       kept.delete(key);
       kept.set(key, out);
     } else {
-      out = build(e.data);
-      if (key) {
+      out = e.data.type === 'plain' ? plainPatch(e.data) : build(e.data);
+      if (keep) {
         kept.set(key, out);
         while (kept.size > KEEP) kept.delete(kept.keys().next().value);
       }
@@ -57,11 +59,52 @@ const tops = n => {
   return !c ? 0 : Array.isArray(c.top) ? c.top.length : 1;
 };
 
+// a tile's parsed files and terrain, kept for the few places in use (the plain patch and the land both need them)
+const parsed = new Map();
+// passing: a look-in for the page's background work, which must not push out the places in use
+function terrainOf(tile, texts, passing) {
+  let p = parsed.get(tile);
+  if (!p) {
+    const files = {};
+    for (const [k, t] of Object.entries(texts)) files[k] = loose(t);
+    const tileJ = loose(tile);
+    p = { files, tileJ, T: makeTerrain(tileJ, files), covers: makeCovers(tileJ, files, { known: n => !!BLOCKS[n] }) };
+    if (passing) return p;
+    parsed.set(tile, p);
+    while (parsed.size > KEEP) parsed.delete(parsed.keys().next().value);
+  }
+  return p;
+}
+// the top block a column shows: the first of its layers that is a cube block
+const topOf = (L, fallback) => L.find(l => l[0] !== 'Empty' && tops(l[0]))?.[0] || fallback;
+
+// the plain: its 128 x 128 repeating patch laid round the spot, each column with the game's own top block and the plant (cover) on it
+function plainPatch({ tile, files: texts, opt, warm }) {
+  const { T, covers } = terrainOf(tile, texts, warm),
+    { ox, oz, S0, rim } = opt.site,
+    ground = tops(rim) ? rim : opt.ground,
+    P = 128,
+    sym = v => (v >= P / 2 ? v - P : v),
+    names = [ground],
+    idx = new Map([[ground, 0]]),
+    id = n => (idx.has(n) ? idx.get(n) : (idx.set(n, names.length), names.push(n), names.length - 1)),
+    G = new Uint8Array(P * P),
+    C = new Uint8Array(P * P);
+  for (let pz = 0; pz < P; pz++)
+    for (let px = 0; px < P; px++) {
+      const x = ox + sym(px),
+        z = oz + sym(pz),
+        top = topOf(T.layers(x, z), ground),
+        c = covers(x, z, S0, top);
+      G[pz * P + px] = id(top);
+      if (c) C[pz * P + px] = id(c) + 1;
+    }
+  return { names, ground: G, covers: C };
+}
+
 function build({ tile, files: texts, patterns, opt }) {
   const t0 = performance.now();
-  const files = {};
-  for (const [p, t] of Object.entries(texts)) files[p] = loose(t);
-  const T = makeTerrain(loose(tile), files);
+  const { files, T, covers } = terrainOf(tile, texts);
   const { FIX, BL, levels, treeR, ground, under, fallback } = opt;
   const fluidAt = (x, z, top) => {
     let lvl = NONE,
@@ -280,14 +323,26 @@ function build({ tile, files: texts, patterns, opt }) {
         trees.push(lx, lz, c[0], pick.i, Math.floor(((r * 7919) % 1) * 4));
       }
   }
-  const L0 = grids[0];
+  // the plants on the land near the plain, the game's way (see makeCovers)
+  const L0 = grids[0],
+    land = [];
+  for (let j = 0; j < L0.n; j++)
+    for (let i = 0; i < L0.n; i++) {
+      const k = j * L0.n + i,
+        x = -L0.E + i,
+        z = -L0.E + j,
+        d = Math.hypot(x, z);
+      if (L0.H[k] === NONE || L0.WL[k] !== NONE || d < FIX || d > opt.coverR) continue;
+      const c = covers(ox + x, oz + z, L0.H[k] + S0, names[L0.TOP[k]]);
+      if (c) land.push(x, z, L0.H[k], nameId(c));
+    }
   return {
     ox,
     oz,
     S0,
     rim: names[0],
     names,
-    near: { E: L0.E, n: L0.n, H: L0.H, TOP: L0.TOP, WL: L0.WL }, // the finest ring, for the plants the page sets on it
+    covers: new Int16Array(land),
     faces: F.out(),
     trees: new Float32Array(trees),
     ms: performance.now() - t0,

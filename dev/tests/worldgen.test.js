@@ -2,7 +2,7 @@
 // patterns), checked with small hand-made tiles so it runs without the game files.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loose, makeNoise, makeTerrain, makePattern, densityRange, refsOf, refPath } from '../../site/app/worldgen.js';
+import { loose, makeNoise, makeTerrain, makePattern, makeCovers, densityRange, refsOf, refPath } from '../../site/app/worldgen.js';
 
 const NOISES = {
   simplex: { Seed: 'a', NoiseType: 'SIMPLEX', Octaves: 3, Persistence: 0.4, Scale: 0.02 },
@@ -165,4 +165,31 @@ test('densities: a number is 0 up to it, a pair a range', () => {
 test('finds every file a part of a tile names', () => {
   const r = refsOf([{ File: 'Zones.Noise.A' }, { Noise: [{ File: 'Zones.Noise.B' }] }]);
   assert.deepEqual([...r].sort(), [refPath('Zones.Noise.A'), refPath('Zones.Noise.B')]);
+});
+
+test('covers: each one by its own chance, on its own ground; a later match takes the spot', () => {
+  const tile = {
+    Covers: [
+      { Type: ['Grass'], Density: 0.6, Parent: ['Soil_Grass'] },
+      { Type: ['Flower'], Density: 0.1, Parent: ['Soil_Grass'] },
+      { Type: ['Cactus'], Density: 1, Parent: ['Soil_Sand'] },
+      { Type: ['Reed'], Density: 1, OnWater: true },
+      { Type: ['Pebbles'], Density: 1, Offset: -1, Parent: ['Soil_Gravel'] },
+      { Type: ['Rubble'], Density: 1, Parent: ['Pebbles'] },
+    ],
+  };
+  const cover = makeCovers(tile, {}),
+    count = {};
+  for (let i = 0; i < 20000; i++) {
+    const c = cover(i % 200, Math.floor(i / 200), 120, 'Soil_Grass');
+    count[c] = (count[c] || 0) + 1;
+  }
+  // grass 0.6 x 0.9 (a flower takes 10% of the spots), flowers 0.1, nothing else on grass
+  assert.ok(Math.abs(count.Grass / 20000 - 0.54) < 0.02, String(count.Grass));
+  assert.ok(Math.abs(count.Flower / 20000 - 0.1) < 0.015, String(count.Flower));
+  assert.equal(count.Cactus, undefined);
+  assert.equal(count.Reed, undefined);
+  assert.equal(cover(5, 5, 120, 'Soil_Sand'), 'Cactus');
+  // pebbles turn the ground into pebbles, so the rubble meant for pebbles grows there
+  assert.equal(cover(5, 5, 120, 'Soil_Gravel'), 'Rubble');
 });
