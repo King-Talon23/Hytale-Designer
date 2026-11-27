@@ -1,8 +1,8 @@
 // The strip (a prototype, on local test pages with ?strip): the character walks a straight flat lane through the biome's land, the land
-// moving with the walk. At the lane's left and right edges a pair of portals opens when the character comes near either edge, and
-// another pair at its two ends loops the lane: walking on past its end brings the character back to its start.
-// Each pair is one doorway: through the near one is the far edge of the lane, and across the lane the far one shows the near edge with
-// the character standing there. They are drawn with the game's own portal art (its blue portal ring, a swirl and a ripple map, read
+// moving with the walk. At the lane's left and right edges a pair of portals opens when the character comes near either edge.
+// Along the lane there is no portal to see: its land repeats every lane length, so walking on past its end simply carries on at its
+// start, and the character shows again a lane ahead and a lane behind, as it would down a lane that goes round.
+// The pair is one doorway: through the near one is the far edge of the lane. They are drawn with the game's own portal art (its blue portal ring, a swirl and a ripple map, read
 // from the player's game files), open with a flicker and a swirl, and close again when the character walks away.
 // Going through: only the camera passing through a bubble carries the view across. A camera swung past an edge anywhere else is
 // behind that portal, and through its back it sees the land beyond the other edge, as a real doorway would show.
@@ -135,7 +135,8 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, length = 
     return { i, s, rt, rt2, mat, mesh, nest, want: false, o: 0, shownR: 0 };
   };
   // each pair: its half size and lane span, whether it is wanted open and how far open, and the camera's crossing state
-  const axes = [width, length].map((w, i) => ({
+  const LEN = length * BLOCK;
+  const axes = [width].map((w, i) => ({
     i,
     half: (w / 2) * BLOCK,
     span: w * BLOCK,
@@ -201,6 +202,8 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, length = 
       if (!world) return;
       P[0] += vx * dt;
       P[1] += vz * dt;
+      // along the lane: past its end the character is at its start (the land there is the same, so nothing shows)
+      if (Math.abs(P[1]) > LEN / 2) P[1] -= Math.sign(P[1]) * LEN;
       const c = camAt();
       camGap = Infinity;
       for (const a of axes) {
@@ -364,14 +367,30 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, length = 
       renderer.setRenderTarget(before);
       shown.forEach(p => (p.mesh.visible = true));
     },
+    // after the frame: the character again a lane ahead and a lane behind (and two), standing in the frame's own depth
+    after() {
+      const me = world ? who().filter(Boolean) : [];
+      if (!me.length) return;
+      const auto = renderer.autoClear,
+        shadows = renderer.shadowMap.autoUpdate,
+        back = only(me);
+      renderer.autoClear = false;
+      renderer.shadowMap.autoUpdate = false;
+      for (const k of [-2, -1, 1, 2]) {
+        me.forEach(c => (c.position.z += k * LEN));
+        renderer.render(scene, cam);
+        me.forEach(c => (c.position.z -= k * LEN));
+      }
+      back();
+      renderer.autoClear = auto;
+      renderer.shadowMap.autoUpdate = shadows;
+    },
     // the camera's near cut must stay closer than the portal, or the bubble is cut away just as the camera reaches it
     nearCap: () => Math.max(0.5, camGap * 0.5),
     where: () => [P[0] / BLOCK, P[1] / BLOCK],
     state: () => ({
       behind: axes[0].behind,
       open: axes[0].pair.map(p => +p.o.toFixed(2)),
-      endBehind: axes[1].behind,
-      endOpen: axes[1].pair.map(p => +p.o.toFixed(2)),
     }),
   };
 }

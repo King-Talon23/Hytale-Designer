@@ -1128,9 +1128,10 @@ async function buildWorld(sc, tint, renderer) {
         BL: 30,
         levels: STRIP
           ? [
-              [1, 160],
-              [2, 320],
-              [4, 768],
+              // long bands down the lane, as long as the haze is deep and a lane more, so going round the lane changes nothing seen
+              [1, 96, 900],
+              [2, 192, 900],
+              [4, 768, 900],
             ]
           : LAND,
         treeR: LAND_EDGE * 0.8,
@@ -1155,7 +1156,8 @@ async function buildWorld(sc, tint, renderer) {
         new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (T[i + 4] * Math.PI) / 2),
         new THREE.Vector3(1, 1, 1)
       );
-      (Math.hypot(T[i], T[i + 1]) <= NEAR_TREES ? near : far)[T[i + 3]].push(m);
+      // (on the strip, every tree a lane's length either way of the walk stays a model, so the lane going round never swaps one)
+      ((STRIP ? Math.abs(T[i]) <= 100 : Math.hypot(T[i], T[i + 1]) <= NEAR_TREES) ? near : far)[T[i + 3]].push(m);
     }
     index.forEach((p, k) => {
       const md = models.get(p),
@@ -1772,6 +1774,7 @@ export function stage(canvas, Controls) {
     last = now;
     strip?.before();
     renderer.render(scene, cam);
+    strip?.after();
   })(last);
   const ray = new THREE.Raycaster(),
     ndc = new THREE.Vector2();

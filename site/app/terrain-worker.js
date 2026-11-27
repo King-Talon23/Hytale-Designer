@@ -181,27 +181,30 @@ function build({ tile, files: texts, patterns, opt }) {
     return [h, nameId(topB), nameId(underB), underN, wl === NONE ? NONE : Math.max(h, wl - S0), wk];
   };
   const grids = [];
-  let prevE = 0;
-  for (const [s, E] of levels) {
+  let prevE = 0,
+    prevEZ = 0;
+  // a ring: [cell size, half its size across, half along (the strip's rings are long bands down the lane; others square)]
+  for (const [s, E, EZ = E] of levels) {
     const last = E === levels[levels.length - 1][1],
-      n = (2 * E) / s,
-      H = new Int16Array(n * n).fill(NONE),
-      TOP = new Uint8Array(n * n),
-      UND = new Uint8Array(n * n),
-      UN = new Uint8Array(n * n),
-      WL = new Int16Array(n * n).fill(NONE),
-      WK = new Uint8Array(n * n);
-    for (let j = 0; j < n; j++)
-      for (let i = 0; i < n; i++) {
+      nx = (2 * E) / s,
+      nz = (2 * EZ) / s,
+      H = new Int16Array(nx * nz).fill(NONE),
+      TOP = new Uint8Array(nx * nz),
+      UND = new Uint8Array(nx * nz),
+      UN = new Uint8Array(nx * nz),
+      WL = new Int16Array(nx * nz).fill(NONE),
+      WK = new Uint8Array(nx * nz);
+    for (let j = 0; j < nz; j++)
+      for (let i = 0; i < nx; i++) {
         const x0 = -E + i * s,
-          z0 = -E + j * s;
-        if (prevE && x0 >= -prevE && x0 + s - 1 <= prevE - 1 && z0 >= -prevE && z0 + s - 1 <= prevE - 1) continue; // the finer ring has it
+          z0 = -EZ + j * s;
+        if (prevE && x0 >= -prevE && x0 + s - 1 <= prevE - 1 && z0 >= -prevEZ && z0 + s - 1 <= prevEZ - 1) continue; // the finer ring has it
         const cx = x0 + (s - 1) / 2,
           cz = z0 + (s - 1) / 2;
         if (!prevE && !strip && Math.hypot(cx, cz) < FIX - 0.5) continue; // the clearing (the strip's lane is land of its own)
-        if (last && Math.hypot(cx, cz) > E + s) continue; // the outermost ring is round: past it is the haze
+        if (last && !PER && Math.hypot(cx, cz) > E + s) continue; // the outermost ring is round: past it is the haze
         const c = column(Math.round(cx), Math.round(cz), s >= 4),
-          k = j * n + i;
+          k = j * nx + i;
         H[k] = c[0];
         TOP[k] = c[1];
         UND[k] = c[2];
@@ -209,21 +212,22 @@ function build({ tile, files: texts, patterns, opt }) {
         WL[k] = c[4];
         WK[k] = c[5];
       }
-    grids.push({ s, E, n, H, TOP, UND, UN, WL, WK });
+    grids.push({ s, E, EZ, nx, nz, H, TOP, UND, UN, WL, WK });
     prevE = E;
+    prevEZ = EZ;
   }
   // the faces: a column's top, and its sides where a neighbour is lower (its top block's side, the blocks under it, then rock);
   // every face carries the middle of its column, so a change of place lifts each column whole
   const F = new Faces(),
     FILL = 2;
   for (const L of grids) {
-    const { s, E, n, H, TOP, UND, UN, WL, WK } = L,
-      at = (i, j) => (i < 0 || j < 0 || i >= n || j >= n ? NONE : H[j * n + i]);
-    for (let j = 0; j < n; j++) {
-      const z0 = -E + j * s - 0.5,
+    const { s, E, EZ, nx, nz, H, TOP, UND, UN, WL, WK } = L,
+      at = (i, j) => (i < 0 || j < 0 || i >= nx || j >= nz ? NONE : H[j * nx + i]);
+    for (let j = 0; j < nz; j++) {
+      const z0 = -EZ + j * s - 0.5,
         z1 = z0 + s;
-      for (let i = 0; i < n; ) {
-        const k = j * n + i,
+      for (let i = 0; i < nx; ) {
+        const k = j * nx + i,
           h = H[k];
         if (h === NONE) {
           i++;
@@ -233,7 +237,7 @@ function build({ tile, files: texts, patterns, opt }) {
           v = s === 1 ? ((i * 7 + j * 13) & 0xff) % tops(top) : 0;
         // out past the change-of-place wave (cells of 8) a run of cells at one height, block and water is one quad; nearer, one per cell
         let r = 1;
-        while (s >= 8 && i + r < n && H[k + r] === h && TOP[k + r] === TOP[k] && WL[k + r] === WL[k]) r++;
+        while (s >= 8 && i + r < nx && H[k + r] === h && TOP[k + r] === TOP[k] && WL[k + r] === WL[k]) r++;
         const x0 = -E + i * s - 0.5,
           x1 = x0 + r * s,
           y = (h + LIFT) * BLOCK,
@@ -276,7 +280,7 @@ function build({ tile, files: texts, patterns, opt }) {
             [0, -1, [cx1, z0], [cx0, z0], [0, 0, -1]],
           ]) {
             let hn = at(ii + di, j + dj);
-            if (hn === NONE) hn = s === 1 && ii + di >= 0 && j + dj >= 0 && ii + di < n && j + dj < n ? 0 : h - SKIRT; // the clearing, or the next ring
+            if (hn === NONE) hn = s === 1 && ii + di >= 0 && j + dj >= 0 && ii + di < nx && j + dj < nz ? 0 : h - SKIRT; // the clearing, or the next ring
             if (hn >= h) continue;
             for (const [lo0, hi0, blk] of [
               [h - 1, h, TOP[kk]],
@@ -308,11 +312,12 @@ function build({ tile, files: texts, patterns, opt }) {
   const trees = [],
     plant = (lx, lz, pick, r) => {
       // on the strip a tree in the first period stands again a period on and back, all along the lane
-      const M = PER ? Math.ceil(treeR / PER) : 0;
+      const ZL = PER ? levels[levels.length - 1][2] || treeR : 0,
+        M = PER ? Math.ceil(ZL / PER) : 0;
       for (let m = -M; m <= M; m++) {
         const z = lz + m * PER,
-          d = Math.hypot(lx, z);
-        if (d > treeR || away(lx, z) < FIX + pick.reach + 2) continue;
+          d = PER ? Math.max(Math.abs(lx), 0) : Math.hypot(lx, z);
+        if (d > treeR || Math.abs(z) > (PER ? ZL : Infinity) || away(lx, z) < FIX + pick.reach + 2) continue;
         const c = column(lx, z, d > 192);
         if (c[4] !== NONE) continue; // no trees standing in water
         trees.push(lx, z, c[0], pick.i, Math.floor(((r * 7919) % 1) * 4));
@@ -352,11 +357,11 @@ function build({ tile, files: texts, patterns, opt }) {
   // the plants on the land near the plain, the game's way (see makeCovers)
   const L0 = grids[0],
     land = [];
-  for (let j = 0; j < L0.n; j++)
-    for (let i = 0; i < L0.n; i++) {
-      const k = j * L0.n + i,
+  for (let j = 0; j < L0.nz; j++)
+    for (let i = 0; i < L0.nx; i++) {
+      const k = j * L0.nx + i,
         x = -L0.E + i,
-        z = -L0.E + j,
+        z = -L0.EZ + j,
         d = Math.hypot(x, z);
       if (L0.H[k] === NONE || L0.WL[k] !== NONE || (strip ? Math.abs(x) > opt.coverR : d < FIX || d > opt.coverR)) continue;
       const c = covers(ox + x, oz + fold(z), L0.H[k] + S0, names[L0.TOP[k]]); // (the strip's plants repeat with its land)
