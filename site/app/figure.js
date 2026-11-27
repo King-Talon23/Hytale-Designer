@@ -1489,7 +1489,7 @@ export function stage(canvas, Controls) {
     flowing = [],
     mist = null,
     clearAt = 1.7;
-  const strip = STRIP ? createStrip({ scene, cam, renderer, BLOCK, sky: () => sky }) : null;
+  const strip = STRIP ? createStrip({ scene, cam, renderer, BLOCK, sky: () => sky, who: () => [figure, mountRoot, disc] }) : null;
   // the climbing wall: the same grid stood up in front of the figure, sliding the other way as it climbs
   const wallG = new THREE.GridHelper(CELL * 16, 16, 0x4a76ad, 0x33557f);
   wallG.rotation.x = Math.PI / 2;
