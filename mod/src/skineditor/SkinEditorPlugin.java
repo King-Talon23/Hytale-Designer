@@ -343,6 +343,9 @@ public final class SkinEditorPlugin extends JavaPlugin {
                 byte[] data = Files.readAllBytes(png); if (data.length < 8 || (data[0] & 0xff) != 0x89 || data[1] != 'P' || data[2] != 'N' || data[3] != 'G') continue;
                 String ver = String.format("%08x", java.util.Arrays.hashCode(data)), tex = id + "-" + ver + ".png";
                 Path out = texDir.resolve(tex); if (!Files.isRegularFile(out)) Files.write(out, data);
+                if (field.equals("face")) { String ne = noEyes(tex); Path neo = texDir.resolve(ne);   // None eyes on a copied face: its eye holes smoothed over too
+                    try { if (!Files.isRegularFile(neo)) { var im = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(data)); if (im != null) javax.imageio.ImageIO.write(smoothEyes(im), "png", neo.toFile()); }
+                        if (Files.isRegularFile(neo)) keepFiles.add(ne); } catch (Exception e) { getLogger().atWarning().log("[Hytale Designer Sync] could not make the None-eyes face: " + e); } }
                 // a reshaped asset brings its own model: it gets a content-named file too, and the entry points at it
                 Path shp = src.resolve(n.substring(0, n.length() - 5) + ".blockymodel");
                 if (Files.isRegularFile(shp) && Files.size(shp) <= 200_000) { String mj = Files.readString(shp).trim();
@@ -360,6 +363,9 @@ public final class SkinEditorPlugin extends JavaPlugin {
         }
         lastSync = stamp.toString();
     }
+
+    /** a copied face's texture with its eye holes smoothed over (beside it in the live pack) */
+    static String noEyes(String tex) { return tex.replaceFirst("\\.png$", "-noeyes.png"); }
 
     /** the custom assets in the live pack, by id */
     Map<String, Asset> assets() {
@@ -462,7 +468,9 @@ public final class SkinEditorPlugin extends JavaPlugin {
         for (var e : custom.entrySet()) { String f = e.getKey(); Asset a = e.getValue();
             if (f.equals("bodyCharacteristic")) continue;   // the body is the model itself (set below), not a second body on top
             if (f.equals("haircut") && (hairHidden || hairGeneric)) continue;   // under a hat: hidden, or the game's generic cut drawn below
-            out.add(new ModelAttachment(a.model(), a.texture(), null, null, 1.0)); }
+            String t = a.texture();
+            if (f.equals("face") && (ps.eyes == null || ps.eyes.isEmpty()) && !custom.containsKey("eyes") && liveCommon != null && Files.isRegularFile(liveCommon.resolve(noEyes(t)))) t = noEyes(t);   // None eyes
+            out.add(new ModelAttachment(a.model(), t, null, null, 1.0)); }
         String hairTone = null; try { var hs = reg.getGradientSets().get("Hair"); if (hs != null) { var gm = hs.getClass().getMethod("getGradients").invoke(hs); if (gm instanceof Map<?, ?> mm && !mm.isEmpty()) hairTone = mm.containsKey("PitchBlack") ? "PitchBlack" : String.valueOf(mm.keySet().iterator().next()); }   /* the site draws it in the first hair colour (PitchBlack) */ } catch (Exception ignored) { }
         for (Object[] pr : parts) {
             String id = (String) pr[0];
