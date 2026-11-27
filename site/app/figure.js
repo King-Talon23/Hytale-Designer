@@ -491,6 +491,10 @@ export function motionOf(group, n) {
   const back = /Back(ward)?$/.test(n),
     left = /_Left$/.test(n),
     right = /_Right$/.test(n);
+  // the player's own speeds, from the game's Server/Entity/MovementConfig/Default.json: base speed 5.5 blocks a second, walking 0.3 of
+  // it, running 1 (backward 0.65), crouching 0.55 (backward 0.4), sprinting 1.273, flying 10.32 blocks a second. The rest (dash, roll,
+  // slide, glide, swim) the file does not give, so they are judged against the game by eye
+  const B = 64 * 5.5;
   let s = /^Dash/.test(n)
     ? 720
     : /^Roll/.test(n)
@@ -498,23 +502,23 @@ export function motionOf(group, n) {
       : /^Slide/.test(n)
         ? 430
         : /Sprint/.test(n)
-          ? 440
+          ? B * 1.273
           : /^(Fly|Glide)_Fast/.test(n)
-            ? 540
+            ? 64 * 10.32 * 1.273
             : /^Glide/.test(n)
               ? 380
               : /^Fly_Crouch/.test(n)
                 ? 130
                 : /^Fly/.test(n)
-                  ? 300
+                  ? 64 * 10.32
                   : /Run_Slow/.test(n)
-                    ? 200
+                    ? (B * 2) / 3
                     : /Run/.test(n)
-                      ? 300
+                      ? B
                       : /Crouch_Walk/.test(n)
-                        ? 85
+                        ? B * 0.55
                         : /Walk/.test(n)
-                          ? 140
+                          ? B * 0.3
                           : /^Jump_Far/.test(n)
                             ? 260
                             : /^Swim_(Dive_)?Fast/.test(n)
@@ -523,7 +527,8 @@ export function motionOf(group, n) {
                                 ? 150
                                 : 0;
   if (!s) return null;
-  if (back) s *= 0.75;
+  // going backward: the game's own share for runs and crouches; a walk goes back as fast as forward
+  if (back) s *= /Run/.test(n) ? 0.65 : /Crouch_Walk/.test(n) ? 0.4 / 0.55 : /Walk/.test(n) ? 1 : 0.75;
   return left ? [s, 0] : right ? [-s, 0] : [0, back ? -s : s];
 }
 const BLEND = 0.28,

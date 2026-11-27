@@ -2,7 +2,7 @@
 
 export function createWalk(app) {
   const { render } = app;
-  // ---- walking the character around: W A S D (Shift runs, C crouches), Space jumps; 1-6 play the pinned emotes, 0 stops.
+  // ---- walking the character around: W A S D run (Shift sprints, C crouches), Space jumps; 1-6 play the pinned emotes, 0 stops.
   // Not in the Creator or the Animate tab (their letters are tool keys and the figure must stand still there), never while typing.
   const walk = { keys: new Set(), on: false, kind: '', keepYaw: false, yaw: 0, prevYaw: 0, at: 0 };
   function walkStop() {
@@ -46,7 +46,8 @@ export function createWalk(app) {
     f.z /= L;
     const m = { x: f.x * z - f.z * x, z: f.z * z + f.x * x },
       yaw = Math.atan2(m.x, m.z); // W away from the camera, D to its right
-    const kind = walk.keys.has('c') ? 'Crouch_Walk' : walk.keys.has('shift') ? 'Run' : 'Walk';
+    // as in game: the keys run, Shift sprints, C crouches
+    const kind = walk.keys.has('c') ? 'Crouch_Walk' : walk.keys.has('shift') ? 'Sprint' : 'Run';
     if (!walk.on || walk.kind !== kind) {
       walk.on = true;
       walk.kind = kind;

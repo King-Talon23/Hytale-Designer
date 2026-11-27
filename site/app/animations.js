@@ -258,7 +258,11 @@ export function createAnimations(app) {
           if (playing.group === g && playing.name === n) playAnim('Default', 'Idle', 0.5);
         }, ms);
       }
-      app.st.anim.setMove((m => m && m.map(v => v * (GAME_SPEED[g + '/' + n] ?? 1)))(fig.motionOf(g, n)));
+      // walking, running, sprinting and crouching move the ground at the game's own speeds (motionOf), whatever rate the body plays at;
+      // the other moves' speeds were judged with their playback rate in, so they keep it
+      const own = g === 'Default' && /^(Run|Sprint|Walk|Crouch_Walk)/.test(n),
+        rate = own ? 1 : (GAME_SPEED[g + '/' + n] ?? 1);
+      app.st.anim.setMove(fig.motionOf(g, n)?.map(v => v * rate) || null);
       app.st.anim.playing = true;
       drawEmotes();
     } catch (e) {
