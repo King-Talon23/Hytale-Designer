@@ -68,6 +68,8 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
         ev.addEventBinding(CustomUIEventBindingType.Activating, "#NextPage", EventData.of("Type", "Page").append("Slot", "1"), false);
         ev.addEventBinding(CustomUIEventBindingType.Activating, "#DoorPrev", EventData.of("Type", "Page").append("Slot", "-1"), false);
         ev.addEventBinding(CustomUIEventBindingType.Activating, "#DoorNext", EventData.of("Type", "Page").append("Slot", "1"), false);
+        ev.addEventBinding(CustomUIEventBindingType.Activating, "#PagerPrev", EventData.of("Type", "Page").append("Slot", "-1"), false);
+        ev.addEventBinding(CustomUIEventBindingType.Activating, "#PagerNext", EventData.of("Type", "Page").append("Slot", "1"), false);
         boolean doors = WardrobeSets.doorsTurnPages(WardrobeSets.setOf(layout));   // the open doors turn the pages, or the plaques on them
         ui.set("#DoorPrev.Visible", doors); ui.set("#DoorNext.Visible", doors);
         ui.set("#PrevPage.Visible", !doors); ui.set("#NextPage.Visible", !doors);
@@ -97,6 +99,7 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
             ui.set(card + "#Pic.AssetPath", pic != null ? pic : NO_PIC);
         }
         ui.set("#Page.Text", pages() > 1 ? (page + 1) + " / " + pages() : "");
+        ui.set("#PagerPrev.Visible", pages() > 1); ui.set("#PagerNext.Visible", pages() > 1);   // the arrows beside the page number say there is more
     }
 
     @Override

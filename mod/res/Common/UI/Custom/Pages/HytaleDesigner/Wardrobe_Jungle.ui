@@ -112,9 +112,31 @@ $C.@PageOverlay {
 
         Group { FlexWeight: 1; }
 
+        Button #PagerPrev {
+          Anchor: (Width: 24, Height: 28);
+          Visible: false;
+          Style: (
+            Default: (Background: (TexturePath: "PagerLeft.png")),
+            Hovered: (Background: (TexturePath: "PagerLeftHover.png")),
+            Pressed: (Background: (TexturePath: "PagerLeftHover.png")),
+            Sounds: $C.@ButtonSounds
+          );
+        }
+
         Label #Page {
           Anchor: (Width: 52);
           Style: (...@HeadStyle, HorizontalAlignment: Center);
+        }
+
+        Button #PagerNext {
+          Anchor: (Width: 24, Height: 28);
+          Visible: false;
+          Style: (
+            Default: (Background: (TexturePath: "PagerRight.png")),
+            Hovered: (Background: (TexturePath: "PagerRightHover.png")),
+            Pressed: (Background: (TexturePath: "PagerRightHover.png")),
+            Sounds: $C.@ButtonSounds
+          );
         }
       }
 
