@@ -1350,7 +1350,8 @@ export function stage(canvas, Controls) {
     world = null,
     scrollers = [],
     flowing = [],
-    mist = null;
+    mist = null,
+    clearAt = 1.7;
   // the climbing wall: the same grid stood up in front of the figure, sliding the other way as it climbs
   const wallG = new THREE.GridHelper(CELL * 16, 16, 0x4a76ad, 0x33557f);
   wallG.rotation.x = Math.PI / 2;
@@ -1475,7 +1476,10 @@ export function stage(canvas, Controls) {
       world.userData.cam = cam.position;
       world.userData.camera = cam;
       world.userData.who = mountRoot ? [1.3, 2.9] : [0.5, 2.1];
-      world.userData.clear = Math.max(mountRoot ? 2.3 : anim.move ? 1.7 : 1, plantClear, painting ? 4 : 0);
+      // the same clearing whether walking or standing, so plants never jump when a walk stops; other changes ease in
+      const clearTo = Math.max(mountRoot ? 2.3 : 1.7, plantClear, painting ? 4 : 0);
+      clearAt += (clearTo - clearAt) * (1 - Math.exp(-dt * 3));
+      world.userData.clear = clearAt;
       let mx = anim.move ? -vel.x * dt : 0,
         mz = anim.move ? -vel.y * dt : 0;
       world.userData.move(mx, mz);
@@ -2903,6 +2907,7 @@ export function stage(canvas, Controls) {
       world = built;
       scene.add(world);
       world.userData.avoid = pendingRects;
+      world.userData.clear = clearAt;
       groundRects();
     }
     scene.fog = null;
