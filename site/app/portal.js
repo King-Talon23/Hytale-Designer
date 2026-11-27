@@ -1,6 +1,7 @@
 // The strip (a prototype, on local test pages with ?strip): the character walks a straight flat lane through the biome's land, the land
-// moving with the walk, and at the lane's left and right edges a pair of portals opens when the character comes near either edge.
-// The two are one doorway: through the near one is the far edge of the lane, and across the lane the far one shows the near edge with
+// moving with the walk. At the lane's left and right edges a pair of portals opens when the character comes near either edge, and
+// another pair at its two ends loops the lane: walking on past its end brings the character back to its start.
+// Each pair is one doorway: through the near one is the far edge of the lane, and across the lane the far one shows the near edge with
 // the character standing there. They are drawn with the game's own portal art (its blue portal ring, a swirl and a ripple map, read
 // from the player's game files), open with a flicker and a swirl, and close again when the character walks away.
 // Going through: only the camera passing through a bubble carries the view across. A camera swung past an edge anywhere else is
@@ -58,27 +59,18 @@ const FRAG = [
 const backOut = k => 1 + 2.2 * (k - 1) ** 3 + 1.2 * (k - 1) ** 2; // eases in with a little overshoot
 
 // sky: () => the sky dome; who: () => the objects that are the character (figure, mount, shadow); art: path -> Promise<texture>
-export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who, art }) {
-  const half = (width / 2) * BLOCK,
-    span = width * BLOCK,
-    OPEN_D = 10 * BLOCK, // the pair opens when the character or the camera comes this near an edge ...
+export function createStrip({ scene, cam, renderer, BLOCK, width = 90, length = 120, sky, who, art }) {
+  const OPEN_D = 10 * BLOCK, // a pair opens when the character or the camera comes this near its edges ...
     CLOSE_D = 14 * BLOCK, // ... and closes once both are this far away again
-    PW = 28 * BLOCK, // the bubble's quad (room round the bubble for the ring's glow): across (along the lane) and up
+    PW = 28 * BLOCK, // the bubble's quad (room round the bubble for the ring's glow): across and up
     PH = 20 * BLOCK,
-    MID = PH * 0.3; // the bubble's middle above the ground (its bottom just reaches the ground)
-  let px = 0,
-    pz = 0,
-    world = null,
+    MID = PH * 0.3, // the bubble's middle above the ground (its bottom just reaches the ground)
+    AX = ['x', 'z'];
+  const P = [0, 0]; // the character's place on the lane: across (x) and along (z), in scene units
+  let world = null,
     t = 0,
-    want = false, // the pair is wanted open
-    o = 0, // how far through opening it is (0 shut, 1 open)
-    behind = 0, // -1 / 1: the camera went past that edge without going through, and is behind its portal
-    through = 0, // -1 / 1: the character has gone through that edge's portal (the camera, following, will too)
     camGap = Infinity,
-    shownR = 0, // the bubble's opening now (in its quad's units), for telling whether the camera passes through it
-    lastCx = 0, // where across the lane the camera was last frame ...
-    lastY = 0, // ... how high ...
-    lastZ = 0; // ... and where along the lane, relative to the character
+    lastY = 0; // how high the camera was last frame
   const size = new THREE.Vector2(),
     plane = new THREE.Plane(),
     plane2 = new THREE.Plane(),
@@ -104,54 +96,59 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
         uniforms[k].value = tx;
       })
       .catch(() => {});
-  // the pair: s -1 at the lane's left edge, 1 at its right. Through the one at edge s is the land moved s lanes over
-  const portals = [-1, 1].map(s => {
+  const shader = map =>
+    new THREE.ShaderMaterial({
+      uniforms: {
+        ...uniforms,
+        map: { value: map },
+        size: { value: size },
+        open: { value: 0 },
+        swirlA: { value: 0 },
+        time: { value: 0 },
+        aspect: { value: PW / PH },
+      },
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      vertexShader: VERT,
+      fragmentShader: FRAG,
+    });
+  const geo = new THREE.PlaneGeometry(PW, PH);
+  // one portal of a pair: axis i (0: the lane's left (s -1) and right (s 1) edges; 1: its back and front ends). Through the one at
+  // side s is the land moved s lane-widths (or lane-lengths) over. Its bubble stands where the character is along the edge.
+  const portal = (i, s) => {
     const rt = new THREE.WebGLRenderTarget(4, 4, { samples: 4 }),
-      mat = new THREE.ShaderMaterial({
-        uniforms: {
-          ...uniforms,
-          map: { value: rt.texture },
-          size: { value: size },
-          open: { value: 0 },
-          swirlA: { value: 0 },
-          time: { value: 0 },
-          aspect: { value: PW / PH },
-        },
-        transparent: true,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        vertexShader: VERT,
-        fragmentShader: FRAG,
-      }),
-      mesh = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), mat);
-    mesh.rotation.y = Math.PI / 2; // faces along the x axis, across the lane
-    mesh.visible = false;
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 5;
-    scene.add(mesh);
+      mat = shader(rt.texture),
+      mesh = new THREE.Mesh(geo, mat);
+    const place = m => {
+      m.rotation.y = i ? 0 : Math.PI / 2; // facing across its edge
+      m.visible = false;
+      m.frustumCulled = false;
+      scene.add(m);
+      return m;
+    };
+    place(mesh).renderOrder = 5;
     // the doorway seen again through itself: a bubble a lane further on showing the view two lanes over (rt2), and inside that one a
     // last bubble a lane further still, which shows only its seam over the deeper picture (the repeat stops there)
     const rt2 = new THREE.WebGLRenderTarget(4, 4, { samples: 4 }),
-      nest = [rt2, rt].map(r => {
-        const m = new THREE.Mesh(
-          mesh.geometry,
-          new THREE.ShaderMaterial({
-            uniforms: { ...mat.uniforms, map: { value: r.texture } },
-            transparent: true,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-            vertexShader: VERT,
-            fragmentShader: FRAG,
-          })
-        );
-        m.rotation.y = Math.PI / 2;
-        m.visible = false;
-        m.frustumCulled = false;
-        scene.add(m);
-        return m;
-      });
-    return { s, rt, rt2, mat, mesh, nest };
-  });
+      nest = [rt2, rt].map(r => place(new THREE.Mesh(geo, shader(r.texture))));
+    return { i, s, rt, rt2, mat, mesh, nest };
+  };
+  // each pair: its half size and lane span, whether it is wanted open and how far open, and the camera's crossing state
+  const axes = [width, length].map((w, i) => ({
+    i,
+    half: (w / 2) * BLOCK,
+    span: w * BLOCK,
+    want: false,
+    o: 0, // how far through opening (0 shut, 1 open)
+    shownR: 0, // the bubble's opening now (in its quad's units), for telling whether the camera passes through it
+    behind: 0, // -1 / 1: the camera went past that edge without going through, and is behind its portal
+    through: 0, // -1 / 1: the character has gone through that edge's portal (the camera, following, will too)
+    last: 0, // where on this axis the camera was last frame ...
+    lastU: 0, // ... and where along the edge, relative to the character
+    pair: [-1, 1].map(s => portal(i, s)),
+  }));
+  const all = axes.flatMap(a => a.pair);
   // the part of the screen a bubble covers, in pixels of the drawing buffer (null when off screen), so its view is drawn only there
   const box = mesh => {
     let x0 = Infinity,
@@ -188,78 +185,86 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
     scene.children.forEach(c => (c.visible = !!((keep.includes(c) || c.isLight) && c.visible))); // lights stay, or what is drawn is black
     return () => scene.children.forEach((c, i) => (c.visible = shown[i]));
   };
-  // is a point (scene units) inside the open bubble, as seen square on?
-  const inBubble = (y, z) => Math.hypot(z / (PW / 2), (y - MID) / (PH / 2)) < shownR * 0.95;
+  // is a point (scene units; u along the edge from the bubble's middle) inside the open bubble, as seen square on?
+  const inBubble = (y, u, r) => Math.hypot(u / (PW / 2), (y - MID) / (PH / 2)) < r * 0.95;
+  const camAt = () => [cam.position.x, cam.position.z]; // the camera, relative to the character
 
   return {
     attach(w) {
       world = w;
-      px = pz = 0;
-      lastCx = cam.position.x;
-      behind = 0;
-      through = 0;
-      want = false;
-      o = 0;
+      P[0] = P[1] = 0;
+      const c = camAt();
+      for (const a of axes) Object.assign(a, { want: false, o: 0, behind: 0, through: 0, last: c[a.i], lastU: c[1 - a.i] });
+      lastY = cam.position.y;
       if (world) world.position.set(0, 0, 0);
     },
     step(dt, vx, vz) {
       t += dt;
       if (!world) return;
-      const was = lastCx;
-      px += vx * dt;
-      pz += vz * dt;
-      let cx = px + cam.position.x;
-      // the camera past an edge: through the open bubble it carries everything across; anywhere else it is only behind that portal
-      for (const s of [-1, 1]) {
-        const past = s * cx > half,
-          wasPast = s * was > half;
-        const charPast = s * px > half;
-        if (charPast && !through && behind !== s)
-          through = s; // the character has stepped through
-        else if (!charPast && through === s) through = 0; // ... and back
-        if (behind === s) {
-          if (!past) behind = 0; // back in front of it
-        } else if (behind === 0 && past && through === s) {
-          px -= s * span; // following the character through: everything goes across
-          through = 0;
-        } else if (behind === 0 && past) {
-          // where on its way the camera met the edge's line: through the bubble, or beside it
-          const f = wasPast ? 1 : (s * half - was) / (cx - was || 1),
-            y = lastY + (cam.position.y - lastY) * f,
-            z = lastZ + (cam.position.z - lastZ) * f;
-          if (!wasPast && !(o > 0.6 && inBubble(y, z))) behind = s;
-          else px -= s * span;
+      P[0] += vx * dt;
+      P[1] += vz * dt;
+      const c = camAt();
+      camGap = Infinity;
+      for (const a of axes) {
+        const i = a.i,
+          was = a.last;
+        let ca = P[i] + c[i];
+        // the camera past an edge: following the character, or through the open bubble, it carries everything across; anywhere else
+        // it is only behind that portal
+        for (const s of [-1, 1]) {
+          const past = s * ca > a.half,
+            wasPast = s * was > a.half,
+            charPast = s * P[i] > a.half;
+          if (charPast && !a.through && a.behind !== s)
+            a.through = s; // the character has stepped through
+          else if (!charPast && a.through === s) a.through = 0; // ... and back
+          if (a.behind === s) {
+            if (!past) a.behind = 0; // back in front of it
+          } else if (a.behind === 0 && past && a.through === s) {
+            P[i] -= s * a.span; // following the character through: everything goes across
+            a.through = 0;
+          } else if (a.behind === 0 && past) {
+            // where on its way the camera met the edge's line: through the bubble, or beside it
+            const f = wasPast ? 1 : (s * a.half - was) / (ca - was || 1),
+              y = lastY + (cam.position.y - lastY) * f,
+              u = a.lastU + (c[1 - i] - a.lastU) * f;
+            if (!wasPast && !(a.o > 0.6 && inBubble(y, u, a.shownR))) a.behind = s;
+            else P[i] -= s * a.span;
+          }
         }
+        ca = P[i] + c[i];
+        a.last = ca;
+        a.lastU = c[1 - i];
+        // open when the character or camera comes near either edge; shut once both are well away (never half open by distance)
+        const near = Math.min(a.half - Math.abs(ca), a.half - Math.abs(P[i]));
+        if (near < OPEN_D || a.behind) a.want = true;
+        else if (near > CLOSE_D) a.want = false;
+        a.o = Math.max(0, Math.min(1, a.o + (a.want ? dt / 0.75 : -dt / 0.4)));
+        // a moment's flicker, then a swirl as it opens from the middle with a little overshoot
+        const k = Math.max(0, (a.o - 0.15) / 0.85),
+          open = a.o <= 0 ? 0 : a.o < 0.15 ? 0.05 + 0.04 * Math.sin(t * 55) : backOut(k);
+        a.shownR = 0.62 * open;
+        for (const p of a.pair) {
+          const u = p.mat.uniforms;
+          u.open.value = open;
+          u.swirlA.value = a.o > 0 ? 1 - Math.min(1, Math.max(0, (a.o - 0.35) / 0.55)) : 0;
+          u.time.value = t;
+          p.mesh.visible = a.o > 0;
+          p.mesh.position.set(0, MID, 0);
+          p.mesh.position[AX[i]] = p.s * a.half - P[i];
+          for (const m of p.nest) for (const key of ['open', 'swirlA', 'time']) m.material.uniforms[key].value = u[key].value;
+        }
+        if (a.o > 0) camGap = Math.min(camGap, a.half - Math.abs(ca));
       }
-      cx = px + cam.position.x;
-      lastCx = cx;
       lastY = cam.position.y;
-      lastZ = cam.position.z;
-      world.position.set(-px, 0, -pz);
-      // open when the character or camera comes near either edge; shut once both are well away (never half open by distance)
-      const near = Math.min(half - Math.abs(cx), px + half, half - px);
-      if (near < OPEN_D || behind) want = true;
-      else if (near > CLOSE_D) want = false;
-      o = Math.max(0, Math.min(1, o + (want ? dt / 0.75 : -dt / 0.4)));
-      // a moment's flicker, then a swirl as it opens from the middle with a little overshoot
-      const k = Math.max(0, (o - 0.15) / 0.85),
-        open = o <= 0 ? 0 : o < 0.15 ? 0.05 + 0.04 * Math.sin(t * 55) : backOut(k);
-      shownR = 0.62 * open;
-      for (const p of portals) {
-        p.mat.uniforms.open.value = open;
-        p.mat.uniforms.swirlA.value = o > 0 ? 1 - Math.min(1, Math.max(0, (o - 0.35) / 0.55)) : 0;
-        p.mat.uniforms.time.value = t;
-        p.mesh.visible = o > 0;
-        p.mesh.position.set(p.s * half - px, MID, 0);
-        for (const m of p.nest) for (const k of ['open', 'swirlA', 'time']) m.material.uniforms[k].value = p.mat.uniforms[k].value;
-      }
-      camGap = o > 0 ? half - Math.abs(cx) : Infinity;
+      world.position.set(-P[0], 0, -P[1]);
     },
     // before the frame is drawn: the view through each open portal, drawn into a picture the bubble shows. It is the scene with the land
-    // moved a lane's width over, cut at the portal so only what lies beyond it shows. From in front (the lane side) the character shows
-    // there too, where the lane puts it; from behind, the bubble shows the land beyond the other edge and hides what stands behind it
+    // moved a lane over, cut at the portal so only what lies beyond it shows. From in front (the lane side) the character shows there
+    // too, where the lane puts it; from behind, the bubble shows the land beyond the other edge and hides what stands behind it
     before() {
-      if (!world || !portals[0].mesh.visible) return;
+      const shown = all.filter(p => p.mesh.visible);
+      if (!world || !shown.length) return;
       renderer.getDrawingBufferSize(size);
       const before = renderer.getRenderTarget(),
         clip = renderer.clippingPlanes,
@@ -267,18 +272,21 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
         s = sky(),
         me = who().filter(Boolean);
       scene.updateMatrixWorld();
-      const boxes = portals.map(p => box(p.mesh));
-      portals.forEach(p => (p.mesh.visible = false));
+      const boxes = shown.map(p => box(p.mesh));
+      shown.forEach(p => (p.mesh.visible = false));
       renderer.autoClear = false;
-      // the view k lanes over through the portal at X (scene x), into rt within the box b: the sky whole, then the land and the
-      // characters (from in front: the one crossing over and its repeats a lane apart) cut at the portal
+      // the view k lanes over through the portal at X (scene units on its axis), into rt within the box b: the sky whole, then the land
+      // and the characters (from in front: the one crossing over and its repeats a lane apart) cut at the portal
       const view = (p, k, X, rt, b, front) => {
-        const camSide = Math.sign(cam.position.x - X) || 1;
-        plane.set(N.set(-camSide, 0, 0), camSide * X);
+        const ax = AX[p.i],
+          ci = p.i ? 2 : 0,
+          step = p.s * axes[p.i].span,
+          camSide = Math.sign(cam.position[ax] - X) || 1;
+        plane.set(N.set(0, 0, 0).setComponent(ci, -camSide), camSide * X);
         renderer.setRenderTarget(rt);
         renderer.setScissor(b[0], b[1], b[2], b[3]);
         renderer.clear();
-        world.position.x += k * p.s * span;
+        world.position[ax] += k * step;
         if (s) {
           const back = only([s]);
           renderer.clippingPlanes = [];
@@ -291,18 +299,17 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
         hide();
         if (front && me.length) {
           // each repeat of the character shows only between this portal and the next one on (beyond that it is the next view's)
-          const Xn = X + p.s * span;
-          plane2.set(N.set(camSide, 0, 0), -camSide * Xn);
+          plane2.set(N.set(0, 0, 0).setComponent(ci, camSide), -camSide * (X + step));
           renderer.clippingPlanes = [plane, plane2];
           const back = only(me);
           for (let j = 0; j <= k; j++) {
-            me.forEach(c => (c.position.x += j * p.s * span));
+            me.forEach(c => (c.position[ax] += j * step));
             renderer.render(scene, cam);
-            me.forEach(c => (c.position.x -= j * p.s * span));
+            me.forEach(c => (c.position[ax] -= j * step));
           }
           back();
         }
-        world.position.x -= k * p.s * span;
+        world.position[ax] -= k * step;
       };
       // a nested bubble drawn into rt over what is there, hidden behind whatever stands in front of it
       const overlay = (m, rt) => {
@@ -315,12 +322,13 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
         m.visible = false;
       };
       renderer.setScissorTest(true);
-      portals.forEach((p, i) => {
-        const b = boxes[i];
+      shown.forEach((p, n) => {
+        const b = boxes[n];
         if (!b) return;
         for (const r of [p.rt, p.rt2]) if (r.width !== size.x || r.height !== size.y) r.setSize(size.x, size.y);
-        const X0 = p.mesh.position.x,
-          front = (Math.sign(cam.position.x - X0) || 1) === -p.s; // the camera is on the lane's side of this portal
+        const ax = AX[p.i],
+          X0 = p.mesh.position[ax],
+          front = (Math.sign(cam.position[ax] - X0) || 1) === -p.s; // the camera is on the lane's side of this portal
         view(p, 1, X0, p.rt, b, front);
         if (!front) return;
         // the doorway again, a lane further on, with the view two lanes over in it; and a lane further still, its seam only
@@ -329,12 +337,13 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
           [n2, 1],
           [n3, 2],
         ]) {
-          m.position.set(X0 + d * p.s * span, p.mesh.position.y, p.mesh.position.z);
+          m.position.copy(p.mesh.position);
+          m.position[ax] += d * p.s * axes[p.i].span;
           m.updateMatrixWorld();
         }
         const b2 = box(n2);
         if (!b2) return;
-        view(p, 2, n2.position.x, p.rt2, b2, true);
+        view(p, 2, n2.position[ax], p.rt2, b2, true);
         overlay(n3, p.rt2);
         renderer.setScissor(b2[0], b2[1], b2[2], b2[3]);
         overlay(n2, p.rt);
@@ -343,11 +352,11 @@ export function createStrip({ scene, cam, renderer, BLOCK, width = 90, sky, who,
       renderer.clippingPlanes = clip;
       renderer.autoClear = auto;
       renderer.setRenderTarget(before);
-      portals.forEach(p => (p.mesh.visible = true));
+      shown.forEach(p => (p.mesh.visible = true));
     },
     // the camera's near cut must stay closer than the portal, or the bubble is cut away just as the camera reaches it
     nearCap: () => Math.max(0.5, camGap * 0.5),
-    where: () => [px / BLOCK, pz / BLOCK],
-    state: () => ({ behind, open: o }),
+    where: () => [P[0] / BLOCK, P[1] / BLOCK],
+    state: () => ({ behind: axes[0].behind, open: axes[0].o, endBehind: axes[1].behind, endOpen: axes[1].o }),
   };
 }
