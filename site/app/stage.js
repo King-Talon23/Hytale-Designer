@@ -68,7 +68,7 @@ export function createStage(app) {
   const setBdShown = v => (bdShown = v);
   async function showBackdrop(key) {
     if (!app.st || key === bdShown) return;
-    const wave = bdShown != null; /* a change while the stage is up spreads out from the character; the first one just appears */
+    const wave = true; /* every place spreads out from the character in the block wave, the first one too (opening the page on it) */
     bdShown = key;
     if (key === 'dark') return app.st.setBackdrop(null, null, null, wave);
     const stg = $('view').parentElement,
