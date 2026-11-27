@@ -91,7 +91,7 @@ m = json.load(open(cfg['model'], encoding='utf-8'))
 if not cfg.get('no_model'):
     for n in m['nodes']: walk(n, np.eye(3), np.zeros(3))
 for e in cfg.get('extra', []):
-    lay = {f: {'offset': {'x': v[0], 'y': v[1]}} for f, v in e['uv'].items()}
+    lay = {f: {'offset': {'x': v[0], 'y': v[1]}, 'angle': v[2] if len(v) > 2 else 0} for f, v in e['uv'].items()}   # [x, y(, angle)]
     box(np.array(e['size'], float), np.ones(3), np.zeros(3), lay, np.eye(3), np.array(e['position'], float))
 
 me = bpy.data.meshes.new('model'); me.from_pydata(verts, [], faces); me.update()

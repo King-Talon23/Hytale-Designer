@@ -62,10 +62,18 @@ art, m = render('Wardrobe', extra=rail2, marks={'interior': [[IN_X0, IN_TOP, FAC
 (ix0, iy0), (ix1, iy1) = m['interior']
 v = lambda y: iy0 + (IN_TOP - y) * (iy1 - iy0) / (IN_TOP - IN_BOT)
 
-# the hook: a bar over the rail and a drop in front of it, iron like the rail
+# the coat hanger: an iron hook over the rail and down behind the skin's head to a stepped wooden shoulder bar, which sits on the
+# skin's shoulders 96 UI units below the rack's top (the page grows a picked skin around that line, so it never leaves the hook)
+SHOULDER = IN_TOP - 96 / (402 / (IN_TOP - IN_BOT))
+STEM = [45, 5, 90]                                     # the rail's iron, turned to run down the stem
+WOOD = [4, 42]                                         # the lit edge of a plank
 hook = [{'position': [0, RAIL_TOP + 0.3, FACE_Z + 0.6], 'size': [1.2, 0.6, 1.6], 'uv': {f: IRON for f in ('front', 'top', 'left', 'right')}},
-        {'position': [0, RAIL_BOT - 0.4, FACE_Z + 1.15], 'size': [0.6, 3.0, 0.6], 'uv': {f: IRON for f in ('front', 'top', 'left', 'right', 'bottom')}}]
-him, hm = render('Hook', no_model=True, extra=hook, marks={'c': [[0, RAIL_TOP + 0.6, FACE_Z]]})
+        {'position': [0, (RAIL_TOP + SHOULDER) / 2, FACE_Z + 1.15], 'size': [0.6, RAIL_TOP - SHOULDER, 0.6], 'uv': {f: STEM for f in ('front', 'top', 'left', 'right', 'bottom')}},
+        {'position': [0, SHOULDER + 0.1, FACE_Z + 1.15], 'size': [1.0, 0.8, 0.8], 'uv': {f: WOOD for f in ('front', 'top', 'left', 'right', 'bottom')}}]
+for sx in (-1, 1):
+    hook += [{'position': [sx * 1.3, SHOULDER - 0.15, FACE_Z + 1.15], 'size': [1.6, 0.7, 0.8], 'uv': {f: WOOD for f in ('front', 'top', 'left', 'right', 'bottom')}},
+             {'position': [sx * 2.35, SHOULDER - 0.45, FACE_Z + 1.15], 'size': [0.6, 0.6, 0.8], 'uv': {f: WOOD for f in ('front', 'top', 'left', 'right', 'bottom')}}]
+him, hm = render('Hanger', no_model=True, extra=hook, marks={'c': [[0, RAIL_TOP + 0.6, FACE_Z]]})
 
 def arrow(name, sign, key):
     # a stepped triangle pointing right (left when sign is -1), each step a block faced like the drawer's iron knobs
@@ -80,6 +88,7 @@ for side, sign in (('Left', -1), ('Right', 1)):
 lay = {'art': [art.width // 2, art.height // 2],
        'interior': [round(ix0), round(iy0), round(ix1 - ix0), round(iy1 - iy0)],
        'rail_y': [round(v(RAIL_TOP) - iy0, 1), round(v(RAIL_BOT) - iy0, 1)], 'rail2_top': round(m['rail2'][0][1] - iy0, 1),
-       'hook': {'size': [him.width // 2, him.height // 2], 'top_from_interior': round(v(RAIL_TOP + 0.6) - iy0 - hm['c'][0][1], 1)},
+       'hanger': {'size': [him.width // 2, him.height // 2], 'top_from_rack': round(v(RAIL_TOP + 0.6) - iy0 - hm['c'][0][1], 1),
+                  'center_x_in_image': round(hm['c'][0][0], 1)},
        'arrow': [a.width // 2, a.height // 2]}
 print(json.dumps(lay))

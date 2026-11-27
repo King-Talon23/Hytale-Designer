@@ -1,5 +1,5 @@
-// One Locker skin on its hook on the wardrobe's bottom rack. The glow marks the skin worn; the plugin lifts #Hang while the pointer
-// is on it and brings the worn one forward. Art: dev/tools/render-wardrobe.py.
+// One Locker skin on its hook on the wardrobe's bottom rack. The glow marks the skin worn; the skin hangs on a coat hanger (hook over the
+// rail, wooden bar on its shoulders); the plugin grows it around the shoulders while the pointer is on it, and more when worn. Art: dev/tools/render-wardrobe.py.
 $C = "../../Common.ui";
 
 @NameStyle = LabelStyle(
@@ -13,16 +13,16 @@ $C = "../../Common.ui";
 );
 
 Group {
-  Anchor: (Width: 98, Height: 200);
+  Anchor: (Width: 94, Height: 200);
 
   Group #Worn {
-    Anchor: (Left: 0, Top: 56, Width: 98, Height: 150);
+    Anchor: (Left: 0, Top: 56, Width: 94, Height: 150);
     Background: (TexturePath: "WornGlow.png");
     Visible: false;
   }
 
   Button #Card {
-    Anchor: (Left: 0, Top: 0, Width: 98, Height: 200);
+    Anchor: (Left: 0, Top: 0, Width: 94, Height: 200);
     Style: (
       Default: (Background: #000000(0)),
       Hovered: (Background: (TexturePath: "HoverGlow.png")),
@@ -31,20 +31,20 @@ Group {
     );
 
     Group #Hang {
-      Anchor: (Left: 0, Top: 0, Width: 98, Height: 200);
+      Anchor: (Left: 0, Top: 0, Width: 94, Height: 200);
 
       Group {
-        Anchor: (Left: 40, Top: 23, Width: 19, Height: 54);
-        Background: (TexturePath: "Hook.png");
+        Anchor: (Left: 16, Top: 23, Width: 63, Height: 86);
+        Background: (TexturePath: "Hanger.png");
       }
 
       AssetImage #Pic {
-        Anchor: (Left: 4, Top: 68, Width: 90, Height: 90);
+        Anchor: (Left: 4, Top: 68, Width: 86, Height: 86);
         FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
       }
 
       Label #Name {
-        Anchor: (Left: 2, Top: 162, Width: 94, Height: 34);
+        Anchor: (Left: 0, Top: 162, Width: 94, Height: 34);
         Style: @NameStyle;
       }
     }

@@ -1,6 +1,6 @@
 // Hytale Designer Sync: the in-game wardrobe. The picture is the game's Lumberjack wardrobe with its doors open and a second rack,
-// rendered by dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 177,87 size 521 x 402, seen between the front posts from x 190 to 684; the
-// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 98 to a rack from x 192; page arrows on the doors).
+// rendered by dev/tools/render-wardrobe.py, which also prints the numbers this layout uses (interior at 177,87 size 521 x 402, the inside seen between the front posts' shaded sides from x 204 to 678; the
+// top rack's row from interior y 0, the bottom rack's from y 201; five hangers of 94 to a rack from x 206; page arrows on the doors).
 // Top rack: the player's own skin (the in-game preset slots join it once Hytale allows sign-in). Bottom rack: the Locker's skins,
 // five to a page; the plugin appends five WardrobeCard.ui into #Grid and fills them for the page shown.
 $C = "../../Common.ui";
@@ -42,23 +42,23 @@ $C.@PageOverlay {
       Background: (TexturePath: "Wardrobe.png");
 
       Label {
-        Anchor: (Left: 198, Top: 89, Width: 300, Height: 18);
+        Anchor: (Left: 214, Top: 89, Width: 300, Height: 18);
         Text: "Your skins";
         Style: @HeadStyle;
       }
 
       // the player's own skin, worn whenever no Locker skin is
       Group {
-        Anchor: (Left: 192, Top: 87, Width: 98, Height: 200);
+        Anchor: (Left: 206, Top: 87, Width: 94, Height: 200);
 
         Group #OwnWorn {
-          Anchor: (Left: 0, Top: 56, Width: 98, Height: 150);
+          Anchor: (Left: 0, Top: 56, Width: 94, Height: 150);
           Background: (TexturePath: "WornGlow.png");
           Visible: false;
         }
 
         Button #OwnCard {
-          Anchor: (Left: 0, Top: 0, Width: 98, Height: 200);
+          Anchor: (Left: 0, Top: 0, Width: 94, Height: 200);
           Style: (
             Default: (Background: #000000(0)),
             Hovered: (Background: (TexturePath: "HoverGlow.png")),
@@ -67,20 +67,20 @@ $C.@PageOverlay {
           );
 
           Group #OwnHang {
-            Anchor: (Left: 0, Top: 0, Width: 98, Height: 200);
+            Anchor: (Left: 0, Top: 0, Width: 94, Height: 200);
 
             Group {
-              Anchor: (Left: 40, Top: 23, Width: 19, Height: 54);
-              Background: (TexturePath: "Hook.png");
+              Anchor: (Left: 16, Top: 23, Width: 63, Height: 86);
+              Background: (TexturePath: "Hanger.png");
             }
 
             AssetImage #OwnPic {
-              Anchor: (Left: 19, Top: 68, Width: 60, Height: 98);
+              Anchor: (Left: 18, Top: 63, Width: 57, Height: 92);
               FallbackTexturePath: "UI/Custom/Pages/Memories/MissingIcon.png";
             }
 
             Label #OwnName {
-              Anchor: (Left: 2, Top: 166, Width: 94, Height: 32);
+              Anchor: (Left: 0, Top: 162, Width: 94, Height: 34);
               Style: @NameStyle;
             }
           }
@@ -89,7 +89,7 @@ $C.@PageOverlay {
 
       Group {
         LayoutMode: Left;
-        Anchor: (Left: 198, Top: 290, Width: 482, Height: 18);
+        Anchor: (Left: 214, Top: 290, Width: 456, Height: 18);
 
         Label {
           Text: "Designer skins";
@@ -111,11 +111,11 @@ $C.@PageOverlay {
 
       Group #Grid {
         LayoutMode: Left;
-        Anchor: (Left: 192, Top: 288, Width: 490, Height: 200);
+        Anchor: (Left: 206, Top: 288, Width: 470, Height: 200);
       }
 
       Label #Empty {
-        Anchor: (Left: 192, Top: 288, Width: 490, Height: 200);
+        Anchor: (Left: 206, Top: 288, Width: 470, Height: 200);
         Text: "No saved skins";
         Style: (...@HeadStyle, HorizontalAlignment: Center);
         Visible: false;

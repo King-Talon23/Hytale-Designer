@@ -115,19 +115,21 @@ final class WardrobePage extends InteractiveCustomUIPage<WardrobePage.Event> {
         render(ui); sendUpdate(ui, null, false);
     }
 
-    /** the worn skin glows and hangs forward (a little bigger); the one under the pointer lifts off the rail */
+    /** the worn skin glows and comes forward (bigger), the one under the pointer a little; both grow around the coat hanger's
+     *  shoulder bar (96 below the rack's top), so a skin never leaves its hanger. Shoulders sit 32% down a site picture and 36%
+     *  down the game's own avatar picture (which is 0.617 as wide as tall). */
     private void render(UICommandBuilder ui) {
         String worn = wardrobe.wornName();
         for (int i = 0; i < RACK; i++) {
             int k = page * RACK + i; boolean on = k < looks.size() && looks.get(k).name().equals(worn); String card = "#Grid[" + i + "] ";
             ui.set(card + "#Worn.Visible", on);
-            ui.setObject(card + "#Hang.Anchor", box(0, hovered == i ? -8 : 0, 98, 200));
-            ui.setObject(card + "#Pic.Anchor", on ? box(0, 64, 98, 98) : box(4, 68, 90, 90));
+            int s = on ? 94 : hovered == i ? 90 : 86;
+            ui.setObject(card + "#Pic.Anchor", box(47 - s / 2, 96 - Math.round(s * 0.32f), s, s));
         }
         boolean own = wardrobe.wearingOwn();
         ui.set("#OwnWorn.Visible", own);
-        ui.setObject("#OwnHang.Anchor", box(0, hovered == -1 ? -8 : 0, 98, 200));
-        ui.setObject("#OwnPic.Anchor", own ? box(17, 64, 64, 104) : box(19, 68, 60, 98));
+        int h = own ? 100 : hovered == -1 ? 96 : 92, w = Math.round(h * 0.617f);
+        ui.setObject("#OwnPic.Anchor", box(47 - w / 2, 96 - Math.round(h * 0.36f), w, h));
         ui.set("#Status.Text", status);
     }
 
