@@ -27,8 +27,8 @@ SETS = {
                    'board': lambda x, y: (2 + x, 76 + y), 'rim': lambda x, y: (66 + x, 96 + y), 'cut': lambda x, y: (117 + x % 5, 118 + y % 4),
                    'bolt': LJ_BOLT},
     'Temple_Dark': {'interior': (-39.25, 7.25, 58.5, 25.5, 11.85), 'rail': [2, 1, 90], 'doors': ('Door-R', 'Door-L'), 'door_mid': 42, 'door_z': 2,
-                    'board': lambda x, y: (63 + x, 65 + y), 'rim': lambda x, y: (1 + (x + y) % 2, 1 + (x + y) % 9),
-                    'cut': lambda x, y: (66 + x % 5, 78 + y % 2), 'bolt': {'front': [100, 86], 'top': [101, 87], 'bottom': [101, 87], 'left': [101, 87], 'right': [101, 87]}},
+                    'board': lambda x, y: (64 + x, 68 + y), 'rim': lambda x, y: (1, 4), 'rim_cells': True,
+                    'cut': lambda x, y: (66 + x % 5, 78 + y % 2), 'bolt': {'front': [1, 1], 'top': [1, 4], 'bottom': [1, 4], 'left': [1, 4], 'right': [1, 4]}},
 }
 LJ = SETS['Lumberjack']['interior']
 LJ_SCALE = IN_H_UI / (LJ[2] - LJ[3])                 # UI units per model unit in the Lumberjack art (the hanger and plaque sizes are set there)
@@ -125,7 +125,8 @@ def make(set_name, c):
             x = 0
             while x < W:
                 kd = kind(x, y); xe = x
-                while kd != 'cut' and xe + 1 < W and kind(xe + 1, y) == kd: xe += 1   # cut cells one by one (a small dark patch)
+                # cut cells one by one (a small dark patch); a rim from a single texel too (a longer box would run its face across the sheet)
+                while kd != 'cut' and not (kd == 'rim' and c.get('rim_cells')) and xe + 1 < W and kind(xe + 1, y) == kd: xe += 1
                 w = xe - x + 1
                 front = {'cut': D - CUT, 'board': D, 'rim': D + RIM}[kd]
                 tu, tv = c[kd](x, y)
