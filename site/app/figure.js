@@ -1470,6 +1470,19 @@ export function stage(canvas, Controls) {
     landExtra: { value: LAND_EXTRA },
   };
   let wave = null; // a background change on its way out (see setBackdrop)
+  // opening the page: the haze starts close round the character and draws back once the land is ready, so the land comes out of the
+  // mist instead of popping in. at: when it started drawing back (null while the land is still being worked out)
+  let hazeIn = null;
+  const HAZE_IN = [44, 120], // the haze's near and far (blocks) while the land is on its way
+    HAZE_MS = 1100;
+  function hazeStep(now) {
+    if (!hazeIn || hazeIn.at == null || !scene.fog) return;
+    const k = Math.min(1, (now - hazeIn.at) / HAZE_MS),
+      e = k * k * k * (k * (k * 6 - 15) + 10);
+    scene.fog.near = (HAZE_IN[0] + (hazeIn.near - HAZE_IN[0]) * e) * BLOCK;
+    scene.fog.far = (HAZE_IN[1] + (hazeIn.far - HAZE_IN[1]) * e) * BLOCK;
+    if (k >= 1) hazeIn = null;
+  }
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(58, 48),
     new THREE.MeshBasicMaterial({ color: 0x0b1626, transparent: true, opacity: 0.55, fog: false })
@@ -1752,6 +1765,7 @@ export function stage(canvas, Controls) {
     requestAnimationFrame(loop);
     stepCam(now);
     waveStep(now);
+    hazeStep(now);
     {
       const d = cam.position.distanceTo(ctl.target),
         n = Math.min(40, Math.max(1, d / 30), strip ? strip.nearCap() : Infinity);
@@ -3135,6 +3149,7 @@ export function stage(canvas, Controls) {
       // the land joins when it is ready: during a change of place it rises on its own clock from then, after the plain
       built.userData.landReady?.then(g => {
         const now = wave?.newWorld === built;
+        if (hazeIn?.world === built) hazeIn.at = performance.now(); // opening the page: the haze draws back off it
         if (g && world === built) {
           g.visible = !built.userData.isFalling?.();
           built.add(g);
@@ -3151,6 +3166,12 @@ export function stage(canvas, Controls) {
     // the haze: clear round the character, thickening into the sky's own horizon colour by the land's edge, so the land never ends
     // in a line and the far hills fade the way they do in game
     scene.fog = new THREE.Fog(hor, LAND_EDGE * BLOCK * 0.22, LAND_EDGE * BLOCK * 0.96);
+    hazeIn = null;
+    if (!goWave && !reduceMotion() && built?.userData.landReady && !built.userData.landGroup) {
+      hazeIn = { world: built, at: null, near: LAND_EDGE * 0.22, far: LAND_EDGE * 0.96 };
+      scene.fog.near = HAZE_IN[0] * BLOCK;
+      scene.fog.far = HAZE_IN[1] * BLOCK;
+    }
     mist = null;
     startWave();
     warmPlains();

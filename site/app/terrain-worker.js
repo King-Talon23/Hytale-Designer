@@ -183,8 +183,11 @@ function build({ tile, files: texts, patterns, opt }) {
   const grids = [];
   let prevE = 0,
     prevEZ = 0;
-  // a ring: [cell size, half its size across, half along (the strip's rings are long bands down the lane; others square)]
-  for (const [s, E, EZ = E] of levels) {
+  // a ring: [cell size, half its size across, half along (the strip's rings are long bands down the lane; others square). On the
+  // strip only one lane length of each is worked out: the land repeats, so the page lays that piece end to end down the band
+  const ZL = PER ? levels[levels.length - 1][2] || treeR : 0;
+  for (const [s, E, EZ0 = E] of levels) {
+    const EZ = PER ? PER / 2 : EZ0;
     const last = E === levels[levels.length - 1][1],
       nx = (2 * E) / s,
       nz = (2 * EZ) / s,
@@ -222,7 +225,10 @@ function build({ tile, files: texts, patterns, opt }) {
     FILL = 2;
   for (const L of grids) {
     const { s, E, EZ, nx, nz, H, TOP, UND, UN, WL, WK } = L,
-      at = (i, j) => (i < 0 || j < 0 || i >= nx || j >= nz ? NONE : H[j * nx + i]);
+      at = (i, j) => {
+        if (PER) j = ((j % nz) + nz) % nz; // the piece repeats along the lane: past one end is its other end
+        return i < 0 || j < 0 || i >= nx || j >= nz ? NONE : H[j * nx + i];
+      };
     for (let j = 0; j < nz; j++) {
       const z0 = -EZ + j * s - 0.5,
         z1 = z0 + s;
@@ -312,8 +318,7 @@ function build({ tile, files: texts, patterns, opt }) {
   const trees = [],
     plant = (lx, lz, pick, r) => {
       // on the strip a tree in the first period stands again a period on and back, all along the lane
-      const ZL = PER ? levels[levels.length - 1][2] || treeR : 0,
-        M = PER ? Math.ceil(ZL / PER) : 0;
+      const M = PER ? Math.ceil(ZL / PER) : 0;
       for (let m = -M; m <= M; m++) {
         const z = lz + m * PER,
           d = PER ? Math.max(Math.abs(lx), 0) : Math.hypot(lx, z);
@@ -356,7 +361,10 @@ function build({ tile, files: texts, patterns, opt }) {
   }
   // the plants on the land near the plain, the game's way (see makeCovers)
   const L0 = grids[0],
-    land = [];
+    land = [],
+    // where the page lays the strip's piece: every lane length out to the band's ends (just the one piece elsewhere)
+    K = PER ? Math.ceil((ZL - PER / 2) / PER) : 0,
+    copies = Array.from({ length: 2 * K + 1 }, (_, i) => (i - K) * PER);
   for (let j = 0; j < L0.nz; j++)
     for (let i = 0; i < L0.nx; i++) {
       const k = j * L0.nx + i,
@@ -365,7 +373,7 @@ function build({ tile, files: texts, patterns, opt }) {
         d = Math.hypot(x, z);
       if (L0.H[k] === NONE || L0.WL[k] !== NONE || (strip ? Math.abs(x) > opt.coverR : d < FIX || d > opt.coverR)) continue;
       const c = covers(ox + x, oz + fold(z), L0.H[k] + S0, names[L0.TOP[k]]); // (the strip's plants repeat with its land)
-      if (c) land.push(x, z, L0.H[k], nameId(c));
+      if (c) for (const o of copies) land.push(x, z + o, L0.H[k], nameId(c));
     }
   return {
     ox,
@@ -376,6 +384,7 @@ function build({ tile, files: texts, patterns, opt }) {
     covers: new Int16Array(land),
     faces: F.out(),
     trees: new Float32Array(trees),
+    copies: PER ? copies : null,
     ms: performance.now() - t0,
   };
 }

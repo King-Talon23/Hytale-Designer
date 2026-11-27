@@ -42,8 +42,11 @@ const repeat = mat => {
 
 // the land: the worker's faces ('Name|top|variant', 'Name|side', 'water', 'lava') as meshes on the blocks' own materials.
 // parts(name) -> the block's [{ geo, mat }] (mat: [+x, -x, top, bottom, +z, -z] for a cube)
+// data.copies (the strip): the faces are one lane length of land, laid again at each of these z offsets (blocks); the copies share
+// the piece's geometry, each with its own column middles so the change-of-place wave still runs outward over them
 export async function land(data, { parts, water, lava }) {
-  const g = new THREE.Group();
+  const g = new THREE.Group(),
+    copies = data.copies || [0];
   for (const [k, f] of Object.entries(data.faces)) {
     let mat = null;
     if (k === 'water') mat = water ? (await water())[0].mat : null;
@@ -54,17 +57,32 @@ export async function land(data, { parts, water, lava }) {
       if (p && Array.isArray(p[0].mat)) mat = kind === 'top' ? p[+v % p.length].mat[2] : p[0].mat[0];
     }
     if (!mat) continue;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(f.pos, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(f.uv, 2));
-    geo.setAttribute('normal', new THREE.BufferAttribute(f.nor, 3, true));
-    geo.setAttribute('landC', new THREE.BufferAttribute(f.cell, 2));
-    geo.computeBoundingSphere();
-    const m = new THREE.Mesh(geo, repeat(mat));
-    m.matrixAutoUpdate = false;
-    m.userData.ownGeo = true;
-    m.userData.land = true;
-    g.add(m);
+    const pos = new THREE.BufferAttribute(f.pos, 3),
+      uv = new THREE.BufferAttribute(f.uv, 2),
+      nor = new THREE.BufferAttribute(f.nor, 3, true);
+    let sphere = null;
+    for (const o of copies) {
+      const geo = new THREE.BufferGeometry(),
+        dz = o * BLOCK;
+      let cell = f.cell;
+      if (dz) {
+        cell = new Float32Array(f.cell);
+        for (let i = 1; i < cell.length; i += 2) cell[i] += dz;
+      }
+      geo.setAttribute('position', pos);
+      geo.setAttribute('uv', uv);
+      geo.setAttribute('normal', nor);
+      geo.setAttribute('landC', new THREE.BufferAttribute(cell, 2));
+      if (!sphere) geo.computeBoundingSphere(), (sphere = geo.boundingSphere);
+      else geo.boundingSphere = sphere.clone();
+      const m = new THREE.Mesh(geo, repeat(mat));
+      m.position.z = dz;
+      m.updateMatrix();
+      m.matrixAutoUpdate = false;
+      m.userData.ownGeo = true;
+      m.userData.land = true;
+      g.add(m);
+    }
   }
   return g;
 }
