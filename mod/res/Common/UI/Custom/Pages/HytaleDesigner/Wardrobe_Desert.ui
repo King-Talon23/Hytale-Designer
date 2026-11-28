@@ -84,7 +84,16 @@ $C.@PageOverlay {
       }
 
       Group #Grid {
-        LayoutMode: Left;
+        LayoutMode: LeftScrolling;
+        MouseWheelScrollBehaviour: HorizontalOnly;
+        ScrollbarStyle: (
+          Spacing: 0,
+          Size: 3,
+          Handle: #c7ae7a(0.5),
+          HoveredHandle: #ecdcb8(0.8),
+          DraggedHandle: #ecdcb8(0.9),
+          OnlyVisibleWhenHovered: true
+        );
         Anchor: (Left: 511, Top: 433, Width: 470, Height: 200);
       }
 
@@ -112,78 +121,11 @@ $C.@PageOverlay {
 
         Group { FlexWeight: 1; }
 
-        Button #PagerPrev {
-          Anchor: (Width: 24, Height: 28);
-          Visible: false;
-          Style: (
-            Default: (Background: (TexturePath: "PagerLeft.png")),
-            Hovered: (Background: (TexturePath: "PagerLeftHover.png")),
-            Pressed: (Background: (TexturePath: "PagerLeftHover.png")),
-            Sounds: $C.@ButtonSounds
-          );
-        }
-
-        Label #Page {
-          Anchor: (Width: 52);
-          Style: (...@HeadStyle, HorizontalAlignment: Center);
-        }
-
-        Button #PagerNext {
-          Anchor: (Width: 24, Height: 28);
-          Visible: false;
-          Style: (
-            Default: (Background: (TexturePath: "PagerRight.png")),
-            Hovered: (Background: (TexturePath: "PagerRightHover.png")),
-            Pressed: (Background: (TexturePath: "PagerRightHover.png")),
-            Sounds: $C.@ButtonSounds
-          );
-        }
       }
 
       // pages: a control made on each door's inside (an arrow carved or inlaid, or the door's own hardware), rendered in the doors'
       // angle; place and size as render-wardrobe.py prints them
-      Button #PrevPage {
-        Anchor: (Left: 132, Top: 492, Width: 138, Height: 100);
-        Style: (
-          Default: (Background: (TexturePath: "PageLeft_Desert.png")),
-          Hovered: (Background: (TexturePath: "PageLeftHover_Desert.png")),
-          Pressed: (Background: (TexturePath: "PageLeftHover_Desert.png")),
-          Sounds: $C.@ButtonSounds
-        );
-      }
 
-      Button #NextPage {
-        Anchor: (Left: 1238, Top: 492, Width: 138, Height: 100);
-        Style: (
-          Default: (Background: (TexturePath: "PageRight_Desert.png")),
-          Hovered: (Background: (TexturePath: "PageRightHover_Desert.png")),
-          Pressed: (Background: (TexturePath: "PageRightHover_Desert.png")),
-          Sounds: $C.@ButtonSounds
-        );
-      }
-
-      // @doors {
-      Button #DoorPrev {
-        Anchor: (Left: 0, Top: 200, Width: 384, Height: 498);
-        Visible: false;
-        Style: (
-          Default: (Background: #000000(0)),
-          Hovered: (Background: (TexturePath: "DoorLeftHover_Desert.png")),
-          Pressed: (Background: (TexturePath: "DoorLeftHover_Desert.png")),
-          Sounds: $C.@ButtonSounds
-        );
-      }
-      Button #DoorNext {
-        Anchor: (Left: 1108, Top: 200, Width: 401, Height: 498);
-        Visible: false;
-        Style: (
-          Default: (Background: #000000(0)),
-          Hovered: (Background: (TexturePath: "DoorRightHover_Desert.png")),
-          Pressed: (Background: (TexturePath: "DoorRightHover_Desert.png")),
-          Sounds: $C.@ButtonSounds
-        );
-      }
-      // @doors }
     }
 
     Label #Status {

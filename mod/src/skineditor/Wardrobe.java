@@ -27,7 +27,7 @@ final class Wardrobe {
     record Look(String name, JsonObject skin, Set<String> keepOwn, String picture, boolean fav) {}
 
     private final Supplier<Path> skinsDir, liveCommon, userData;
-    private final java.util.Map<String, Integer> pages = new java.util.concurrent.ConcurrentHashMap<>();   // the rack page each player left each wardrobe on (WardrobePage spot)
+    private final java.util.Map<String, Integer> pages = new java.util.concurrent.ConcurrentHashMap<>();   // the skin each player last touched at each wardrobe (WardrobePage spot), shown first on reopening
 
     Integer pageAt(String spot) { return pages.get(spot); }
     void leavePage(String spot, int page) { if (pages.size() > 5000) pages.clear(); pages.put(spot, page); }
@@ -134,10 +134,13 @@ final class Wardrobe {
     /** true when the player wears their own skin (nothing from the site is switched on) */
     boolean wearingOwn() { JsonObject w = current(); return w == null || !w.has("on") || !w.get("on").getAsBoolean(); }
 
-    /** the saved skin being worn now (matched by its parts), or null */
+    /** the saved skin being worn now (by the name wear() writes, else matched by its parts; an empty part may be absent in one and
+     *  null in the other, so parts alone missed it 11-28), or null */
     String wornName() {
         JsonObject w = current(); if (w == null || !w.has("on") || !w.get("on").getAsBoolean() || !w.has("skin")) return null;
-        for (Look l : looks()) if (l.skin().equals(w.get("skin"))) return l.name();
+        List<Look> all = looks(); String n = w.has("name") && w.get("name").isJsonPrimitive() ? w.get("name").getAsString() : null;
+        for (Look l : all) if (l.name().equals(n)) return l.name();
+        for (Look l : all) if (l.skin().equals(w.get("skin"))) return l.name();
         return null;
     }
 

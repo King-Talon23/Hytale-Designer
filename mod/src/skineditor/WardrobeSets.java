@@ -26,10 +26,6 @@ final class WardrobeSets {
     static final Pattern ITEM = Pattern.compile("^Server/Item/Items/Furniture/([A-Za-z_]+)/Furniture_([A-Za-z_]+)_Wardrobe\\.json$");
 
     static String pageId(String set) { return set.equals("Lumberjack") ? WardrobePage.PAGE_ID : WardrobePage.PAGE_ID + "_" + set; }
-    /** sets whose pages turn with the plaques on the doors (render-wardrobe.py makes them) instead of the doors themselves; none since 11-27 */
-    static final Set<String> PLAQUES = Set.of();
-    static boolean doorsTurnPages(String set) { return !PLAQUES.contains(set); }
-    static String setOf(String layout) { Matcher m = Pattern.compile("Wardrobe_([A-Za-z_]+)\\.ui$").matcher(layout); return m.find() ? m.group(1) : "Lumberjack"; }
     static String layout(String set) { return set.equals("Lumberjack") ? WardrobePage.LAYOUT : "Pages/HytaleDesigner/Wardrobe_" + set + ".ui"; }
 
     /** writes (or refreshes) the override item JSONs into the live pack and removes ones for sets no longer listed; returns how many it wrote */
