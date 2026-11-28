@@ -14,45 +14,75 @@ const STRIP = typeof location !== 'undefined' && location.hostname.endsWith('loc
 const cache = new Map(),
   once = (k, f) => (cache.has(k) ? cache.get(k) : (cache.set(k, f()), cache.get(k)));
 export const clearCache = () => cache.clear();
-// a strip land plant's material: the plant sinks out of the clearing round the character (uNearClear blocks) and the camera's
-// lens, and one between the camera and the character shrinks down below the sight line to its feet (see layout() on the plain)
-// cover false: only the clearing (a tall tree is not shrunk to show the character, only kept off it)
-function nearPlant(m, U, bb, cover = true) {
+// a strip land plant's material: the same rule as the plain's plants in layout() (live), worked out on the card because the strip
+// lays its land many times down the lane. A plant sinks out of the clearing round the character (uNearClear blocks), the camera's
+// lens and any set piece; one nearer the camera than the character whose box covers the character's on screen (uNearMe) shrinks,
+// down to below the sight line to the feet. The character stands at the middle (the strip slides its land under it)
+const NEAR_RECTS = 8;
+function nearPlant(m, U, bb) {
   const c = m.clone(),
-    tall = Math.max(0.1, bb.max.y / BLOCK),
-    wide = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) / BLOCK;
+    tall = bb.max.y / BLOCK,
+    wide = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) / BLOCK,
+    f = v => v.toFixed(4);
   c.userData = { ...m.userData, nearPlant: true };
   c.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader =
-      'uniform vec3 uNearWho; uniform vec3 uNearCam; uniform float uNearClear; uniform float uNearBody;\n' +
+      'uniform vec3 uNearCam; uniform float uNearClear; uniform float uNearBody; uniform vec4 uNearMe; uniform float uNearMeOn;\n' +
+      'uniform vec4 uNearRects[' +
+      NEAR_RECTS +
+      ']; uniform int uNearRectN;\n' +
+      'float nearE(float v) { return smoothstep(0.0, 1.0, v); }\n' +
+      // a box (blocks) on screen as [x0, y0, x1, y1] in -1..1; ok false when part of it is behind the camera (onScreen())
+      'vec4 nearBox(vec3 a, vec3 b, out bool ok) { vec4 r = vec4(1e9, 1e9, -1e9, -1e9); ok = true;\n' +
+      '  for (int i = 0; i < 8; i++) { vec3 q = vec3(i % 2 == 0 ? a.x : b.x, (i / 2) % 2 == 0 ? a.y : b.y, i / 4 == 0 ? a.z : b.z);\n' +
+      '    vec4 h = projectionMatrix * viewMatrix * vec4(q * ' +
+      f(BLOCK) +
+      ', 1.0);\n' +
+      '    if (h.w <= 0.0 || h.z / h.w > 1.0) ok = false;\n' +
+      '    vec2 n = h.xy / h.w; r.xy = min(r.xy, n); r.zw = max(r.zw, n); }\n' +
+      '  return r; }\n' +
       sh.vertexShader.replace(
         '#include <begin_vertex>',
         [
           '#include <begin_vertex>',
           '#ifdef USE_INSTANCING',
-          'vec3 nearO = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz / ' + BLOCK.toFixed(4) + ';',
-          'vec3 nearW = uNearWho / ' + BLOCK.toFixed(4) + ', nearC = uNearCam / ' + BLOCK.toFixed(4) + ';',
-          'vec2 nearP = nearO.xz - nearW.xz, nearV = nearC.xz - nearW.xz;',
-          'float nearK = min(smoothstep(0.0, 1.0, (length(nearP) - uNearClear) / 1.8), smoothstep(0.0, 1.0, (length(nearO.xz - nearC.xz) - 1.2) / 2.2));',
-          'float nearL = max(length(nearV), 0.001), nearT = dot(nearP, nearV) / (nearL * nearL);',
-          'float nearX = abs(nearP.x * nearV.y - nearP.y * nearV.x) / nearL;',
+          'vec3 nearO = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz / ' + f(BLOCK) + ';',
+          'vec3 nearC = uNearCam / ' + f(BLOCK) + ';',
+          'float nearX = nearO.x, nearY = nearO.y, nearZ = nearO.z;',
+          'float nearK = min(nearE((length(nearO.xz) - uNearClear) / 1.8), nearE((length(nearO.xz - nearC.xz) - 1.2) / 2.2));',
           'float nearS = 1.0;',
-          'if (' + (cover ? 'true' : 'false') + ' && nearT > 0.0 && nearT < 1.0) {',
-          '  float lim = clamp((nearT * (nearC.y - nearW.y) - (nearO.y - nearW.y) - 0.1) / ' + tall.toFixed(3) + ', 0.15, 1.0);',
-          '  nearS = mix(lim, 1.0, smoothstep(' +
-            wide.toFixed(3) +
-            ' + uNearBody + 0.4, ' +
-            wide.toFixed(3) +
-            ' + uNearBody + 1.0, nearX));',
+          'float nearL = max(length(nearC.xz), 1.0);',
+          'if (uNearMeOn > 0.5) {',
+          '  float t = (nearX * nearC.x + nearZ * nearC.z) / (nearL * nearL);',
+          '  if (t > 0.0 && t < 1.0 && abs(nearX * nearC.z - nearZ * nearC.x) / nearL < ' + f(wide) + ' + uNearBody + 1.0) {',
+          '    bool ok;',
+          '    vec4 pr = nearBox(vec3(nearX - ' +
+            f(wide) +
+            ', nearY, nearZ - ' +
+            f(wide) +
+            '), vec3(nearX + ' +
+            f(wide) +
+            ', nearY + ' +
+            f(tall) +
+            ', nearZ + ' +
+            f(wide) +
+            '), ok);',
+          '    float o = ok ? min(min(pr.z, uNearMe.z) - max(pr.x, uNearMe.x), min(pr.w, uNearMe.w) - max(pr.y, uNearMe.y)) : 0.0;',
+          '    if (o > 0.0) nearS = 1.0 - (1.0 - max(0.15, min(1.0, (t * nearC.y - nearY - 0.1) / ' +
+            f(Math.max(tall, 0.01)) +
+            '))) * nearE(o / 0.04);',
+          '  }',
           '}',
+          'for (int i = 0; i < ' + NEAR_RECTS + '; i++) { if (i >= uNearRectN) break; vec4 r = uNearRects[i];',
+          '  if (nearX > r.x - 0.6 && nearX < r.z + 0.6 && nearZ > r.y - 0.6 && nearZ < r.w + 0.6) nearK = 0.0; }',
           'transformed *= nearK < 0.02 ? 0.0 : nearS;',
-          'transformed.y -= (1.0 - nearK) * 2.2 * ' + BLOCK.toFixed(4) + ';',
+          'transformed.y -= (1.0 - nearK) * 2.2 * ' + f(BLOCK) + ';',
           '#endif',
         ].join('\n')
       );
   };
-  c.customProgramCacheKey = () => 'near' + tall.toFixed(3) + '|' + wide.toFixed(3) + (cover ? 'c' : '');
+  c.customProgramCacheKey = () => 'near' + f(tall) + '|' + f(wide);
   return c;
 }
 // a custom asset's texture comes from the asset creator (the live canvas while it is being painted), not from the game files
@@ -1205,10 +1235,13 @@ async function buildWorld(sc, tint, renderer) {
     // the character. Worked out on the card (the land is laid many times down the lane); the page feeds g.userData.near each frame
     const nearU = STRIP
       ? {
-          uNearWho: { value: new THREE.Vector3() },
           uNearCam: { value: new THREE.Vector3() },
           uNearClear: { value: 1.7 },
           uNearBody: { value: 0.5 },
+          uNearMe: { value: new THREE.Vector4() },
+          uNearMeOn: { value: 0 },
+          uNearRects: { value: Array.from({ length: NEAR_RECTS }, () => new THREE.Vector4()) },
+          uNearRectN: { value: 0 },
         }
       : null;
     g.userData.near = nearU;
@@ -1219,9 +1252,8 @@ async function buildWorld(sc, tint, renderer) {
         let mats = md.mats;
         if (nearU) {
           if (!md.geo.boundingBox) md.geo.computeBoundingBox();
-          const bb = md.geo.boundingBox,
-            cover = bb.max.y / BLOCK < 6; // a bush shrinks to show the character; a tall tree only keeps off it
-          mats = Array.isArray(mats) ? mats.map(m => nearPlant(m, nearU, bb, cover)) : nearPlant(mats, nearU, bb, cover);
+          const bb = md.geo.boundingBox;
+          mats = Array.isArray(mats) ? mats.map(m => nearPlant(m, nearU, bb)) : nearPlant(mats, nearU, bb);
         }
         const im = new THREE.InstancedMesh(md.geo, mats, near[k].length);
         near[k].forEach((m, i) => im.setMatrixAt(i, m));
@@ -1733,10 +1765,17 @@ export function stage(canvas, Controls) {
       world.userData.clear = clearAt;
       const near = world.userData.landGroup?.userData.near;
       if (near && strip) {
-        near.uNearWho.value.set(0, 0, 0); // the strip slides its land under the character, which stays at the middle
         near.uNearCam.value.copy(cam.position);
         near.uNearClear.value = clearAt;
-        near.uNearBody.value = world.userData.who[0];
+        const who = world.userData.who;
+        near.uNearBody.value = who[0];
+        cam.updateMatrixWorld();
+        const me = onScreen(cam, -who[0], 0, -who[0], who[0], who[1], who[0]); /* the character's box as the camera sees it */
+        near.uNearMeOn.value = me ? 1 : 0;
+        if (me) near.uNearMe.value.set(me[0], me[1], me[2], me[3]);
+        const rs = (world.userData.avoid || []).slice(0, NEAR_RECTS);
+        rs.forEach((r, i) => near.uNearRects.value[i].set(r[0], r[1], r[2], r[3]));
+        near.uNearRectN.value = rs.length;
       }
       let mx = anim.move ? -vel.x * dt : 0,
         mz = anim.move ? -vel.y * dt : 0;
