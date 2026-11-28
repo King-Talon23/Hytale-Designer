@@ -237,6 +237,7 @@ def write_ui(set_name, lay):
              (r'"Wardrobe\.png"', '"Wardrobe%s.png"' % sfx, 1),
              (r'Anchor: \(Left: \d+, Top: \d+, Width: 300, Height: 18\);', 'Anchor: (Left: %d, Top: %d, Width: 300, Height: 18);' % (ox + 8, oy + 2), 1),
              (r'Anchor: \(Left: \d+, Top: \d+, Width: 94, Height: 200\);(\s*Group #OwnWorn)', r'Anchor: (Left: %d, Top: %d, Width: 94, Height: 200);\g<1>' % (ox, oy), 1),
+             (r'Anchor: \(Left: \d+, Top: \d+, Width: 376, Height: 200\);', 'Anchor: (Left: %d, Top: %d, Width: 376, Height: 200);' % (ox + 94, oy), 1),   # #Presets
              (r'Anchor: \(Left: \d+, Top: \d+, Width: 470, Height: 200\);', 'Anchor: (Left: %d, Top: %d, Width: 470, Height: 200);' % (gx, gy), 2),
              (r'Anchor: \(Left: \d+, Top: \d+, Width: 458, Height: 28\);', 'Anchor: (Left: %d, Top: %d, Width: 458, Height: 28);' % (gx + 8, gy - 6), 1),
              (r'Anchor: \(Left: 0, Top: \d+, Width: \d+, Height: 22\);', 'Anchor: (Left: 0, Top: %d, Width: %d, Height: 22);' % (H + 42, W), 1)]

@@ -83,6 +83,43 @@ $C.@PageOverlay {
         }
       }
 
+      // the preset slots to come: bare hangers beside the own skin (the in-game presets hang here once Hytale allows sign-in)
+      Group #Presets {
+        Anchor: (Left: 402, Top: 160, Width: 376, Height: 200);
+
+        Group {
+          Anchor: (Left: 16, Top: 23, Width: 63, Height: 86);
+          Background: (TexturePath: "HangerEmpty.png");
+        }
+
+        Group {
+          Anchor: (Left: 110, Top: 23, Width: 63, Height: 86);
+          Background: (TexturePath: "HangerEmpty.png");
+        }
+
+        Group {
+          Anchor: (Left: 204, Top: 23, Width: 63, Height: 86);
+          Background: (TexturePath: "HangerEmpty.png");
+        }
+
+        Group {
+          Anchor: (Left: 298, Top: 23, Width: 63, Height: 86);
+          Background: (TexturePath: "HangerEmpty.png");
+        }
+
+        Label {
+          Anchor: (Left: 0, Top: 118, Width: 376, Height: 18);
+          Text: "Your presets will hang here";
+          Style: (...@NameStyle, TextColor: #c7ae7a);
+        }
+
+        Label {
+          Anchor: (Left: 0, Top: 138, Width: 376, Height: 18);
+          Text: "coming soon";
+          Style: (...@NameStyle, TextColor: #8f7c58, RenderItalics: true, RenderBold: false);
+        }
+      }
+
       Group #Grid {
         LayoutMode: LeftScrolling;
         MouseWheelScrollBehaviour: HorizontalOnly;
