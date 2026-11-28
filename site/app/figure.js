@@ -19,6 +19,8 @@ export const clearCache = () => cache.clear();
 // lens and any set piece; one nearer the camera than the character whose box covers the character's on screen (uNearMe) shrinks,
 // down to below the sight line to the feet. The character stands at the middle (the strip slides its land under it)
 const NEAR_RECTS = 8;
+// how gently plants make way (live and strip): fades in blocks; margin/ramp: how far off the character on screen a shrink starts
+const MAKE_WAY = { clear: 3, lens: 3, margin: 0.12, ramp: 0.32, rect: 1.5, side: 1.5 };
 function nearPlant(m, U, bb) {
   const c = m.clone(),
     tall = bb.max.y / BLOCK,
@@ -50,12 +52,17 @@ function nearPlant(m, U, bb) {
           'vec3 nearO = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz / ' + f(BLOCK) + ';',
           'vec3 nearC = uNearCam / ' + f(BLOCK) + ';',
           'float nearX = nearO.x, nearY = nearO.y, nearZ = nearO.z;',
-          'float nearK = min(nearE((length(nearO.xz) - uNearClear) / 1.8), nearE((length(nearO.xz - nearC.xz) - 1.2) / 2.2));',
+          'float nearK = min(nearE((length(nearO.xz) - uNearClear) / ' +
+            f(MAKE_WAY.clear) +
+            '), nearE((length(nearO.xz - nearC.xz) - 1.2) / ' +
+            f(MAKE_WAY.lens) +
+            '));',
           'float nearS = 1.0;',
           'float nearL = max(length(nearC.xz), 1.0);',
           'if (uNearMeOn > 0.5) {',
           '  float t = (nearX * nearC.x + nearZ * nearC.z) / (nearL * nearL);',
-          '  if (t > 0.0 && t < 1.0 && abs(nearX * nearC.z - nearZ * nearC.x) / nearL < ' + f(wide) + ' + uNearBody + 1.0) {',
+          '  float side = ' + f(wide) + ' + uNearBody + 2.0 + ' + f(MAKE_WAY.side) + ' - abs(nearX * nearC.z - nearZ * nearC.x) / nearL;',
+          '  if (t > 0.0 && t < 1.0 && side > 0.0) {',
           '    bool ok;',
           '    vec4 pr = nearBox(vec3(nearX - ' +
             f(wide) +
@@ -68,14 +75,21 @@ function nearPlant(m, U, bb) {
             ', nearZ + ' +
             f(wide) +
             '), ok);',
-          '    float o = ok ? min(min(pr.z, uNearMe.z) - max(pr.x, uNearMe.x), min(pr.w, uNearMe.w) - max(pr.y, uNearMe.y)) : 0.0;',
-          '    if (o > 0.0) nearS = 1.0 - (1.0 - max(0.15, min(1.0, (t * nearC.y - nearY - 0.1) / ' +
+          '    float o = ok ? min(min(pr.z, uNearMe.z) - max(pr.x, uNearMe.x), min(pr.w, uNearMe.w) - max(pr.y, uNearMe.y)) : 1.0;',
+          '    nearS = 1.0 - (1.0 - max(0.15, min(1.0, (t * nearC.y - nearY - 0.1) / ' +
             f(Math.max(tall, 0.01)) +
-            '))) * nearE(o / 0.04);',
+            '))) * nearE((o + ' +
+            f(MAKE_WAY.margin) +
+            ') / ' +
+            f(MAKE_WAY.ramp) +
+            ') * nearE(side / ' +
+            f(MAKE_WAY.side) +
+            ') * nearE(t / 0.1) * nearE((1.0 - t) / 0.1);',
           '  }',
           '}',
           'for (int i = 0; i < ' + NEAR_RECTS + '; i++) { if (i >= uNearRectN) break; vec4 r = uNearRects[i];',
-          '  if (nearX > r.x - 0.6 && nearX < r.z + 0.6 && nearZ > r.y - 0.6 && nearZ < r.w + 0.6) nearK = 0.0; }',
+          '  float out_ = max(max(r.x - 0.6 - nearX, nearX - r.z - 0.6), max(r.y - 0.6 - nearZ, nearZ - r.w - 0.6));',
+          '  nearK = min(nearK, nearE(out_ / ' + f(MAKE_WAY.rect) + ')); }',
           'transformed *= nearK < 0.02 ? 0.0 : nearS;',
           'transformed.y -= (1.0 - nearK) * 2.2 * ' + f(BLOCK) + ';',
           '#endif',
@@ -1442,20 +1456,23 @@ async function buildWorld(sc, tint, renderer) {
           const d = Math.hypot(x, z); // a plant shrinks away near the character, the camera's lens and any set piece
           const e = v => (v <= 0 ? 0 : v >= 1 ? 1 : v * v * (3 - 2 * v)); // long, eased fades, so a plant sliding past never visibly pops in or out
           k = Math.min(
-            e((d - clear) / 1.8),
+            e((d - clear) / MAKE_WAY.clear),
             e((38 - d) / 8),
-            c ? e((Math.hypot(x * BLOCK - c.x, z * BLOCK - c.z) / BLOCK - 1.2) / 2.2) : 1
+            c ? e((Math.hypot(x * BLOCK - c.x, z * BLOCK - c.z) / BLOCK - 1.2) / MAKE_WAY.lens) : 1
           );
           if (me) {
-            /* a plant nearer the camera than the character whose box covers the character on screen shrinks, down to below the sight line to the feet */
-            const t = (x * cx + z * cz) / (cl * cl);
-            if (t > 0 && t < 1 && Math.abs(x * cz - z * cx) / cl < st.wide + who[0] + 1) {
+            /* a plant nearer the camera whose box nears the character's on screen eases down to below the sight line to the feet */
+            const t = (x * cx + z * cz) / (cl * cl),
+              side = st.wide + who[0] + 2 + MAKE_WAY.side - Math.abs(x * cz - z * cx) / cl;
+            if (t > 0 && t < 1 && side > 0) {
               const pr = onScreen(eye, x - st.wide, y, z - st.wide, x + st.wide, y + st.tall, z + st.wide),
-                o = pr ? Math.min(Math.min(pr[2], me[2]) - Math.max(pr[0], me[0]), Math.min(pr[3], me[3]) - Math.max(pr[1], me[1])) : 0;
-              if (o > 0) s = 1 - (1 - Math.max(0.15, Math.min(1, (t * cy - y - 0.1) / st.tall))) * e(o / 0.04);
+                o = pr ? Math.min(Math.min(pr[2], me[2]) - Math.max(pr[0], me[0]), Math.min(pr[3], me[3]) - Math.max(pr[1], me[1])) : 1;
+              const f = e((o + MAKE_WAY.margin) / MAKE_WAY.ramp) * e(side / MAKE_WAY.side) * e(t / 0.1) * e((1 - t) / 0.1);
+              s = 1 - (1 - Math.max(0.15, Math.min(1, (t * cy - y - 0.1) / st.tall))) * f;
             }
           }
-          for (const r of rects) if (x > r[0] - 0.6 && x < r[2] + 0.6 && z > r[1] - 0.6 && z < r[3] + 0.6) k = 0;
+          for (const r of rects)
+            k = Math.min(k, e(Math.max(r[0] - 0.6 - x, x - r[2] - 0.6, r[1] - 0.6 - z, z - r[3] - 0.6) / MAKE_WAY.rect));
           if (k < 0.02) continue;
         }
         st.im.setMatrixAt(
