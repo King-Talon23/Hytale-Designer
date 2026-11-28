@@ -6,6 +6,15 @@ import * as THREE from '../vendor/three.module.min.js';
 const BLOCK = 64;
 export const LIFT = 0.004; // the land's tops sit a hair above the sliding clearing's, so the two never flicker where they overlap
 
+// building a new place's land is long work on the page's own thread: it stops every few ms to let a frame be drawn, so the
+// change-of-place wave keeps playing smoothly while the land is put together
+let since = 0;
+export async function breathe() {
+  if (performance.now() - since < 6) return;
+  await (globalThis.scheduler?.yield ? globalThis.scheduler.yield() : new Promise(r => setTimeout(r, 0)));
+  since = performance.now();
+}
+
 let worker = null,
   seq = 0;
 const waiting = new Map();
@@ -57,6 +66,7 @@ export async function land(data, { parts, water, lava }) {
       if (p && Array.isArray(p[0].mat)) mat = kind === 'top' ? p[+v % p.length].mat[2] : p[0].mat[0];
     }
     if (!mat) continue;
+    await breathe();
     const pos = new THREE.BufferAttribute(f.pos, 3),
       uv = new THREE.BufferAttribute(f.uv, 2),
       nor = new THREE.BufferAttribute(f.nor, 3, true);
@@ -174,6 +184,7 @@ export async function treeModel(prefab, { parts, turnOf, known }) {
     tall = 0;
   for (const { b, p } of list) {
     if (!p) continue;
+    await breathe();
     const y = b.y + lift,
       q = b.rotation ? turnOf(b.rotation) : null;
     reach = Math.max(reach, Math.hypot(b.x, b.z) + 0.5);

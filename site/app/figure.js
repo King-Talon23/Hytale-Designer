@@ -5,7 +5,7 @@ import * as game from './game.js';
 import { FIELDS } from './game.js';
 import { BLOCKS, SET_PIECES, SCENES } from './scene-data.js';
 import { loose, refsOf } from './worldgen.js';
-import { plan as planLand, land as landMeshes, treeModel, picture, billboards, LIFT } from './terrain.js';
+import { plan as planLand, land as landMeshes, treeModel, picture, billboards, breathe, LIFT } from './terrain.js';
 import { createStrip } from './portal.js';
 // the strip and its portals: a prototype, on local test pages with ?strip only
 const STRIP = typeof location !== 'undefined' && location.hostname.endsWith('localhost') && /[?&]strip\b/.test(location.search),
@@ -1259,7 +1259,8 @@ async function buildWorld(sc, tint, renderer) {
         }
       : null;
     g.userData.near = nearU;
-    index.forEach((p, k) => {
+    for (const [k, p] of index.entries()) {
+      await breathe();
       const md = models.get(p),
         pk = p + '|' + tint;
       if (near[k].length) {
@@ -1278,7 +1279,7 @@ async function buildWorld(sc, tint, renderer) {
         if (!treePictures.has(pk)) treePictures.set(pk, picture(renderer, md));
         g.add(billboards(treePictures.get(pk), far[k]));
       }
-    });
+    }
     mark('trees');
     // plants on the land near the plain: the game's covers (see makeCovers in worldgen.js)
     let s2 = 23;
@@ -1295,6 +1296,7 @@ async function buildWorld(sc, tint, renderer) {
       (plants.get(name) || plants.set(name, []).get(name)).push(m);
     }
     for (const [name, ms] of plants) {
+      await breathe();
       const p = (await parts(name).catch(() => null))?.[0];
       if (!p) continue;
       if (nearU && !p.geo.boundingBox) p.geo.computeBoundingBox();
@@ -1362,7 +1364,6 @@ async function buildWorld(sc, tint, renderer) {
     M = new THREE.Matrix4(),
     V = new THREE.Vector3(),
     Q = new THREE.Quaternion(),
-    Y = new THREE.Vector3(0, 1, 0),
     ONE = new THREE.Vector3(1, 1, 1),
     S = new THREE.Vector3();
   const sets = [];
@@ -1428,7 +1429,14 @@ async function buildWorld(sc, tint, renderer) {
   let ax = 0,
     az = 0; // how far the plain has slid (scene units)
   const avoid = () => root.userData.avoid || []; // set pieces' ground rectangles [x0, z0, x1, z1] in blocks: no plant inside them
+  const e = v => (v <= 0 ? 0 : v >= 1 ? 1 : v * v * (3 - 2 * v)); // long, eased fades, so a plant sliding past never visibly pops in or out
+  // the plants are only laid out again when something they follow has moved: a still camera over a still plain costs nothing
+  let sig = '';
   const layout = plantsOnly => {
+    const u = root.userData,
+      now = plantsOnly ? [ax, az, u.clear, u.cam?.toArray(), u.camera?.quaternion.toArray(), u.who, avoid().length].join() : '';
+    if (plantsOnly && now === sig) return;
+    sig = now;
     const ox = ax / BLOCK,
       oz = az / BLOCK,
       c = root.userData.cam,
@@ -1453,12 +1461,11 @@ async function buildWorld(sc, tint, renderer) {
         let k = 1,
           s = 1;
         if (st.plant && st.slide) {
-          const d = Math.hypot(x, z); // a plant shrinks away near the character, the camera's lens and any set piece
-          const e = v => (v <= 0 ? 0 : v >= 1 ? 1 : v * v * (3 - 2 * v)); // long, eased fades, so a plant sliding past never visibly pops in or out
+          const d = Math.sqrt(x * x + z * z); // a plant shrinks away near the character, the camera's lens and any set piece
           k = Math.min(
             e((d - clear) / MAKE_WAY.clear),
             e((38 - d) / 8),
-            c ? e((Math.hypot(x * BLOCK - c.x, z * BLOCK - c.z) / BLOCK - 1.2) / MAKE_WAY.lens) : 1
+            c ? e((Math.sqrt((x - cx) ** 2 + (z - cz) ** 2) - 1.2) / MAKE_WAY.lens) : 1
           );
           if (me) {
             /* a plant nearer the camera whose box nears the character's on screen eases down to below the sight line to the feet */
@@ -1479,7 +1486,7 @@ async function buildWorld(sc, tint, renderer) {
           n++,
           M.compose(
             V.set(x * BLOCK, (y - (1 - k) * 2.2) * BLOCK, z * BLOCK),
-            st.plant ? Q.setFromAxisAngle(Y, q) : q || Q.identity(),
+            st.plant ? Q.set(0, Math.sin(q / 2), 0, Math.cos(q / 2)) : q || Q.identity(),
             s < 1 ? S.set(s, s, s) : ONE
           )
         );
@@ -1490,15 +1497,9 @@ async function buildWorld(sc, tint, renderer) {
     }
   };
   const span = P * BLOCK;
-  root.userData.move = (dx, dz) => {
-    if (!dx && !dz) return layout(true);
-    ax = (ax + dx) % span;
-    az = (az + dz) % span;
-    layout(false);
-  };
+  root.userData.move = (dx, dz) => (dx || dz ? ((ax = (ax + dx) % span), (az = (az + dz) % span), layout(false)) : layout(true));
   root.userData.offset = () => [ax, az];
   root.userData.span = span;
-  root.userData.snap = () => {}; // kept for callers: nothing ever needs putting back now
   root.userData.solids = () =>
     sets.filter(t => !t.plant && !t.slide).flatMap(t => t.list.filter(b => b[1] >= 0).map(b => [b[0], b[1], b[2]])); // for tests: blocks above the plain, in blocks
   root.userData.solidNear = (px = 0, pz = 0) => {
