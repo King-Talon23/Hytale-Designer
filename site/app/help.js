@@ -195,7 +195,8 @@ export function createHelp(app) {
               'Connecting your Hytale account',
               'In-game slots syncing with your Hytale presets',
               'Publishing skins and animations to Players under your Hytale account',
-              'Editing paid/Tiered items you own, and showing them in game',
+              'Editing paid/tiered items you own in game',
+              'Wearing paid/tiered items you own in game',
             ].map(t => el('li', { text: t }))
           )
         )
