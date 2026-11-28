@@ -9,7 +9,8 @@ import { plan as planLand, land as landMeshes, treeModel, picture, billboards, b
 import { createStrip } from './portal.js';
 // the strip and its portals: a prototype, on local test pages with ?strip only
 const STRIP = typeof location !== 'undefined' && location.hostname.endsWith('localhost') && /[?&]strip\b/.test(location.search),
-  STRIP_LEN = 120; // the lane's length in blocks: its end portals loop it, and the land repeats along it every this many blocks
+  STRIP_LEN = 640; // the lane's length in blocks: walking past its end carries on at its start, and the land repeats along it every this
+// many blocks: nearly the haze's depth, so no stretch of land is seen twice at once
 
 const cache = new Map(),
   once = (k, f) => (cache.has(k) ? cache.get(k) : (cache.set(k, f()), cache.get(k)));
